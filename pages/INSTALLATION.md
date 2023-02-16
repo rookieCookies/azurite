@@ -18,7 +18,7 @@ i could probably write a long paragraph here getting you prepared but
 we will just dive right into the language itself, so create a file  
 named "script.az" and put the following text into it
 ```
-IO::write("Hello world!")
+IO::writeln("Hello world!")
 ```
 yep, that's it! now run the following command
 ```
