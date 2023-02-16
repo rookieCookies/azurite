@@ -1,0 +1,27 @@
+[package]
+name = "azurite_runtime"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+hotspot = []
+bytecode = []
+stack = []
+objects = []
+
+[dependencies]
+azurite_common = { path = "../azurite_common" }
+colored = "*"
+compact_str = "*"
+fxhash = "*"
+rand = "*"
+zip = "*"
+
+[dev-dependencies]
+criterion = {version = "*", features = ["html_reports"]}
+pprof = {version = "*", features = ["flamegraph"]}
+
+# [[bench]]
+# name = "benchmark"
+# harness = false
