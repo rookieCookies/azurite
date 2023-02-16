@@ -25,8 +25,6 @@ the first comment. `"generate & store a random number"`
 so first we need to generate a random number, luckily for us azurite  
 makes that trivially easy to do and then we can store it into a variable
 ```
-using "std_rand"
-
 // generate & store a random number
 var generated_number = rand_int()
 ...
@@ -36,13 +34,11 @@ they allow us to store data and access it later on, again, super useful!
 
 that was surprisingly easy wasn't it? well we have one issue here, the  
 comment under that says that the number should be below 100 but  
-`rand_int()` can give us any number! that's not what want! so let's  
+`Rng::rand_int()` can give us any number! that's not what want! so let's  
 replace it with
 ```
-using "std_rand"
-
 // generate & store a random number
-var generated_number = rand_range(0, 100)
+var generated_number = Rng::rand_range(0, 100)
 ...
 ```
 and now we have precisely what we want so we can move on to the  
@@ -51,6 +47,7 @@ shockingly, azurite also makes this trivially easy
 ```
 ...
 // get the users input for the guess
+IO::write("please enter a number: ")
 var input = IO::read()
 ...
 ```
@@ -85,11 +82,11 @@ and now we can do math on it!
 //        on the users input
 
 if input_as_integer == generated_number {
-    IO::write("congratz! you were right!")
+    IO::writeln("congratz! you were right!")
 } else if input_as_integer < generated_number {
-    IO::write("sorry! you were too low!")
+    IO::writeln("sorry! you were too low!")
 } else if input_as_integer > generated_number {
-    IO::write("sorry! you were too high!")
+    IO::writeln("sorry! you were too high!")
 }
 ```
 as you might have noticed we are calling another static function on  

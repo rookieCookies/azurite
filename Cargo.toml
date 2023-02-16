@@ -1,0 +1,15 @@
+cargo-features = ["profile-rustflags"]
+[workspace]
+members = [
+    "azurite_cli",
+    "azurite_compiler",
+    "azurite_runtime",
+    "azurite_common",
+]
+
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+strip = true
