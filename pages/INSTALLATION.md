@@ -9,7 +9,6 @@ both the runtime and the compiler are used in the ran same way,
   * if the provided file is a directory, azurite will automatically  
     run every single azurite script in that directory, recursively
 - rest of the arguments starting with `--` will be considered environment values
-  - example for the compiler: `--release`
 
 for users of azurite, that's it! have fun!
 <br></br>
