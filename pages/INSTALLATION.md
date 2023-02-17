@@ -9,7 +9,6 @@ both the runtime and the compiler are used in the ran same way,
   * if the provided file is a directory, azurite will automatically  
     run every single azurite script in that directory, recursively
 - rest of the arguments starting with `--` will be considered environment values
-  - example for the compiler: `--release`
 
 for users of azurite, that's it! have fun!
 <br></br>
@@ -18,7 +17,7 @@ i could probably write a long paragraph here getting you prepared but
 we will just dive right into the language itself, so create a file  
 named "script.az" and put the following text into it
 ```
-IO::write("Hello world!")
+IO::writeln("Hello world!")
 ```
 yep, that's it! now run the following command
 ```

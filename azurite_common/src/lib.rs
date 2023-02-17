@@ -29,6 +29,7 @@ macro_rules! opcode {
         }
     };
 }
+
 pub fn prepare() {
     #[cfg(windows)]
     {

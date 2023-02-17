@@ -1,12 +1,12 @@
 # azurite
 an interpreted programming language allowing you to express your thoughts in a clean and expandable code without a second thought
 
-the main goal of azurite is and always be expressiveness
+the main goal of azurite is something I don't even know
   
 now that i've got you hopefully hooked let's [**get you started**](./pages/INSTALLATION.md)
 
 # todo:
-* multi-file support
+* DONE multi-file support 
 * make it so users can use a command like "azurite" instead of  
   running the executable directly, preferably make it automaticly  
   update the path value when installing
