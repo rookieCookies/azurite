@@ -1,0 +1,228 @@
+use std::{env, io::Write, str::FromStr};
+
+use rand::{thread_rng, Rng};
+
+use crate::{
+    runtime_error::RuntimeError,
+    vm::{corrupt_bytecode, Code, VM},
+    Object, ObjectData, VMData,
+};
+
+type NativeFunctionReturn = Result<(), RuntimeError>;
+type NativeFunctionInput<'a, 'b, 'c> = (&'a mut VM, &'b mut Code<'c>);
+
+pub static RAW_FUNCTIONS: [fn(NativeFunctionInput) -> NativeFunctionReturn; 15] = [
+    error,
+    collect_garbage,
+    read_io,
+    write_io,
+    now,
+    to_string,
+    rand_int,
+    rand_float,
+    rand_range_int,
+    rand_range_float,
+    parse_str_float,
+    parse_str_int,
+    parse_str_bool,
+    env_var,
+    env_set_var,
+];
+
+fn error((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
+    let message_index = match vm.stack.pop() {
+        VMData::Object(v) => *v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    let message = match &vm.get_object(message_index as usize).data {
+        crate::ObjectData::String(v) => v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    Err(RuntimeError::new_string(
+        code.index as u64,
+        message.to_owned(),
+    ))
+}
+
+fn collect_garbage((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
+    vm.collect_garbage();
+    Ok(())
+}
+
+fn read_io((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
+    let object_index = match vm.stack.pop() {
+        VMData::Object(v) => *v,
+        _ => {
+            println!("{:?}", vm.stack.data[vm.stack.top]);
+            return Err(corrupt_bytecode());
+        }
+    };
+    let v = match &mut vm.objects.get_mut(object_index as usize).unwrap().data {
+        crate::ObjectData::String(v) => v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    std::io::stdout().flush().unwrap();
+    match std::io::stdin().read_line(v) {
+        Ok(_) => {}
+        Err(_) => return Err(RuntimeError::new(code.index as u64, "failed io read")),
+    };
+    if let Some('\n') = v.chars().next_back() {
+        v.pop();
+    }
+    if let Some('\r') = v.chars().next_back() {
+        v.pop();
+    }
+    Ok(())
+}
+
+fn write_io((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
+    let message_index = match vm.stack.pop() {
+        VMData::Object(v) => *v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    let message = match &vm.get_object(message_index as usize).data {
+        crate::ObjectData::String(v) => v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    print!("{message}");
+    vm.stack.step();
+    Ok(())
+}
+
+fn now((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
+    vm.stack.push(VMData::Float(
+        std::time::SystemTime::UNIX_EPOCH
+            .elapsed()
+            .unwrap()
+            .as_secs_f64(),
+    ));
+    Ok(())
+}
+
+fn to_string((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
+    let data = vm.stack.pop().clone();
+    let string = data.to_string(vm);
+    let index = vm.create_object(Object::new(ObjectData::String(string)))?;
+    vm.stack.push(VMData::Object(index as u64));
+    Ok(())
+}
+
+fn rand_int((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
+    vm.stack.push(VMData::Integer(thread_rng().gen()));
+    Ok(())
+}
+
+fn rand_float((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
+    vm.stack.push(VMData::Float(thread_rng().gen()));
+    Ok(())
+}
+
+fn rand_range_int((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
+    let max = *match vm.stack.pop() {
+        VMData::Integer(v) => v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    let min = *match vm.stack.pop() {
+        VMData::Integer(v) => v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    vm.stack
+        .push(VMData::Integer(thread_rng().gen_range(min..max)));
+    Ok(())
+}
+
+fn rand_range_float((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
+    let max = *match vm.stack.pop() {
+        VMData::Float(v) => v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    let min = *match vm.stack.pop() {
+        VMData::Float(v) => v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    vm.stack
+        .push(VMData::Float(thread_rng().gen_range(min..max)));
+    Ok(())
+}
+
+fn parse_str_float((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
+    let vmdata = VMData::Float(parse(vm, code)?);
+    vm.stack.push(vmdata);
+    Ok(())
+}
+
+fn parse_str_int((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
+    let vmdata = VMData::Integer(parse(vm, code)?);
+    vm.stack.push(vmdata);
+    Ok(())
+}
+
+fn parse_str_bool((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
+    let vmdata = VMData::Bool(parse(vm, code)?);
+    vm.stack.push(vmdata);
+    Ok(())
+}
+
+fn parse<T: FromStr>(vm: &mut VM, code: &Code) -> Result<T, RuntimeError> {
+    let string_index = match vm.stack.pop() {
+        VMData::Object(v) => *v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    let string = match &vm.get_object(string_index as usize).data {
+        crate::ObjectData::String(v) => v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    match string.parse::<T>() {
+        Ok(v) => Ok(v),
+        Err(_) => Err(RuntimeError::new(
+            code.index as u64,
+            "failed to parse value",
+        )),
+    }
+}
+
+fn env_var((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
+    let identifier_index = match vm.stack.pop() {
+        VMData::Object(v) => *v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    let identifier = match &vm.get_object(identifier_index as usize).data {
+        crate::ObjectData::String(v) => v,
+        _ => return Err(corrupt_bytecode()),
+    };
+
+    match env::var(identifier) {
+        Ok(v) => {
+            let index = vm.create_object(Object::new(ObjectData::String(v)))?;
+            vm.stack.push(VMData::Object(index as u64));
+            Ok(())
+        }
+        Err(_) => Err(RuntimeError::new(
+            code.index as u64,
+            "environment variable {identifier} doesn't exist",
+        )),
+    }
+}
+
+fn env_set_var((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
+    let value_index = match vm.stack.pop() {
+        VMData::Object(v) => *v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    let value = match &vm.get_object(value_index as usize).data {
+        crate::ObjectData::String(v) => v.clone(),
+        _ => return Err(corrupt_bytecode()),
+    };
+
+    let identifier_index = match vm.stack.pop() {
+        VMData::Object(v) => *v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    let identifier = match &vm.get_object(identifier_index as usize).data {
+        crate::ObjectData::String(v) => v,
+        _ => return Err(corrupt_bytecode()),
+    };
+
+    env::set_var(identifier, value);
+    Ok(())
+}

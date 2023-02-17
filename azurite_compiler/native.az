@@ -1,0 +1,76 @@
+// #######################################
+// #                                     #
+// #            NATIVE LIB               #
+// #                                     #
+// #######################################
+struct Runtime {}
+impl Runtime {
+    inline fn error(message:str) { raw 0 }
+    inline fn force_gc() { raw 1 }
+}
+
+struct IO {}
+impl IO {
+    inline fn read() -> str {
+        var temp = ""
+        IO::read_to(temp)
+        temp
+    }
+    inline fn read_to(to: str) { raw 2 }
+    inline fn write(message: str) { raw 3 }
+    inline fn writeln(message: str) { IO::write(message) IO::write("\n") }
+}
+
+struct Time {}
+impl Time {
+    inline fn now() -> float { raw 4 }
+}
+
+
+struct Environment {}
+impl Environment {
+    inline fn get(identifier: str) -> str { raw 13 }
+    inline fn set(identifier: str, value: str) -> str { raw 14 }
+}
+
+
+struct Rng {}
+
+impl Rng {
+    inline fn rand_int() -> int { raw 6 }
+    inline fn rand_float() -> float { raw 7 }
+    inline fn rand_range_int(min_inclusive: int, max_exclusive: int) -> int { raw 8 }
+    inline fn rand_range_float(min_inclusive: float, max_exclusive: float) -> float { raw 9 }
+}
+
+// #######################################
+// #                                     #
+// #        BUILT IN FUNCTIONS           #
+// #                                     #
+// #######################################
+impl float {
+    inline fn to_string(self) -> str {
+        raw 5
+    }
+    inline fn parse_str(string: str) -> float {
+        raw 10
+    }
+}
+
+impl int {
+    inline fn to_string(self) -> str {
+        raw 5
+    }
+    inline fn parse_str(string: str) -> int {
+        raw 11
+    }
+}
+
+impl bool {
+    inline fn to_string(self) -> str {
+        raw 5
+    }
+    inline fn parse_str(string: str) -> bool {
+        raw 12
+    }
+}

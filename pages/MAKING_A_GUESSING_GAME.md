@@ -26,7 +26,7 @@ so first we need to generate a random number, luckily for us azurite
 makes that trivially easy to do and then we can store it into a variable
 ```
 // generate & store a random number
-var generated_number = rand_int()
+var generated_number = Rng::rand_int()
 ...
 ```
 variables are defined with the "var" keyword followed by an identifier  
@@ -99,10 +99,8 @@ you just made your first azurite program!
 our final code looks like this
 
 ```
-using "std_rand"
-
 // generate & store a random number
-var generated_number = rand_int()
+var generated_number = Rng::rand_int()
 
 // get the users input for the guess
 var input = IO::read()
@@ -119,7 +117,7 @@ if input_as_integer == generated_number {
     IO::write("sorry! you were too high!")
 }
 ```
-## Challanges
+## Challanges | not yet implemented
 > It's okay if you can't do it, these challanges require more  
 > knowledge and syntax than we have learned in this page, try  
 > to come back to them after a bit!  
