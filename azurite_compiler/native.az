@@ -18,7 +18,10 @@ impl IO {
     }
     inline fn read_to(to: str) { raw 2 }
     inline fn write(message: str) { raw 3 }
-    inline fn writeln(message: str) { IO::write(message) IO::write("\n") }
+    inline fn writeln(message: str) {
+        IO::write(message)
+        IO::write("\n")
+    }
 }
 
 struct Time {}

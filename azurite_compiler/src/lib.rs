@@ -15,33 +15,33 @@ use colored::Colorize;
 use compiler::compile;
 use zip::write::FileOptions;
 
-fn main() -> ExitCode {
-    prepare();
-    let (file, environemnt_parameters) =
-        match parse_args(env::args().collect::<Vec<_>>().into_iter()) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
-            }
-        };
+// fn main() -> ExitCode {
+//     prepare();
+//     let (file, environemnt_parameters) =
+//         match parse_args(env::args().collect::<Vec<_>>().into_iter()) {
+//             Ok(v) => v,
+//             Err(e) => {
+//                 eprintln!("{e}");
+//                 return ExitCode::FAILURE;
+//             }
+//         };
 
-    println!("{} {file}", "Compiling..".bright_green().bold());
+//     println!("{} {file}", "Compiling..".bright_green().bold());
 
-    for parameter in environemnt_parameters {
-        env::set_var(parameter.identifier, parameter.value)
-    }
+//     for parameter in environemnt_parameters {
+//         env::set_var(parameter.identifier, parameter.value)
+//     }
 
-    match run_file(file) {
-        Ok(_) => {}
-        Err(_) => return ExitCode::FAILURE,
-    };
-    println!("{}", "Finished!".bright_green().bold());
+//     match run_file(file) {
+//         Ok(_) => {}
+//         Err(_) => return ExitCode::FAILURE,
+//     };
+//     println!("{}", "Finished!".bright_green().bold());
 
-    ExitCode::SUCCESS
-}
+//     ExitCode::SUCCESS
+// }
 
-fn run_file(file: String) -> Result<(), ()> {
+pub fn run_file(file: String) -> Result<(), ()> {
     let data = match fs::read_to_string(&file) {
         Ok(v) => v,
         Err(_) => {

@@ -154,7 +154,10 @@ impl VM {
                 }
                 Bytecode::RawCall => {
                     let index = current.next();
-                    native_library::RAW_FUNCTIONS[*index as usize]((self, &mut current))
+                    let stack_current = self.stack.top;
+                    native_library::RAW_FUNCTIONS[*index as usize]((self, &mut current))?;
+                    debug_assert!(self.stack.top - stack_current == 0);
+                    Ok(())
                 }
             }?;
 
@@ -170,7 +173,7 @@ impl VM {
             {
                 // let value = Bytecode::from_u8(code.code[code.index]);
                 print!("        ");
-                self.objects.data.iter().for_each(|x| print!("{{{:?}}}", x));
+                self.objects.data.iter().filter(|x| !matches!(x.data, ObjectData::Free { .. })).for_each(|x| print!("{{{:?}}}", x));
                 println!()
             }
             #[cfg(feature = "hotspot")]
@@ -583,6 +586,16 @@ impl Stack {
         debug_assert!(self.top < self.data.len());
         // unsafe { self.data.get_unchecked(self.top) }
         self.data.get(self.top).unwrap()
+    }
+
+
+    #[inline(always)]
+    #[must_use]
+    pub fn view_behind(&self, amount: usize) -> &VMData {
+        // self.step_back();
+        // debug_assert!(self.top < self.data.len());
+
+        self.data.get(self.top - amount).unwrap()
     }
 
     #[inline(always)]

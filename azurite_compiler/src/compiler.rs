@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    process::ExitCode,
+    process::ExitCode, fs,
 };
 
 use azurite_common::{Bytecode, Data, DataType, FileData};
@@ -70,6 +70,8 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
         }
         return Err(ExitCode::FAILURE);
     }
+
+    // println!("{analyzer_state:#?}");
 
     let mut compiler = Compilation::new();
     for function in analyzer_state.function_stack {

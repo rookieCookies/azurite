@@ -325,14 +325,18 @@ impl StaticAnalysisState {
                 new_scope.stack_emulation = scope.stack_emulation.clone();
 
                 let (rt, effect) = self.analyze_scope_with_hint(&mut new_scope, hint, true);
+                // if instruction.pop_after && rt == DataType::Empty {
+                //     println!("{:#?}", body);
+                //     instruction.pop_after = false;
+                // } else {
+                //     println!("{rt}");
+                // }
                 return_type = rt;
-
-                *pop = (new_scope.stack_emulation.len() as i32
-                    - scope.stack_emulation.len() as i32
-                    - if effect { 1 } else { 0 })
-                .max(0) as u16;
+                *pop = (new_scope.stack_emulation.len() - scope.stack_emulation.len()) as u16;
+                // .max(0) as u16;
                 scope.current_file = std::mem::take(&mut new_scope.current_file);
                 *body = new_scope.instructions;
+                
             }
             InstructionType::IfExpression {
                 condition,
@@ -474,7 +478,14 @@ impl StaticAnalysisState {
                     ))
                 }
 
-                instruction.pop_after = return_type != DataType::Empty;
+                let mut instruction = function_scope.instructions.remove(0);
+                match &mut instruction.instruction_type {
+                    InstructionType::Block { body, pop } => {
+                        *pop += arguments.len() as u16;
+                    }
+                    _ => panic!()
+                }
+
 
                 let function_index = scope.function_map.get(identifier).unwrap();
                 match inlined {
@@ -483,7 +494,7 @@ impl StaticAnalysisState {
                 }
                 .get_mut(function_index.0)
                 .unwrap()
-                .instructions = function_scope.instructions.remove(0);
+                .instructions = instruction;
             }
             InstructionType::FunctionCall {
                 identifier,
@@ -521,9 +532,10 @@ impl StaticAnalysisState {
                 };
 
                 return_type = function.return_type.clone();
-                if return_type != DataType::Empty {
-                    instruction.pop_after = false
-                }
+                instruction.pop_after = return_type != DataType::Empty;
+                // if return_type != DataType::Empty {
+                //     instruction.pop_after = false
+                // }
 
                 if *created_by_accessing && function.is_static {
                     self.errors
@@ -670,7 +682,9 @@ impl StaticAnalysisState {
                     self.analyze(scope, i);
                 });
             }
-            InstructionType::RawCall(_) => return_type = hint.unwrap_or(DataType::Empty),
+            InstructionType::RawCall(_) => {
+                return_type = hint.unwrap_or(DataType::Empty);
+            },
             _ => (),
         }
         return_type

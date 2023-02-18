@@ -1,5 +1,5 @@
 [package]
-name = "azurite_cli"
+name = "azurite"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,4 +7,7 @@ edition = "2021"
 
 [dependencies]
 azurite_common = { path = "../azurite_common" }
+azurite_compiler = { path = "../azurite_compiler" }
+azurite_runtime = { path = "../azurite_runtime" }
 zip = { version = "0.6.4", default-features = false }
+colored = "*"

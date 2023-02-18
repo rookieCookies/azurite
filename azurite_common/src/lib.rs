@@ -33,7 +33,7 @@ macro_rules! opcode {
 pub fn prepare() {
     #[cfg(windows)]
     {
-        use control::set_virtual_terminal;
+        use colored::control::set_virtual_terminal;
         set_virtual_terminal(true).unwrap();
     }
 }

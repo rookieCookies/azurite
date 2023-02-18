@@ -1,46 +1,88 @@
-use std::{env, io::Read, process::ExitCode, vec::IntoIter};
+use std::{env, io::Read, vec::IntoIter};
 
-use azurite_common::{prepare, parse_args, Bytecode};
+use azurite_common::Bytecode;
+use colored::Colorize;
 
-fn main() -> ExitCode {
-    prepare();
-    let (file, environemnt_parameters) =
-        match parse_args(env::args().collect::<Vec<_>>().into_iter()) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
+fn main() {
+    let mut args = env::args();
+    args.next();
+    let argument = match args.next() {
+        Some(v) => v,
+        None => invalid_usage(),
+    };
+
+    match argument.as_str() {
+        "build" => {
+            let file = match args.next() {
+                Some(v) => v,
+                None => invalid_usage(),
+            };
+            
+            let _ = compile(file);
+        }
+        "run" => {
+            let file = match args.next() {
+                Some(v) => v,
+                None => invalid_usage(),
+            };
+            if file.ends_with(".az") {
+                let _ = compile(file.clone());
+                let file = format!("{file}urite");
+
+                println!("{} {file}", "Running..".bright_green().bold());
+                let _ = azurite_runtime::run_file(file);
+            } else {
+                println!("{} {file}", "Running..".bright_green().bold());
+                let _ = azurite_runtime::run_file(file);
             }
-        };
+        }
+        "disassemble" => {
+            let file = match args.next() {
+                Some(v) => v,
+                None => invalid_usage(),
+            };
+            
+            let _ = compile(file.clone());
 
-    for parameter in environemnt_parameters {
-        env::set_var(parameter.identifier, parameter.value)
+            println!("{} {file}", "Disassembling..".bright_green().bold());
+            let file = format!("{file}urite");
+            let zipfile = std::fs::File::open(&file).unwrap();
+
+            let mut archive = zip::ZipArchive::new(zipfile).unwrap();
+        
+            let mut bytecode_file = match archive.by_name("bytecode.azc") {
+                Ok(file) => file,
+                Err(..) => {
+                    println!("bytecode.azc not found");
+                    return
+                }
+            };
+        
+            let mut bytecode = vec![];
+            match bytecode_file.read_to_end(&mut bytecode) {
+                Ok(_) => {}
+                Err(_) => return,
+            };
+            
+            drop(bytecode_file);
+            println!("{}", disassemble(bytecode.into_iter()))
+        }
+        _ => invalid_usage(),
     }
 
-    let zipfile = std::fs::File::open(file).unwrap();
+    // Some(())
+}
 
-    let mut archive = zip::ZipArchive::new(zipfile).unwrap();
+fn invalid_usage() -> ! {
+    println!("{}: please provide a sub-command (build, run, disassemble) followed by a file name", "invalid usage".red().bold());
+    std::process::exit(1)
+}
 
-    let mut bytecode_file = match archive.by_name("bytecode.azc") {
-        Ok(file) => file,
-        Err(..) => {
-            println!("bytecode.azc not found");
-            return ExitCode::FAILURE;
-        }
-    };
-
-    let mut bytecode = vec![];
-    match bytecode_file.read_to_end(&mut bytecode) {
-        Ok(_) => {}
-        Err(_) => return ExitCode::FAILURE,
-    };
-
-    drop(bytecode_file);
-
-    let value = disassemble(bytecode.into_iter());
-    println!("{value}");
-
-    ExitCode::SUCCESS
+fn compile(file: String) -> Result<(), ()> {
+    println!("{} {file}", "Compiling..".bright_green().bold());
+    azurite_compiler::run_file(file)?;
+    println!("{}", "Finished!".bright_green().bold());
+    Ok(())
 }
 
 fn disassemble(mut v: IntoIter<u8>) -> String {
