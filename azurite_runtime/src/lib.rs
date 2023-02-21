@@ -1,6 +1,5 @@
-#![feature(get_many_mut)]
-#![feature(vec_push_within_capacity)]
-
+#![warn(clippy::pedantic)]
+#![allow(clippy::cast_possible_truncation)]
 use std::{env, mem::size_of, slice::Iter, process::ExitCode, io::Read};
 
 use azurite_common::{DataType, STRING_TERMINATOR};
@@ -15,17 +14,18 @@ pub mod runtime_error;
 pub mod vm;
 
 
-pub fn run_file(path: String) -> Result<(), ExitCode> {
+/// # Panics
+/// # Errors
+pub fn run_file(path: &str) -> Result<(), ExitCode> {
     let zipfile = std::fs::File::open(&path).unwrap();
 
     let mut archive = zip::ZipArchive::new(zipfile).unwrap();
 
-    let mut bytecode_file = match archive.by_name("bytecode.azc") {
-        Ok(file) => file,
-        Err(..) => {
-            println!("bytecode.azc not found");
-            return Err(ExitCode::FAILURE);
-        }
+    let mut bytecode_file = if let Ok(file) = archive.by_name("bytecode.azc") {
+        file
+    } else {
+        println!("bytecode.azc not found");
+        return Err(ExitCode::FAILURE);
     };
 
     let mut bytecode = vec![];
@@ -36,13 +36,13 @@ pub fn run_file(path: String) -> Result<(), ExitCode> {
 
     drop(bytecode_file);
 
-    let mut constants_file = match archive.by_name("constants.azc") {
-        Ok(file) => file,
-        Err(..) => {
-            println!("constants.azc not found");
-            return Err(ExitCode::FAILURE);
-        }
+    let mut constants_file = if let Ok(file) = archive.by_name("constants.azc") {
+        file
+    } else {
+        println!("constants.azc not found");
+        return Err(ExitCode::FAILURE);
     };
+
 
     let mut constants = vec![];
     match constants_file.read_to_end(&mut constants) {
@@ -64,6 +64,7 @@ pub fn run_file(path: String) -> Result<(), ExitCode> {
             return Err(ExitCode::FAILURE);
         }
     };
+    // println!("{:?}", vm.constants);
     // let instant = Instant::now();
 
     let runtime = vm.run(&bytecode);
@@ -96,7 +97,6 @@ pub fn run_file(path: String) -> Result<(), ExitCode> {
         println!("---------------------------------------------");
     }
     if let Err(runtime) = runtime {
-        println!("runtime err");
         runtime.trigger(path)?;
         return Err(ExitCode::FAILURE);
     }
@@ -104,7 +104,9 @@ pub fn run_file(path: String) -> Result<(), ExitCode> {
     Ok(())
 }
 
-
+/// # Panics
+/// # Errors
+/// - Not enough memory in the VM to be able to allocate strings
 pub fn load_constants(
     mut constant_bytes: Vec<u8>,
     vm: &mut VM,
@@ -138,20 +140,20 @@ pub fn load_constants(
             constants.push(data);
             values.clear();
         }
-        current_type = if old_type != current_type {
-            old_type
-        } else {
-            match current_byte.try_into() {
+        if old_type == current_type {
+            current_type = match current_byte.try_into() {
                 Ok(v) => v,
                 Err(_) => current_type,
             }
-        };
+        }
         size_lookout = Some(current_type.size());
     }
 
     Ok(constants)
 }
 
+/// # Errors
+/// - Not enough memory in the VM to be able to allocate strings
 pub fn parse_data(
     current_type: &mut DataType,
     values: &[u8],
@@ -160,17 +162,35 @@ pub fn parse_data(
 ) -> Result<VMData, RuntimeError> {
     Ok(match current_type {
         DataType::Integer => VMData::Integer(i64::from_le_bytes(
-            values[0..DataType::Integer.size()].try_into().unwrap(),
+            match values[0..DataType::Integer.size()].try_into() {
+                Ok(v) => v,
+                Err(_) => return Err(RuntimeError::new(0, "constants file is corrupt, failed to parse integer")),
+            },
         )),
         DataType::Float => VMData::Float(f64::from_le_bytes(
-            values[0..DataType::Float.size()].try_into().unwrap(),
+            match values[0..DataType::Float.size()].try_into() {
+                Ok(v) => v,
+                Err(_) => return Err(RuntimeError::new(0, "constants file is corrupt, failed to parse float")),
+            },
         )),
         DataType::String => {
             // We can be sure that it is UTF-8 since the compiler won't
             // output anything that is not valid UTF-8
-            let string = String::from_utf8(values.to_owned()).unwrap();
+            let string = match String::from_utf8(values.to_owned()) {
+                Ok(v) => v,
+                Err(_) => return Err(RuntimeError::new(0, "constants file is corrupt, string is not valid utf-8")),
+            };
 
-            *current_type = iterator.next().unwrap().try_into().unwrap();
+            let current_byte_of_type = match iterator.next() {
+                Some(v) => v,
+                None => return Err(RuntimeError::new(0, "constants file is corrupt, unable to find type after a string")),
+            };
+            
+            *current_type = match current_byte_of_type.try_into() {
+                Ok(v) => v,
+                Err(_) => return Err(RuntimeError::new(0, "constants file is corrupt, unable to parse type after a string")),
+            };
+
             let object = Object::new(ObjectData::String(string));
             let index = match vm.create_object(object) {
                 Ok(v) => v,
@@ -179,13 +199,15 @@ pub fn parse_data(
             VMData::Object(index as u64)
         }
         DataType::Bool => VMData::Bool(values[0] > 0),
-        DataType::Struct(_) => todo!(),
-        DataType::Empty => todo!(),
+        _ => return Err(RuntimeError::new(0, "constants file is corrupt, invalid type"))
     })
 }
 
+/// # Errors
+/// This function will error if the environment value is
+/// not a valid parseable value
 pub fn get_vm_memory() -> Result<usize, RuntimeError> {
-    let binding = env::var("AZURITE_MEMORY").unwrap_or("MB10".to_string());
+    let binding = env::var("AZURITE_MEMORY").unwrap_or_else(|_| "MB10".to_string());
     let v = binding.split_at(2);
     let mut base = match v.1.parse::<usize>() {
         Ok(v) => v,
@@ -236,30 +258,20 @@ pub struct Object {
 impl ObjectData {
     fn to_string(&self, vm: &VM) -> String {
         match self {
-            crate::ObjectData::String(v) => v.clone(),
-            crate::ObjectData::List(list) => {
+            | ObjectData::List(list)
+            | ObjectData::Struct(list) => {
                 let datas = list.iter().enumerate();
                 let mut stringified = String::new();
                 for (index, data) in datas {
                     stringified.push_str(data.to_string(vm).as_str());
                     if index < list.len() - 1 {
-                        stringified.push_str(", ")
+                        stringified.push_str(", ");
                     }
                 }
                 stringified
             }
-            crate::ObjectData::Struct(list) => {
-                let datas = list.iter().enumerate();
-                let mut stringified = String::new();
-                for (index, data) in datas {
-                    stringified.push_str(data.to_string(vm).as_str());
-                    if index < list.len() - 1 {
-                        stringified.push_str(", ")
-                    }
-                }
-                stringified
-            }
-            crate::ObjectData::Free { .. } => panic!("can't display free"),
+            ObjectData::String(v) => v.clone(),
+            ObjectData::Free { .. } => panic!("can't display free"),
         }
     }
 }
@@ -271,10 +283,9 @@ impl Object {
 
     fn mark_inner(&self, objects: &mut ObjectMap) {
         match &self.data {
-            ObjectData::String(_) => (),
-            ObjectData::List(v) => v.iter().mark(objects),
-            ObjectData::Struct(v) => v.iter().mark(objects),
-            ObjectData::Free { .. } => (),
+            | ObjectData::List(v)
+            | ObjectData::Struct(v) => v.iter().mark(objects),
+            _ => ()
         }
     }
 }
@@ -287,9 +298,9 @@ impl Mark for Iter<'_, VMData> {
     fn mark(&mut self, objects: &mut ObjectMap) {
         self.for_each(|x| {
             if let VMData::Object(value) = x {
-                unsafe { objects.data.get_unchecked_mut(*value as usize) }.live = true;
+                unsafe { &mut *(objects.data.get_unchecked_mut(*value as usize) as *mut Object) }.mark_inner(objects);
             }
-        })
+        });
     }
 }
 

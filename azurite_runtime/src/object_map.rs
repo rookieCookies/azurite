@@ -7,10 +7,12 @@ pub struct ObjectMap {
 }
 
 impl ObjectMap {
+    #[must_use]
     pub fn new() -> Self {
         Self::with_capacity(0)
     }
 
+    #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             data: (0..capacity)
@@ -20,6 +22,10 @@ impl ObjectMap {
         }
     }
 
+    /// # Errors
+    /// This function will error if the `ObjectMap` is out of
+    /// free objects or the `free` object the map has is not
+    /// actually `ObjectData::Free`
     pub fn push(&mut self, value: Object) -> Result<usize, Object> {
         if self.free >= self.data.capacity() {
             return Err(value);
@@ -31,7 +37,7 @@ impl ObjectMap {
                 self.free = next;
                 Ok(replaced_index)
             }
-            _ => panic!("can't replace a not-freed object"),
+            _ => Err(value),
         }
     }
 
@@ -40,18 +46,22 @@ impl ObjectMap {
         self.free = index;
     }
 
+    #[must_use]
     pub fn get(&self, index: usize) -> Option<&Object> {
         self.data.get(index)
     }
 
+    #[must_use]
     pub fn get_mut(&mut self, index: usize) -> Option<&mut Object> {
         self.data.get_mut(index)
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }

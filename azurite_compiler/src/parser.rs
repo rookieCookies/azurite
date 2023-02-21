@@ -1,13 +1,12 @@
-use std::{collections::HashMap, fs::File, io::Read};
 
-use azurite_common::{Data, DataType, FileData};
+
+use azurite_common::{Data, DataType};
 
 use crate::{
     ast::{
         binary_operation::BinaryOperator, unary_operation::UnaryOperator, FunctionInline,
         Instruction, InstructionType,
     },
-    compiler::generate_instructions,
     error::{Error, Highlight, FATAL},
     lexer::{Token, TokenType},
 };
@@ -37,25 +36,25 @@ impl Parser {
             current_file,
         };
 
-        let mut instructions = parser.parse_till(TokenType::EndOfFile);
+        let instructions = parser.parse_till(&TokenType::EndOfFile);
 
     if parser.panic_mode {
             parser.errors = std::mem::take(&mut parser.panic_errors);
         }
-        if !parser.errors.is_empty() {
-            Err(parser.errors)
-        } else {
+        if parser.errors.is_empty() {
             Ok(instructions)
+        } else {
+            Err(parser.errors)
         }
     }
 
-    fn parse_till(&mut self, token_type: TokenType) -> Vec<Instruction> {
+    fn parse_till(&mut self, token_type: &TokenType) -> Vec<Instruction> {
         let mut instructions = vec![];
         loop {
             if self.current_token().is_none() {
                 break;
             }
-            if [&token_type].contains(&&self.current_token().unwrap().token_type) {
+            if [token_type].contains(&&self.current_token().unwrap().token_type) {
                 break;
             }
 
@@ -76,19 +75,18 @@ impl Parser {
                 self.errors = std::mem::take(&mut self.panic_errors);
             }
 
-            let instruction = match self.statement() {
-                Some(instruction) => instruction,
-                None => {
-                    self.panic_mode = true;
-                    self.panic_errors = std::mem::take(&mut self.errors);
-                    self.advance();
-                    continue;
-                }
+            let instruction = if let Some(instruction) = self.statement() {
+                instruction
+            } else {
+                self.panic_mode = true;
+                self.panic_errors = std::mem::take(&mut self.errors);
+                self.advance();
+                continue;
             };
             instructions.push(instruction);
             self.advance();
         }
-        let _ = self.expect(&token_type);
+        let _ = self.expect(token_type);
         instructions
     }
 
@@ -122,14 +120,14 @@ impl Parser {
     }
 
     fn context_of_current_token(&mut self) -> Option<(u32, u32, u32)> {
-        let token = match self.current_token() {
-            Some(v) => v,
-            None => {
-                self.retract();
-                self.error_premature_eof()?;
-                return None;
-            }
+        let token = if let Some(v) = self.current_token() {
+            v
+        } else {
+            self.retract();
+            self.error_premature_eof()?;
+            return None;
         };
+
         Some((token.start, token.end, token.line))
     }
 
@@ -154,12 +152,11 @@ impl Parser {
 
     #[must_use]
     fn expect_without_error(&mut self, value: &TokenType) -> Option<()> {
-        let current_token = match self.current_token() {
-            Some(token) => token,
-            None => {
-                self.error_premature_eof()?;
-                return None;
-            }
+        let current_token = if let Some(token) = self.current_token() {
+            token
+        } else {
+            self.error_premature_eof()?;
+            return None;
         };
         if std::mem::discriminant(&current_token.token_type) != std::mem::discriminant(value) {
             return None;
@@ -180,23 +177,21 @@ impl Parser {
 
     #[must_use]
     fn expect(&mut self, value: &TokenType) -> Option<()> {
-        match self.expect_without_error(value) {
-            Some(_) => Some(()),
-            None => {
-                let current_token = match self.current_token() {
-                    Some(token) => token,
-                    None => return None,
-                };
-                self.errors.push(Error::new(
-                    vec![(current_token.start, current_token.end, Highlight::Red)],
-                    "unexpected token",
-                    format!("expected {value:?}, found {current_token:?}"),
-                    &FATAL,
-                    self.current_file.clone(),
-                ));
-                None
-            }
+        if self.expect_without_error(value).is_none() {
+            let current_token = match self.current_token() {
+                Some(token) => token,
+                None => return None,
+            };
+            self.errors.push(Error::new(
+                vec![(current_token.start, current_token.end, Highlight::Red)],
+                "unexpected token",
+                format!("expected {value:?}, found {current_token:?}"),
+                &FATAL,
+                self.current_file.clone(),
+            ));
+            return None
         }
+        Some(())
     }
 
     #[must_use]
@@ -268,7 +263,7 @@ impl Parser {
         match current_token.token_type {
             TokenType::Var => return self.variable_declaration(),
             TokenType::While => return self.while_expression(),
-            TokenType::Fn | TokenType::Inline => return self.function_declaration(None),
+            TokenType::Fn | TokenType::Inline => return self.function_declaration(&None),
             TokenType::Return => return self.return_statement(),
             TokenType::Struct => return self.structure_declaration(),
             TokenType::Impl => return self.impl_block(),
@@ -368,7 +363,7 @@ impl Parser {
     // |> 'fn' identifier '(' [identifier : type]* ')' '->' type body
     fn function_declaration(
         &mut self,
-        first_argument_self: Option<DataType>,
+        first_argument_self: &Option<DataType>,
     ) -> Option<Instruction> {
         let context = self.context_of_current_token()?;
         let inlined = self
@@ -398,16 +393,13 @@ impl Parser {
 
             let identifier = self.expect_identifier_and_advance()?;
 
-            match (identifier.as_str(), first_argument_self.clone()) {
-                ("self", Some(x)) => {
-                    arguments.push((identifier, x));
-                }
-                _ => {
-                    self.expect_and_advance(&TokenType::Colon)?;
-                    let type_declaration = self.parse_type()?;
-                    self.advance();
-                    arguments.push((identifier, type_declaration));
-                }
+            if let ("self", Some(x)) = (identifier.as_str(), first_argument_self.clone()) {
+                arguments.push((identifier, x));
+            } else {
+                self.expect_and_advance(&TokenType::Colon)?;
+                let type_declaration = self.parse_type()?;
+                self.advance();
+                arguments.push((identifier, type_declaration));
             }
         }
         self.expect_and_advance(&TokenType::RightParenthesis)?;
@@ -513,14 +505,14 @@ impl Parser {
             if self.expect_without_error(&TokenType::Inline).is_some()
                 || self.expect(&TokenType::Fn).is_some()
             {
-                let mut function = self.function_declaration(Some(datatype.clone()))?;
+                let mut function = self.function_declaration(&Some(datatype.clone()))?;
                 match &mut function.instruction_type {
                     InstructionType::FunctionDeclaration { identifier, .. } => {
-                        *identifier = format!("{datatype}::{identifier}")
+                        *identifier = format!("{datatype}::{identifier}");
                     }
                     _ => panic!("unreachable"),
                 }
-                functions.push(function)
+                functions.push(function);
             }
             self.advance();
         }
@@ -567,7 +559,7 @@ impl Parser {
             TokenType::String(v) => v.clone(),
             _ => panic!("unreachable"),
         };
-        let end_context = self.context_of_current_token()?;
+        let _end_context = self.context_of_current_token()?;
 
         Some(Instruction {
             instruction_type: InstructionType::Using(string),
@@ -704,7 +696,7 @@ impl Parser {
                         let mut a = vec![instruction];
                         a.append(arguments);
                         *arguments = a;
-                        *created_by_accessing = true
+                        *created_by_accessing = true;
                     }
                     _ => panic!("unreachable"),
                 }
@@ -723,7 +715,7 @@ impl Parser {
                     id: 0,
                 },
             };
-            self.advance()
+            self.advance();
         }
         self.retract();
         Some(instruction)
@@ -755,9 +747,8 @@ impl Parser {
                     TokenType::LeftCurly => {
                         if expression_settings.can_parse_struct {
                             return self.structure_creation();
-                        } else {
-                            return self.variable_access();
                         }
+                        return self.variable_access();
                     }
                     TokenType::DoubleColon => {
                         return {
@@ -767,7 +758,7 @@ impl Parser {
                             let mut function = self.function_call()?;
                             match &mut function.instruction_type {
                                 InstructionType::FunctionCall { identifier, .. } => {
-                                    *identifier = format!("{v}::{identifier}")
+                                    *identifier = format!("{v}::{identifier}");
                                 }
                                 _ => panic!("unreachable"),
                             };
@@ -810,7 +801,7 @@ impl Parser {
     fn body(&mut self) -> Option<Instruction> {
         let context = self.context_of_current_token()?;
         self.expect_and_advance(&TokenType::LeftCurly)?;
-        let body = self.parse_till(TokenType::RightCurly);
+        let body = self.parse_till(&TokenType::RightCurly);
         self.expect(&TokenType::RightCurly)?;
 
         Some(Instruction {
@@ -869,7 +860,7 @@ impl Parser {
 
                     instruction.start = start.0;
                     Box::new(instruction)
-                })
+                });
             }
         }
 
@@ -907,6 +898,8 @@ impl Parser {
             arguments.push(self.expression(&ExpressionSettings::new())?);
             self.advance();
         }
+
+        // println!("{arguments:#?}");
 
         self.expect(&TokenType::RightParenthesis)?;
 
@@ -949,7 +942,7 @@ impl Parser {
             self.expect_and_advance(&TokenType::Colon)?;
             let expression = self.expression(&ExpressionSettings::new())?;
             self.advance();
-            fields.push((identifier, expression))
+            fields.push((identifier, expression));
         }
 
         self.expect(&TokenType::RightCurly)?;

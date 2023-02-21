@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use colored::{Color, Colorize};
 
-use crate::static_analysis::StaticAnalysisScope;
+use crate::static_analysis::Scope;
 
 trait LineAt {
     fn line_at(&self, index: usize) -> Option<usize>;
@@ -53,6 +53,7 @@ pub const FATAL: ErrorColourScheme = ErrorColourScheme {
 };
 
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct ErrorColourScheme {
     pub separator: Color,
     pub title: &'static str,
@@ -73,10 +74,9 @@ pub struct Error {
     file_name: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Highlight {
     Red,
-    Blue,
     None,
 }
 
@@ -98,7 +98,7 @@ impl Error {
         }
     }
 
-    pub fn trigger(mut self, file_data: &HashMap<String, StaticAnalysisScope>) {
+    pub fn trigger(mut self, file_data: &HashMap<String, Scope>) {
         let scope = file_data.get(&self.file_name).unwrap();
         let (path, data) = (self.file_name.clone(), scope.current_file.data.clone());
         let lines: Vec<_> = data.lines().collect();
@@ -153,17 +153,14 @@ impl Error {
                 (pos, (start_line, end_line)),
                 biggest_line_number_size,
                 &empty_line_number_display,
-            )
+            );
         }
 
         let mut note = self.note.to_string();
         if note.contains('\n') {
             let mut first = false;
             for line in note.clone().split('\n') {
-                if !first {
-                    first = true;
-                    note.push_str(line.trim());
-                } else {
+                if first {
                     note.push_str(
                         format!(
                             "\n{}         {}",
@@ -171,12 +168,14 @@ impl Error {
                             line.trim()
                         )
                         .as_str(),
-                    )
+                    );
+                } else {
+                    first = true;
+                    note.push_str(line.trim());
                 }
             }
-        } else {
-            note = note.clone()
         }
+
         // Add the note
         if !note.is_empty() {
             message.push_str(
@@ -193,6 +192,9 @@ impl Error {
         println!("{message}");
     }
 
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_wrap)]
+    #[allow(clippy::cast_sign_loss)]
     fn generate_detail(
         &self,
         message: &mut String,
@@ -265,7 +267,7 @@ impl Error {
                     }
                 )
                 .as_str(),
-            )
+            );
         }
     }
 }

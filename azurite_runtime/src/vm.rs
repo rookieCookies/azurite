@@ -1,3 +1,6 @@
+#![allow(clippy::inline_always)]
+#![allow(clippy::unnecessary_wraps)]
+
 use std::mem::size_of;
 
 use azurite_common::Bytecode;
@@ -7,20 +10,6 @@ use fxhash::FxBuildHasher;
 use std::collections::HashMap;
 #[cfg(feature = "hotspot")]
 use std::time::Instant;
-
-// ! IMPORTANT
-// !
-// ! ALL THE UNSAFE CODE HERE IS THOUGHTFULLY
-// ! USED FOR A PERFORMANCE BENEFIT. THE COMPILER
-// ! SHOULD PREVENT ANY SITUATION WHERE THE UNSAFE
-// ! CODE WOULD GENERATE UNDEFINED BEHAVIOUR
-// ! AND IF IT DOES CAUSE UNDEFINED BEHAVIOUR WE
-// ! FUCKED ANYWAYS <3
-// !
-// ! and ran thru miri tho that prob doesnt
-// ! mean much does it
-// !
-// ! IMPORTANT
 
 // TODO: Eventually make it so the code can't panic even with corrupted bytecode
 
@@ -39,11 +28,15 @@ pub struct VM {
     pub hotspots: HashMap<Bytecode, (usize, f64), FxBuildHasher>,
 }
 
+#[must_use]
 pub fn corrupt_bytecode() -> RuntimeError {
     RuntimeError::new(0, "corrupt bytecode")
 }
 
 impl VM {
+    /// # Errors
+    /// This function will return an error if `get_vm_memory`
+    /// returns an error
     pub fn new() -> Result<Self, RuntimeError> {
         Ok(Self {
             constants: vec![],
@@ -56,6 +49,8 @@ impl VM {
         })
     }
 
+    /// # Errors
+    /// # Panics
     pub fn run(&mut self, code: &[u8]) -> Result<(), RuntimeError> {
         let mut callstack: Vec<Code> = Vec::with_capacity(128);
         let mut current = Code {
@@ -71,24 +66,11 @@ impl VM {
                 let value = Bytecode::from_u8(current.bytecode[current.index]);
                 println!("{value:?}");
             }
-            #[cfg(feature = "hotspot")]
-            let value = Bytecode::from_u8(current.code[current.index]).unwrap();
-            #[cfg(feature = "hotspot")]
-            {
-                if let Some(v) = self.hotspots.get_mut(&value) {
-                    v.0 += 1
-                } else {
-                    self.hotspots.insert(
-                        Bytecode::from_u8(current.code[current.index]).unwrap(),
-                        (1, 0.0),
-                    );
-                }
-            }
-            #[cfg(feature = "hotspot")]
-            let timer = Instant::now();
-
-            match Bytecode::from_u8(*current.next()).unwrap() {
-                Bytecode::Assert => self.op_assert(&mut current),
+            let value = match Bytecode::from_u8(*current.next()) {
+                Some(v) => v,
+                None => return Err(RuntimeError::new(current.index as u64, "the file ended before a return")),
+            };
+            match value {
                 Bytecode::EqualsTo => self.op_equals_to(&mut current),
                 Bytecode::NotEqualsTo => self.op_not_equals_to(&mut current),
                 Bytecode::GreaterThan => self.op_greater_than(&mut current),
@@ -117,7 +99,10 @@ impl VM {
                 Bytecode::AccessData => self.op_access_data(&mut current),
                 Bytecode::CallFunction => {
                     let index = *current.next() as usize;
-                    let function = self.functions.get(index).unwrap();
+                    let function = match self.functions.get(index) {
+                        Some(v) => v,
+                        None => return Err(RuntimeError::new(current.index as u64, "tried to call a none-existant function")),
+                    };
                     let (argument_count, has_return) =
                         (function.argument_count as usize, function.has_return);
 
@@ -136,10 +121,11 @@ impl VM {
                 }
                 Bytecode::ReturnFromFunction | Bytecode::Return => {
                     if current.has_return {
-                        let return_value = self.stack.top;
+                        let return_value = self.stack.top-1;
+
                         self.stack
                             .pop_multi_ignore(self.stack.top - current.stack_offset - 1);
-                        self.stack.swap_top_with(return_value - 1);
+                        self.stack.swap_top_with(return_value);
                         self.stack.step();
                     } else {
                         self.stack
@@ -154,9 +140,10 @@ impl VM {
                 }
                 Bytecode::RawCall => {
                     let index = current.next();
-                    let stack_current = self.stack.top;
+                    // let stack_current = self.stack.top;
+                    // println!("{index}");
                     native_library::RAW_FUNCTIONS[*index as usize]((self, &mut current))?;
-                    debug_assert!(self.stack.top - stack_current == 0);
+                    // debug_assert!(self.stack.top - stack_current == 0);
                     Ok(())
                 }
             }?;
@@ -176,18 +163,21 @@ impl VM {
                 self.objects.data.iter().filter(|x| !matches!(x.data, ObjectData::Free { .. })).for_each(|x| print!("{{{:?}}}", x));
                 println!()
             }
-            #[cfg(feature = "hotspot")]
-            {
-                self.hotspots.get_mut(&value).unwrap().1 += timer.elapsed().as_secs_f64();
-            }
         }
     }
 
+    /// # Panics
+    /// Panics if the object index is out of bounds
     #[inline(always)]
+    #[must_use]
     pub fn get_object(&self, index: usize) -> &Object {
         self.objects.get(index).unwrap()
     }
 
+    /// # Errors
+    /// If the VM is out of memory this function will try running
+    /// the garbage collector and try pushing again, if that fails
+    /// it will return a `out of memory` error
     #[inline(always)]
     pub fn create_object(&mut self, object: Object) -> Result<usize, RuntimeError> {
         match self.objects.push(object) {
@@ -203,56 +193,58 @@ impl VM {
     }
 }
 
+#[allow(clippy::unused_self)]
 impl VM {
     #[inline(always)]
     fn op_load_const(&mut self, code: &mut Code) -> Result<(), RuntimeError> {
         let index = *code.next();
-        self.stack.push(self.constants[index as usize].clone());
+        self.stack.push(self.constants[index as usize].clone())?;
         Ok(())
     }
 
     #[inline(always)]
     fn op_add(&mut self, _code: &mut Code) -> Result<(), RuntimeError> {
         let values = self.stack.pop_two();
-        let result = static_add(values[1], values[0])?;
-        self.stack.push(result);
+        let result = static_add(values.1, values.0)?;
+        self.stack.push(result)?;
         Ok(())
     }
 
     #[inline(always)]
     fn op_subtract(&mut self, _code: &mut Code) -> Result<(), RuntimeError> {
         let values = self.stack.pop_two();
-        let result = static_sub(values[1], values[0])?;
-        self.stack.push(result);
+        let result = static_sub(values.1, values.0)?;
+        self.stack.push(result)?;
         Ok(())
     }
 
     #[inline(always)]
     fn op_multiply(&mut self, _code: &mut Code) -> Result<(), RuntimeError> {
         let values = self.stack.pop_two();
-        let result = static_mul(values[1], values[0])?;
-        self.stack.push(result);
+        let result = static_mul(values.1, values.0)?;
+        self.stack.push(result)?;
         Ok(())
     }
 
     #[inline(always)]
     fn op_divide(&mut self, _code: &mut Code) -> Result<(), RuntimeError> {
         let values = self.stack.pop_two();
-        let result = static_div(values[1], values[0])?;
-        self.stack.push(result);
+        let result = static_div(values.1, values.0)?;
+        self.stack.push(result)?;
         Ok(())
     }
 
     #[inline(always)]
     fn op_get_variable_fast(&mut self, code: &mut Code) -> Result<(), RuntimeError> {
         let index = *code.next();
+        debug_assert!(self.stack.top > index as usize);
         self.stack.push(
             self.stack
                 .data
                 .get(code.stack_offset + index as usize)
                 .unwrap()
                 .clone(),
-        );
+        )?;
         Ok(())
     }
 
@@ -260,7 +252,7 @@ impl VM {
     fn op_get_variable(&mut self, code: &mut Code) -> Result<(), RuntimeError> {
         let index = u16::from_le_bytes([*code.next(), *code.next()]);
         self.stack
-            .push(self.stack.data[code.stack_offset + index as usize].clone());
+            .push(self.stack.data[code.stack_offset + index as usize].clone())?;
         Ok(())
     }
 
@@ -306,7 +298,7 @@ impl VM {
             VMData::Bool(v) => VMData::Bool(!v),
             _ => return Err(corrupt_bytecode()),
         };
-        self.stack.push(value);
+        self.stack.push(value)?;
         Ok(())
     }
 
@@ -317,7 +309,7 @@ impl VM {
             VMData::Float(v) => VMData::Float(-v),
             _ => return Err(corrupt_bytecode()),
         };
-        self.stack.push(value);
+        self.stack.push(value)?;
         Ok(())
     }
 
@@ -334,23 +326,11 @@ impl VM {
     }
 
     #[inline(always)]
-    fn op_assert(&mut self, code: &mut Code) -> Result<(), RuntimeError> {
-        match self.stack.pop() {
-            VMData::Bool(v) => {
-                if !v {
-                    return Err(RuntimeError::new(code.index as u64, "assert failed"));
-                }
-            }
-            _ => return Err(corrupt_bytecode()),
-        }
-        Ok(())
-    }
-    #[inline(always)]
     fn op_equals_to(&mut self, _code: &mut Code) -> Result<(), RuntimeError> {
         let popped = self.stack.pop_two();
-        let value = VMData::Bool(match (&popped[1], &popped[0]) {
+        let value = VMData::Bool(match (&popped.1, &popped.0) {
             (VMData::Integer(v1), VMData::Integer(v2)) => v1 == v2,
-            (VMData::Float(v1), VMData::Float(v2)) => v1 == v2,
+            (VMData::Float(v1), VMData::Float(v2)) => (v1 - v2).abs() < f64::EPSILON,
             (VMData::Bool(v1), VMData::Bool(v2)) => v1 == v2,
             (VMData::Object(v1), VMData::Object(v2)) => {
                 let (v1, v2) = (*v1, *v2);
@@ -358,69 +338,69 @@ impl VM {
             }
             _ => return Err(corrupt_bytecode()),
         });
-        self.stack.push(value);
+        self.stack.push(value)?;
         Ok(())
     }
 
     #[inline(always)]
     fn op_not_equals_to(&mut self, _code: &mut Code) -> Result<(), RuntimeError> {
         let popped = self.stack.pop_two();
-        let value = VMData::Bool(match (&popped[1], &popped[0]) {
+        let value = VMData::Bool(match (&popped.1, &popped.0) {
             (VMData::Integer(v1), VMData::Integer(v2)) => v1 != v2,
-            (VMData::Float(v1), VMData::Float(v2)) => v1 != v2,
+            (VMData::Float(v1), VMData::Float(v2)) => (v1 - v2).abs() > f64::EPSILON,
             (VMData::Bool(v1), VMData::Bool(v2)) => v1 != v2,
             (VMData::Object(v1), VMData::Object(v2)) => v1 != v2,
             _ => return Err(corrupt_bytecode()),
         });
-        self.stack.push(value);
+        self.stack.push(value)?;
         Ok(())
     }
 
     #[inline(always)]
     fn op_greater_than(&mut self, _code: &mut Code) -> Result<(), RuntimeError> {
         let popped = self.stack.pop_two();
-        let value = VMData::Bool(match (&popped[1], &popped[0]) {
+        let value = VMData::Bool(match (&popped.1, &popped.0) {
             (VMData::Integer(v1), VMData::Integer(v2)) => v1 > v2,
             (VMData::Float(v1), VMData::Float(v2)) => v1 > v2,
             _ => return Err(corrupt_bytecode()),
         });
-        self.stack.push(value);
+        self.stack.push(value)?;
         Ok(())
     }
 
     #[inline(always)]
     fn op_lesser_than(&mut self, _code: &mut Code) -> Result<(), RuntimeError> {
         let popped = self.stack.pop_two();
-        let value = VMData::Bool(match (&popped[1], &popped[0]) {
+        let value = VMData::Bool(match (&popped.1, &popped.0) {
             (VMData::Integer(v1), VMData::Integer(v2)) => v1 < v2,
             (VMData::Float(v1), VMData::Float(v2)) => v1 < v2,
             _ => return Err(corrupt_bytecode()),
         });
-        self.stack.push(value);
+        self.stack.push(value)?;
         Ok(())
     }
 
     #[inline(always)]
     fn op_greater_equals(&mut self, _code: &mut Code) -> Result<(), RuntimeError> {
         let popped = self.stack.pop_two();
-        let value = VMData::Bool(match (&popped[1], &popped[0]) {
+        let value = VMData::Bool(match (&popped.1, &popped.0) {
             (VMData::Integer(v1), VMData::Integer(v2)) => v1 >= v2,
             (VMData::Float(v1), VMData::Float(v2)) => v1 >= v2,
             _ => return Err(corrupt_bytecode()),
         });
-        self.stack.push(value);
+        self.stack.push(value)?;
         Ok(())
     }
 
     #[inline(always)]
     fn op_lesser_equals(&mut self, _code: &mut Code) -> Result<(), RuntimeError> {
         let popped = self.stack.pop_two();
-        let value = VMData::Bool(match (&popped[1], &popped[0]) {
+        let value = VMData::Bool(match (&popped.1, &popped.0) {
             (VMData::Integer(v1), VMData::Integer(v2)) => v1 <= v2,
             (VMData::Float(v1), VMData::Float(v2)) => v1 <= v2,
             _ => return Err(corrupt_bytecode()),
         });
-        self.stack.push(value);
+        self.stack.push(value)?;
         Ok(())
     }
 
@@ -432,7 +412,7 @@ impl VM {
         };
         let amount = *code.next() as usize;
         if !condition {
-            code.skip(amount)
+            code.skip(amount);
         }
         Ok(())
     }
@@ -471,7 +451,7 @@ impl VM {
         let amount_of_variables = *code.next() as usize;
         let mut data = Vec::with_capacity(amount_of_variables);
         for _ in 0..amount_of_variables {
-            data.push(self.stack.pop().clone())
+            data.push(self.stack.pop().clone());
         }
         let object_index = self.create_object(Object::new(ObjectData::Struct(data)));
         self.stack.push(VMData::Object(match object_index {
@@ -480,7 +460,7 @@ impl VM {
                 err.bytecode_index = code.index as u64;
                 return Err(err);
             }
-        } as u64));
+        } as u64))?;
         Ok(())
     }
 
@@ -494,9 +474,8 @@ impl VM {
         };
         match &self.get_object(object as usize).data {
             ObjectData::Struct(v) => self.stack.push({
-                debug_assert!(v.get(*index as usize).is_some());
                 v.get(*index as usize).unwrap().clone()
-            }),
+            })?,
             _ => return Err(corrupt_bytecode()),
         }
         Ok(())
@@ -551,14 +530,16 @@ impl Stack {
         }
     }
 
+    /// # Errors
+    /// This function will error if the VM is out of memory
     #[inline(always)]
-    pub fn push(&mut self, value: VMData) {
-        // debug_assert!(self.data.get_mut(self.top).is_some());
-        // unsafe {
-        //     *self.data.get_unchecked_mut(self.top) = value;
-        // }
-        *self.data.get_mut(self.top).unwrap() = value;
-        self.step()
+    pub fn push(&mut self, value: VMData) -> Result<(), RuntimeError> {
+        *match self.data.get_mut(self.top) {
+            Some(v) => v,
+            None => return Err(RuntimeError::new(0, "stack overflow")),
+        } = value;
+        self.step();
+        Ok(())
     }
 
     #[inline(always)]
@@ -572,43 +553,41 @@ impl Stack {
 
     #[inline(always)]
     fn step_back(&mut self) {
-        debug_assert!(self.top.checked_sub(1).is_some());
-        // unsafe {
-        //     self.top = self.top.unchecked_sub(1);
-        // }
         self.top -= 1;
     }
 
+    /// # Panics
+    /// This function will panic if it tries to pop an
+    /// empty stack. The compiler should never output code
+    /// like this
     #[inline(always)]
     #[must_use]
     pub fn pop(&mut self) -> &VMData {
         self.step_back();
-        debug_assert!(self.top < self.data.len());
-        // unsafe { self.data.get_unchecked(self.top) }
         self.data.get(self.top).unwrap()
     }
 
 
+    /// # Errors
+    /// This function will error if the data is not a valid
+    /// index in the vector
     #[inline(always)]
-    #[must_use]
-    pub fn view_behind(&self, amount: usize) -> &VMData {
-        // self.step_back();
-        // debug_assert!(self.top < self.data.len());
-
-        self.data.get(self.top - amount).unwrap()
+    pub fn view_behind(&self, amount: usize) -> Result<&VMData, RuntimeError> {
+        match self.data.get(self.top - amount) {
+            Some(v) => Ok(v),
+            None => Err(RuntimeError::new(0, "tried to view data behind that's none existant")),
+        }
     }
 
     #[inline(always)]
     #[must_use]
-    fn pop_two(&mut self) -> [&mut VMData; 2] {
-        debug_assert!(self.top.checked_sub(2).is_some());
-        // unsafe {
-        //     self.top = self.top.unchecked_sub(2);
-        // }
+    fn pop_two(&mut self) -> (&VMData, &VMData) {
         self.top -= 2;
-        debug_assert!(self.data.get_many_mut([self.top + 1, self.top]).is_ok());
-        // unsafe { self.data.get_many_unchecked_mut([self.top + 1, self.top]) }
-        self.data.get_many_mut([self.top + 1, self.top]).unwrap()
+
+        (
+            self.data.get(self.top + 1).unwrap(),
+            self.data.get(self.top).unwrap()
+        )
     }
 
     #[inline(always)]

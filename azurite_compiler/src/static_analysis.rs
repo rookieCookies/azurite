@@ -2,10 +2,9 @@ use std::{
     collections::HashMap,
     fs::File,
     io::Read,
-    ops::{ControlFlow, FromResidual, Try},
 };
 
-use azurite_common::{Data, DataType, FileData};
+use azurite_common::{DataType, FileData};
 
 use crate::{
     ast::{
@@ -17,9 +16,9 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct StaticAnalysisState {
+pub struct AnalysisState {
     pub errors: Vec<Error>,
-    pub loaded_files: HashMap<String, StaticAnalysisScope>,
+    pub loaded_files: HashMap<String, Scope>,
 
     pub function_stack: Vec<Function>,
     pub inline_functions: Vec<Function>,
@@ -34,13 +33,8 @@ pub struct Function {
     pub return_type: DataType,
 }
 
-pub struct StaticAnalysisReturn {
-    return_type: DataType,
-    has_explicit_return: bool,
-}
-
 #[derive(Debug)]
-pub struct StaticAnalysisScope {
+pub struct Scope {
     pub current_file: FileData,
     pub instructions: Vec<Instruction>,
 
@@ -51,9 +45,9 @@ pub struct StaticAnalysisScope {
     pub structure_map: HashMap<String, Vec<(String, DataType)>>,
 }
 
-impl StaticAnalysisScope {
+impl Scope {
     pub fn new(
-        state: &StaticAnalysisState,
+        state: &AnalysisState,
         current_file: FileData,
         instructions: Vec<Instruction>,
     ) -> Self {
@@ -85,40 +79,83 @@ impl StaticAnalysisScope {
 
 // TODO: Maybe make the multi-file-loading multi-threaded
 
-impl StaticAnalysisState {
-    pub fn new() -> Self {
-        Self {
-            errors: Vec::new(),
-            loaded_files: HashMap::new(),
-            function_stack: Vec::new(),
-            inline_functions: Vec::new(),
-        }
+impl AnalysisState {
+    pub fn analyze(
+        &mut self,
+        scope: &mut Scope,
+        instruction: &mut Instruction,
+    ) -> DataType {
+        self.analyze_with_type_hint(scope, instruction, None)
     }
 
-    pub fn analyze_scope(&mut self, scope: &mut StaticAnalysisScope) -> DataType {
-        self.analyze_scope_with_hint(scope, None, false).0
+    fn analyze_function_definition(
+        &mut self,
+        scope: &mut Scope,
+        function_declaration: &mut Instruction,
+    ) {
+        let (identifier, arguments, return_type, is_inlined, body) =
+            match &function_declaration.instruction_type {
+                InstructionType::FunctionDeclaration {
+                    identifier,
+                    arguments,
+                    return_type,
+                    inlined,
+                    body,
+                } => (identifier, arguments, return_type, *inlined, body),
+                _ => panic!(),
+            };
+
+        let function = Function {
+            identifier: identifier.clone(),
+            instructions: *body.clone(),
+            is_static: {
+                if let Some(x) = arguments.get(0) {
+                    x.0.as_str() != "self"
+                } else {
+                    true
+                }
+            },
+            arguments: arguments.clone(),
+            return_type: return_type.clone(),
+        };
+        // println!("Hello \n|>{:?}", scope.function_map);
+        if is_inlined {
+            scope
+                .function_map
+                .insert(identifier.clone(), (self.inline_functions.len(), true));
+            self.inline_functions.push(function);
+            return;
+        }
+        scope
+            .function_map
+            .insert(identifier.clone(), (self.function_stack.len(), false));
+        self.function_stack.push(function);
+    }
+
+    pub fn analyze_scope(&mut self, scope: &mut Scope) -> DataType {
+        self.analyze_scope_with_hint(scope, &None, false).0
     }
 
     pub fn analyze_scope_with_hint(
         &mut self,
-        scope: &mut StaticAnalysisScope,
-        hint: Option<DataType>,
+        scope: &mut Scope,
+        hint: &Option<DataType>,
         dont_pop_last: bool,
     ) -> (DataType, bool) {
         let mut instructions = std::mem::take(&mut scope.instructions);
         let mut return_type = DataType::Empty;
-        for instruction in instructions.iter_mut() {
+        for instruction in &mut instructions {
             match &mut instruction.instruction_type {
                 InstructionType::StructDeclaration { .. } => {
-                    self.analyze_struct_definition(scope, instruction)
+                    self.analyze_struct_definition(scope, instruction);
                 }
                 _ => continue,
             }
         }
-        for instruction in instructions.iter_mut() {
+        for instruction in &mut instructions {
             match &mut instruction.instruction_type {
                 InstructionType::FunctionDeclaration { .. } => {
-                    self.analyze_function_definition(scope, instruction)
+                    self.analyze_function_definition(scope, instruction);
                 }
                 InstructionType::ImplBlock { functions, .. } => functions
                     .iter_mut()
@@ -127,42 +164,54 @@ impl StaticAnalysisState {
             }
         }
 
-        for instruction in instructions.iter_mut() {
+        for instruction in &mut instructions {
             return_type = self.analyze_with_type_hint(scope, instruction, hint.clone());
         }
+        
 
-        let effect = if dont_pop_last {
-            match instructions.last_mut() {
-                Some(v) => {
-                    if v.pop_after {
-                        v.pop_after = false;
-                        true
-                    } else {
-                        false
-                    }
-                }
-                None => false,
+        if dont_pop_last {
+            if let Some(v) = instructions.last_mut() {
+                v.pop_after = false;
             }
-        } else {
-            false
+        // } else {
+        //     false
         };
 
         debug_assert!(scope.instructions.is_empty());
         scope.instructions = std::mem::take(&mut instructions);
-        (return_type, effect)
+        (return_type, true)
     }
 
-    pub fn analyze(
+    fn analyze_struct_definition(
         &mut self,
-        scope: &mut StaticAnalysisScope,
-        instruction: &mut Instruction,
-    ) -> DataType {
-        self.analyze_with_type_hint(scope, instruction, None)
+        scope: &mut Scope,
+        structure_declaration: &mut Instruction,
+    ) {
+        let (identifier, fields) = match &mut structure_declaration.instruction_type {
+            InstructionType::StructDeclaration { identifier, fields } => (identifier, fields),
+            _ => panic!(),
+        };
+
+        if scope.structure_map.contains_key(identifier) {
+            self.errors.push(error_structure_already_exists(
+                scope,
+                (structure_declaration.start, structure_declaration.end),
+            ));
+        }
+
+        fields.sort_by_key(|x| x.0.clone());
+        scope
+            .structure_map
+            .insert(identifier.clone(), fields.clone());
     }
 
+    /// # Panics
+    /// # Errors
+    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn analyze_with_type_hint(
         &mut self,
-        scope: &mut StaticAnalysisScope,
+        scope: &mut Scope,
         instruction: &mut Instruction,
         hint: Option<DataType>,
     ) -> DataType {
@@ -177,28 +226,25 @@ impl StaticAnalysisState {
                         .extend(loaded_file.structure_map.clone());
                     return return_type;
                 }
-                let mut file = match File::open(&file_name) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        self.errors.push(error_unable_to_locate_file(
-                            scope,
-                            (instruction.start, instruction.end),
-                            file_name,
-                        ));
-                        return return_type;
-                    }
+                let mut file = if let Ok(v) = File::open(&file_name) {
+                    v
+                } else {
+                    self.errors.push(error_unable_to_locate_file(
+                        scope,
+                        (instruction.start, instruction.end),
+                        file_name,
+                    ));
+                    return return_type;
                 };
+
                 let mut file_buffer = String::new();
-                match file.read_to_string(&mut file_buffer) {
-                    Ok(_) => (),
-                    Err(_) => {
-                        self.errors.push(error_unable_to_read_file(
-                            scope,
-                            (instruction.start, instruction.end),
-                            file_name,
-                        ));
-                        return return_type;
-                    }
+                if file.read_to_string(&mut file_buffer).is_err() {
+                    self.errors.push(error_unable_to_read_file(
+                        scope,
+                        (instruction.start, instruction.end),
+                        file_name,
+                    ));
+                    return return_type;
                 };
 
                 let file_data = FileData {
@@ -217,7 +263,7 @@ impl StaticAnalysisState {
                 };
 
                 let mut new_scope =
-                    StaticAnalysisScope::new(self, file_data, generated_instructions);
+                    Scope::new(self, file_data, generated_instructions);
 
                 self.analyze_scope(&mut new_scope);
                 self.loaded_files.insert(file_name.clone(), new_scope);
@@ -231,7 +277,7 @@ impl StaticAnalysisState {
                 identifier,
                 data,
                 type_declaration,
-                overwrite,
+                overwrite: _,
             } => {
                 // we place a placeholder value so even if
                 // the rest of this fails and early returns
@@ -255,28 +301,24 @@ impl StaticAnalysisState {
                     None => type_of_data,
                 };
 
-                match is_overriding {
-                    Some(index) => {
+                if let Some(index) = is_overriding {
                         scope.variable_map.insert(identifier.clone(), index);
-                    }
-                    None => {
-                        scope.stack_emulation.push(type_of_variable);
-                        let index = scope.stack_emulation.len() - 1; // top
-                        scope.variable_map.insert(identifier.clone(), index);
-                    }
+                } else {
+                    scope.stack_emulation.push(type_of_variable);
+                    let index = scope.stack_emulation.len() - 1; // top
+                    scope.variable_map.insert(identifier.clone(), index);
                 }
             }
             InstructionType::LoadVariable(identifier, index) => {
-                let variable_index = match scope.variable_map.get(identifier) {
-                    Some(variable_index) => *variable_index,
-                    None => {
-                        self.errors.push(error_variable_doesnt_exist(
-                            scope,
-                            (instruction.start, instruction.end),
-                            identifier,
-                        ));
-                        return return_type;
-                    }
+                let variable_index = if let Some(variable_index) = scope.variable_map.get(identifier) {
+                    *variable_index
+                } else {
+                    self.errors.push(error_variable_doesnt_exist(
+                        scope,
+                        (instruction.start, instruction.end),
+                        identifier,
+                    ));
+                    return return_type;
                 };
                 return_type = scope.stack_emulation[variable_index].clone();
                 *index = variable_index as u16;
@@ -286,16 +328,15 @@ impl StaticAnalysisState {
                 data,
                 index,
             } => {
-                let variable_index = match scope.variable_map.get(identifier) {
-                    Some(variable_index) => *variable_index,
-                    None => {
-                        self.errors.push(error_variable_doesnt_exist(
-                            scope,
-                            (instruction.start, instruction.end),
-                            identifier,
-                        ));
-                        return return_type;
-                    }
+                let variable_index = if let Some(variable_index) = scope.variable_map.get(identifier) {
+                    *variable_index
+                } else {
+                    self.errors.push(error_variable_doesnt_exist(
+                        scope,
+                        (instruction.start, instruction.end),
+                        identifier,
+                    ));
+                    return return_type;
                 };
 
                 let type_of_data = self.analyze(scope, data);
@@ -311,10 +352,10 @@ impl StaticAnalysisState {
                     ));
                 }
 
-                *index = variable_index as u16
+                *index = variable_index as u16;
             }
             InstructionType::Block { body, pop } => {
-                let mut new_scope = StaticAnalysisScope::new(
+                let mut new_scope = Scope::new(
                     self,
                     std::mem::take(&mut scope.current_file),
                     std::mem::take(body),
@@ -324,7 +365,7 @@ impl StaticAnalysisState {
                 new_scope.structure_map = scope.structure_map.clone();
                 new_scope.stack_emulation = scope.stack_emulation.clone();
 
-                let (rt, effect) = self.analyze_scope_with_hint(&mut new_scope, hint, true);
+                let (rt, _) = self.analyze_scope_with_hint(&mut new_scope, &hint, true);
                 // if instruction.pop_after && rt == DataType::Empty {
                 //     println!("{:#?}", body);
                 //     instruction.pop_after = false;
@@ -385,7 +426,7 @@ impl StaticAnalysisState {
                     &scope.current_file.path,
                     (left.start, right.end),
                 ) {
-                    self.errors.push(v)
+                    self.errors.push(v);
                 }
 
                 return_type = match operator {
@@ -407,9 +448,7 @@ impl StaticAnalysisState {
             InstructionType::UnaryOperation { data, operator } => {
                 let data_type = self.analyze(scope, data);
                 match (&operator, &data_type) {
-                    (UnaryOperator::Minus, DataType::Integer)
-                    | (UnaryOperator::Minus, DataType::Float)
-                    | (UnaryOperator::Not, DataType::Bool) => (),
+                    (UnaryOperator::Minus, DataType::Integer | DataType::Float) | (UnaryOperator::Not, DataType::Bool) => (),
                     _ => {
                         let expected = match operator {
                             UnaryOperator::Minus => DataType::Integer,
@@ -423,7 +462,7 @@ impl StaticAnalysisState {
                         ));
                     }
                 }
-                return_type = data_type
+                return_type = data_type;
             }
             InstructionType::Return(Some(v)) => return_type = self.analyze(scope, v),
             InstructionType::WhileStatement { condition, body } => {
@@ -447,7 +486,7 @@ impl StaticAnalysisState {
                 inlined,
             } => {
                 return_type = function_return_type.clone();
-                let mut function_scope = StaticAnalysisScope::new(
+                let mut function_scope = Scope::new(
                     self,
                     std::mem::take(&mut scope.current_file),
                     vec![*body.clone()],
@@ -465,7 +504,7 @@ impl StaticAnalysisState {
                     .collect();
 
                 let body_return_type = self
-                    .analyze_scope_with_hint(&mut function_scope, Some(return_type.clone()), true)
+                    .analyze_scope_with_hint(&mut function_scope, &Some(return_type.clone()), true)
                     .0;
 
                 scope.current_file = std::mem::take(&mut function_scope.current_file);
@@ -475,13 +514,13 @@ impl StaticAnalysisState {
                         (instruction.start, instruction.end),
                         function_return_type,
                         &body_return_type,
-                    ))
+                    ));
                 }
 
                 let mut instruction = function_scope.instructions.remove(0);
                 match &mut instruction.instruction_type {
-                    InstructionType::Block { body, pop } => {
-                        *pop += arguments.len() as u16;
+                    InstructionType::Block { body: _, pop: _ } => {
+                        // *pop += arguments.len() as u16;
                     }
                     _ => panic!()
                 }
@@ -505,37 +544,34 @@ impl StaticAnalysisState {
                 if *created_by_accessing {
                     let self_type = self.analyze(scope, &mut arguments[0]);
                     if !identifier.contains("::") {
-                        *identifier = format!("{self_type}::{identifier}")
+                        *identifier = format!("{self_type}::{identifier}");
                     }
                 }
-                let function_meta = *match scope.function_map.get(identifier) {
-                    Some(v) => v,
-                    None => {
-                        self.errors.push(error_function_isnt_declared(
-                            scope,
-                            (instruction.start, instruction.end),
-                            identifier,
-                        ));
-                        return return_type;
-                    }
-                };
-                let function = if !function_meta.1 {
-                    *index = FunctionInline::None(function_meta.0);
-                    self.function_stack[function_meta.0].clone()
+                let function_meta = if let Some(v) = scope.function_map.get(identifier) {
+                    v
                 } else {
-                    let mut function = self.inline_functions[function_meta.0].clone();
+                    self.errors.push(error_function_isnt_declared(
+                        scope,
+                        (instruction.start, instruction.end),
+                        identifier,
+                    ));
+                    return return_type;
+                };
+
+                let function = if function_meta.1 {
+                    let function = self.inline_functions[function_meta.0].clone();
                     *index = FunctionInline::Inline {
                         instructions: Box::new(function.instructions.clone()),
                         variable_offset: scope.stack_emulation.len(),
                     };
                     function
+                } else {
+                    *index = FunctionInline::None(function_meta.0);
+                    self.function_stack[function_meta.0].clone()
                 };
 
                 return_type = function.return_type.clone();
-                instruction.pop_after = return_type != DataType::Empty;
-                // if return_type != DataType::Empty {
-                //     instruction.pop_after = false
-                // }
+                // instruction.pop_after = return_type == DataType::Empty;
 
                 if *created_by_accessing && function.is_static {
                     self.errors
@@ -578,7 +614,7 @@ impl StaticAnalysisState {
                     ));
                 }
             }
-            InstructionType::StructDeclaration { identifier, fields } => {
+            InstructionType::StructDeclaration { identifier: _, fields } => {
                 for (_, datatype) in fields.iter() {
                     match datatype {
                         DataType::Struct(identifier) => {
@@ -587,7 +623,7 @@ impl StaticAnalysisState {
                                     scope,
                                     (instruction.start, instruction.end),
                                     datatype,
-                                ))
+                                ));
                             }
                         }
                         _ => continue,
@@ -599,15 +635,14 @@ impl StaticAnalysisState {
                 variables,
             } => {
                 return_type = DataType::Struct(identifier.clone());
-                let structure_fields = match scope.structure_map.get(identifier) {
-                    Some(v) => v,
-                    None => {
-                        self.errors.push(error_structure_doesnt_exist(
-                            scope,
-                            (instruction.start, instruction.end),
-                        ));
-                        return return_type;
-                    }
+                let structure_fields = if let Some(v) = scope.structure_map.get(identifier) {
+                    v
+                } else {
+                    self.errors.push(error_structure_doesnt_exist(
+                        scope,
+                        (instruction.start, instruction.end),
+                    ));
+                    return return_type;
                 };
 
                 let existing_fields = structure_fields.iter().cloned().collect::<HashMap<_, _>>();
@@ -615,18 +650,17 @@ impl StaticAnalysisState {
                     .into_iter()
                     .collect::<HashMap<_, _>>();
 
-                for (variable_identifier, variable_data) in variable_map.iter_mut() {
-                    let field_type = match existing_fields.get(variable_identifier) {
-                        Some(v) => v,
-                        None => {
-                            self.errors.push(error_structure_field_doesnt_exist(
-                                scope,
-                                (variable_data.start, variable_data.end),
-                                identifier,
-                                variable_identifier,
-                            ));
-                            continue;
-                        }
+                for (variable_identifier, variable_data) in &mut variable_map {
+                    let field_type = if let Some(v) = existing_fields.get(variable_identifier) {
+                        v
+                    } else {
+                        self.errors.push(error_structure_field_doesnt_exist(
+                            scope,
+                            (variable_data.start, variable_data.end),
+                            identifier,
+                            variable_identifier,
+                        ));
+                        continue;
                     };
 
                     let variable_type = self.analyze(scope, variable_data);
@@ -653,7 +687,7 @@ impl StaticAnalysisState {
                         scope,
                         (instruction.start, instruction.end),
                         &missing,
-                    ))
+                    ));
                 }
                 *variables = std::mem::take(&mut variable_map).into_iter().collect();
                 variables.sort_by_key(|x| x.0.clone());
@@ -673,14 +707,14 @@ impl StaticAnalysisState {
                             self.errors.push(error_structure_doesnt_exist(
                                 scope,
                                 (instruction.start, instruction.end),
-                            ))
+                            ));
                         }
                     }
                 }
 
-                functions.iter_mut().for_each(|i| {
+                for i in functions.iter_mut() {
                     self.analyze(scope, i);
-                });
+                }
             }
             InstructionType::RawCall(_) => {
                 return_type = hint.unwrap_or(DataType::Empty);
@@ -690,76 +724,18 @@ impl StaticAnalysisState {
         return_type
     }
 
-    fn analyze_function_definition(
-        &mut self,
-        scope: &mut StaticAnalysisScope,
-        function_declaration: &mut Instruction,
-    ) {
-        let (identifier, arguments, return_type, is_inlined, body) =
-            match &function_declaration.instruction_type {
-                InstructionType::FunctionDeclaration {
-                    identifier,
-                    arguments,
-                    return_type,
-                    inlined,
-                    body,
-                } => (identifier, arguments, return_type, *inlined, body),
-                _ => panic!(),
-            };
-
-        let function = Function {
-            identifier: identifier.clone(),
-            instructions: *body.clone(),
-            is_static: {
-                if let Some(x) = arguments.get(0) {
-                    x.0.as_str() != "self"
-                } else {
-                    true
-                }
-            },
-            arguments: arguments.to_vec(),
-            return_type: return_type.clone(),
-        };
-        // println!("Hello \n|>{:?}", scope.function_map);
-        if is_inlined {
-            scope
-                .function_map
-                .insert(identifier.clone(), (self.inline_functions.len(), true));
-            self.inline_functions.push(function);
-            return;
+    pub fn new() -> Self {
+        Self {
+            errors: Vec::new(),
+            loaded_files: HashMap::new(),
+            function_stack: Vec::new(),
+            inline_functions: Vec::new(),
         }
-        scope
-            .function_map
-            .insert(identifier.clone(), (self.function_stack.len(), false));
-        self.function_stack.push(function)
-    }
-
-    fn analyze_struct_definition(
-        &mut self,
-        scope: &mut StaticAnalysisScope,
-        structure_declaration: &mut Instruction,
-    ) {
-        let (identifier, fields) = match &mut structure_declaration.instruction_type {
-            InstructionType::StructDeclaration { identifier, fields } => (identifier, fields),
-            _ => panic!(),
-        };
-
-        if scope.structure_map.contains_key(identifier) {
-            self.errors.push(error_structure_already_exists(
-                scope,
-                (structure_declaration.start, structure_declaration.end),
-            ))
-        }
-
-        fields.sort_by_key(|x| x.0.clone());
-        scope
-            .structure_map
-            .insert(identifier.clone(), fields.clone());
     }
 }
 
 fn error_unable_to_locate_file(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     file_name: &String,
 ) -> Error {
@@ -773,7 +749,7 @@ fn error_unable_to_locate_file(
 }
 
 fn error_unable_to_read_file(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     file_name: &String,
 ) -> Error {
@@ -787,7 +763,7 @@ fn error_unable_to_read_file(
 }
 
 fn error_explicit_type_and_value_differ(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     expected: &DataType,
     found: &DataType,
@@ -804,7 +780,7 @@ fn error_explicit_type_and_value_differ(
 }
 
 fn error_variable_doesnt_exist(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     identifier: &String,
 ) -> Error {
@@ -818,7 +794,7 @@ fn error_variable_doesnt_exist(
 }
 
 fn error_variable_type_and_value_type_differ(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     identifier: &String,
     variable_type: &DataType,
@@ -836,7 +812,7 @@ fn error_variable_type_and_value_type_differ(
 }
 
 fn error_non_expected_type(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     expected: &DataType,
     found: &DataType,
@@ -851,7 +827,7 @@ fn error_non_expected_type(
 }
 
 fn error_else_clause_isnt_of_type(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     expected: &DataType,
     found: &DataType,
@@ -866,7 +842,7 @@ fn error_else_clause_isnt_of_type(
 }
 
 fn error_function_return_type_is_different(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     function_return: &DataType,
     found_return: &DataType,
@@ -883,7 +859,7 @@ fn error_function_return_type_is_different(
 }
 
 fn error_function_isnt_declared(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     identifier: &String,
 ) -> Error {
@@ -897,7 +873,7 @@ fn error_function_isnt_declared(
 }
 
 fn error_static_function_accessed_non_statically(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
 ) -> Error {
     Error::new(
@@ -911,7 +887,7 @@ fn error_static_function_accessed_non_statically(
 }
 
 fn error_invalid_function_argument_amount(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     expected: usize,
     found: usize,
@@ -926,7 +902,7 @@ fn error_invalid_function_argument_amount(
 }
 
 fn error_function_doesnt_exist_for_type(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     identifier: &String,
     accessor_type: &DataType,
@@ -941,7 +917,7 @@ fn error_function_doesnt_exist_for_type(
 }
 
 fn error_function_arguments_differ_in_type(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     expected: &DataType,
     found: &DataType,
@@ -955,7 +931,7 @@ fn error_function_arguments_differ_in_type(
     )
 }
 
-fn error_structure_already_exists(scope: &StaticAnalysisScope, (start, end): (u32, u32)) -> Error {
+fn error_structure_already_exists(scope: &Scope, (start, end): (u32, u32)) -> Error {
     Error::new(
         vec![(start, end, Highlight::Red)],
         "struct with the same name already exists in scope",
@@ -965,21 +941,7 @@ fn error_structure_already_exists(scope: &StaticAnalysisScope, (start, end): (u3
     )
 }
 
-fn error_type_of_field_doesnt_exist(
-    scope: &StaticAnalysisScope,
-    (start, end): (u32, u32),
-    identifier: &String,
-) -> Error {
-    Error::new(
-        vec![(start, end, Highlight::Red)],
-        "type of field does not exist",
-        format!("{identifier} is not a valid type"),
-        &FATAL,
-        scope.current_file.path.clone(),
-    )
-}
-
-fn error_structure_doesnt_exist(scope: &StaticAnalysisScope, (start, end): (u32, u32)) -> Error {
+fn error_structure_doesnt_exist(scope: &Scope, (start, end): (u32, u32)) -> Error {
     Error::new(
         vec![(start, end, Highlight::Red)],
         "structure doesn't exist",
@@ -990,7 +952,7 @@ fn error_structure_doesnt_exist(scope: &StaticAnalysisScope, (start, end): (u32,
 }
 
 fn error_structure_field_doesnt_exist(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     structure_identifier: &String,
     field: &String,
@@ -1005,7 +967,7 @@ fn error_structure_field_doesnt_exist(
 }
 
 fn error_structure_fields_differ_in_type(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     structure_identifier: &String,
     field: &String,
@@ -1022,7 +984,7 @@ fn error_structure_fields_differ_in_type(
 }
 
 fn error_structure_missing_fields(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     missing: &[&String],
 ) -> Error {
@@ -1046,7 +1008,7 @@ fn error_structure_missing_fields(
 }
 
 fn error_structure_field_type_doesnt_exist(
-    scope: &StaticAnalysisScope,
+    scope: &Scope,
     (start, end): (u32, u32),
     datatype: &DataType,
 ) -> Error {

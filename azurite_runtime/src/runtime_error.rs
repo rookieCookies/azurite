@@ -9,10 +9,12 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
+    #[must_use]
     pub fn new(index: u64, message: &'static str) -> Self {
         Self::new_string(index, message.to_string())
     }
 
+    #[must_use]
     pub fn new_string(index: u64, message: String) -> Self {
         Self {
             bytecode_index: index,
@@ -20,7 +22,10 @@ impl RuntimeError {
         }
     }
 
-    pub fn trigger(mut self, path: String) -> Result<(), ExitCode> {
+    /// # Errors
+    /// This function will return an error if the
+    /// linetable is unable to be read
+    pub fn trigger(mut self, path: &str) -> Result<(), ExitCode> {
         let linetable = load_linetable(path)?;
         let mut err_line = 0;
         'outer: for (line, weight) in linetable {
@@ -29,7 +34,7 @@ impl RuntimeError {
                     err_line = line + 1;
                     break 'outer;
                 }
-                self.bytecode_index -= 1
+                self.bytecode_index -= 1;
             }
         }
 
@@ -38,17 +43,17 @@ impl RuntimeError {
     }
 }
 
-fn load_linetable(path: String) -> Result<Vec<(u32, u32)>, ExitCode> {
+
+fn load_linetable(path: &str) -> Result<Vec<(u32, u32)>, ExitCode> {
     let zipfile = std::fs::File::open(&path).unwrap();
 
     let mut archive = zip::ZipArchive::new(zipfile).unwrap();
 
-    let mut linetable_file = match archive.by_name("linetable.azc") {
-        Ok(file) => file,
-        Err(..) => {
-            println!("linetable.azc not found");
-            return Err(ExitCode::FAILURE);
-        }
+    let mut linetable_file = if let Ok(file) = archive.by_name("linetable.azc") {
+        file
+    } else {        
+        println!("linetable.azc not found");
+        return Err(ExitCode::FAILURE);
     };
 
     let mut linetable_bytes = vec![];
@@ -75,7 +80,7 @@ fn load_linetable(path: String) -> Result<Vec<(u32, u32)>, ExitCode> {
             iter.next().unwrap(),
         ]);
 
-        linetable.push((line, amount))
+        linetable.push((line, amount));
     }
 
     Ok(linetable)

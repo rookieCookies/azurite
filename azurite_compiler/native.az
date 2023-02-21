@@ -46,6 +46,12 @@ impl Rng {
     inline fn rand_range_float(min_inclusive: float, max_exclusive: float) -> float { raw 9 }
 }
 
+inline fn assert(value: bool) {
+    if value {
+        Runtime::error("assert failed")
+    }
+}
+
 // #######################################
 // #                                     #
 // #        BUILT IN FUNCTIONS           #

@@ -1,3 +1,4 @@
+#![warn(clippy::pedantic)]
 use std::{env, fmt::Display, fs, process::ExitCode, vec::IntoIter};
 
 use colored::Colorize;
@@ -17,9 +18,11 @@ macro_rules! opcode {
         }
         impl $name {
             #[inline(always)]
+            #[must_use]
             pub fn as_u8(self) -> $type { self as _ }
 
             #[inline(always)]
+            #[must_use]
             pub fn from_u8(value: $type) -> Option<Self> {
                 match value {
                     $(consts::$variant => Some(Self::$variant),)*
@@ -44,6 +47,8 @@ pub struct EnvironmentParameter {
     pub value: String,
 }
 
+/// # Errors
+/// This function will error if the arguments are invalid
 pub fn parse_args(
     mut arguments: IntoIter<String>,
 ) -> Result<(String, Vec<EnvironmentParameter>), String> {
@@ -73,36 +78,33 @@ pub fn parse_args(
             environment_parameters.push(EnvironmentParameter {
                 identifier: id.to_string(),
                 value: value.to_string(),
-            })
+            });
         }
     }
     Ok((provided_file_name, environment_parameters))
 }
 
+/// # Errors
+/// This functiuon will error if it can't find the directories
 pub fn set_directory_to_current() -> Result<(), ExitCode> {
-    let current_executable = match std::env::current_exe() {
-        Ok(v) => v,
-        Err(_) => {
-            eprintln!("failed to find the current executable");
-            return Err(ExitCode::FAILURE);
-        }
+    let current_executable = if let Ok(v) = std::env::current_exe() {
+        v
+    } else {
+        eprintln!("failed to find the current executable");
+        return Err(ExitCode::FAILURE);
     };
 
-    let mut file_path = match fs::canonicalize(current_executable) {
-        Ok(v) => v,
-        Err(_) => {
-            eprintln!("failed to find the canonical path for the current executable");
-            return Err(ExitCode::FAILURE);
-        }
+    let mut file_path = if let Ok(v) = fs::canonicalize(current_executable) {
+        v
+    } else {
+        eprintln!("failed to find the canonical path for the current executable");
+        return Err(ExitCode::FAILURE);
     };
 
     file_path.pop();
-    match env::set_current_dir(file_path) {
-        Ok(_) => (),
-        Err(_) => {
-            eprintln!("failed to update the current environment directory");
-            return Err(ExitCode::FAILURE);
-        }
+    if env::set_current_dir(file_path).is_err() {
+        eprintln!("failed to update the current environment directory");
+        return Err(ExitCode::FAILURE);
     };
 
     Ok(())
@@ -115,6 +117,7 @@ pub struct FileData {
 }
 
 impl FileData {
+    #[must_use]
     pub fn new(path: String, data: String) -> Self {
         Self { path, data }
     }
@@ -128,7 +131,7 @@ pub enum Data {
     Bool(bool),
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum DataType {
     Integer,
     Float,
@@ -140,6 +143,9 @@ pub enum DataType {
 }
 
 impl DataType {
+    /// # Panics
+    /// This function will panic if the `DataType` is `DataType::Empty`
+    #[must_use]
     pub fn byte_representation(&self) -> u8 {
         match self {
             DataType::Integer => 0,
@@ -184,6 +190,7 @@ impl TryFrom<u8> for DataType {
 }
 
 impl DataType {
+    #[must_use]
     pub fn from_string(v: &str) -> DataType {
         match v {
             "int" => DataType::Integer,
@@ -194,10 +201,13 @@ impl DataType {
         }
     }
 
+    /// # Panics
+    /// This function will panic if the `DataType` is `DataType::Empty`
+    #[must_use]
     pub fn size(&self) -> usize {
         match self {
-            DataType::Integer => 8,
-            DataType::Float => 8,
+            | DataType::Integer
+            | DataType::Float => 8,
             DataType::String => usize::MAX,
             DataType::Bool => 1,
             DataType::Struct(_) => 0,
@@ -207,6 +217,7 @@ impl DataType {
 }
 
 impl Data {
+    #[must_use]
     pub fn type_representation(&self) -> DataType {
         match self {
             Data::Integer(_) => DataType::Integer,
@@ -243,7 +254,6 @@ pub enum Bytecode : u8 {
     ReplaceVarInObject,
     Not,
     Negative,
-    Assert,
     Pop,
     PopMulti,
     JumpIfFalse,

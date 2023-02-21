@@ -97,6 +97,8 @@ macro_rules! unwrap (
     }
 );
 
+#[allow(clippy::too_many_lines)]
+#[allow(clippy::cast_possible_truncation)]
 pub fn lex(data: Vec<char>, current_file: String) -> Result<Vec<Token>, Vec<Error>> {
     let mut lexer = Lexer {
         chars: data,
@@ -104,7 +106,6 @@ pub fn lex(data: Vec<char>, current_file: String) -> Result<Vec<Token>, Vec<Erro
         line: 0,
         current_file,
     };
-
     let mut errors = Vec::new();
 
     let mut tokens: Vec<Token> = Vec::with_capacity(lexer.chars.len());
@@ -143,10 +144,10 @@ pub fn lex(data: Vec<char>, current_file: String) -> Result<Vec<Token>, Vec<Erro
             '+' => lexer.check('=', TokenType::AddAssign, TokenType::Plus),
             '-' => {
                 let value = lexer.check('=', TokenType::SubtractAssign, TokenType::Minus);
-                if value != TokenType::SubtractAssign {
-                    lexer.check('>', TokenType::Arrow, TokenType::Minus)
-                } else {
+                if value == TokenType::SubtractAssign {
                     value
+                } else {
+                    lexer.check('>', TokenType::Arrow, TokenType::Minus)
                 }
             }
             '*' => lexer.check('=', TokenType::MultiplyAssign, TokenType::Star),
@@ -192,7 +193,6 @@ pub fn lex(data: Vec<char>, current_file: String) -> Result<Vec<Token>, Vec<Erro
             end: lexer.index as u32,
             line: lexer.line as u32,
         });
-
         lexer.advance();
     }
 
@@ -251,6 +251,7 @@ impl Lexer {
         Some(self.check('=', TokenType::DivideAssign, TokenType::Slash))
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn number(&mut self) -> Result<TokenType, Vec<Error>> {
         let start = self.index;
         let mut number_str = String::with_capacity(8);
@@ -304,6 +305,7 @@ impl Lexer {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn string(&mut self) -> Result<TokenType, Vec<Error>> {
         let start = self.index;
         let mut string = String::with_capacity(8);
@@ -362,7 +364,7 @@ impl Lexer {
                 "add a closing quotation mark at the end".to_string(),
                 &FATAL,
                 self.current_file.clone(),
-            ))
+            ));
         }
 
         if errors.is_empty() {

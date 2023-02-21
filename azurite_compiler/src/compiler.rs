@@ -1,6 +1,6 @@
 use std::{
-    collections::{BTreeMap, HashMap},
-    process::ExitCode, fs,
+    collections::{BTreeMap},
+    process::ExitCode,
 };
 
 use azurite_common::{Bytecode, Data, DataType, FileData};
@@ -13,7 +13,7 @@ use crate::{
     error::Error,
     lexer::lex,
     parser::Parser,
-    static_analysis::{StaticAnalysisScope, StaticAnalysisState},
+    static_analysis::{Scope, AnalysisState},
 };
 
 const NATIVE_LIBRARY: &str = include_str!("../native.az");
@@ -27,7 +27,7 @@ pub fn generate_instructions(file_data: &FileData) -> Result<Vec<Instruction>, V
 }
 
 pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
-    let mut process = Instruction {
+    let process = Instruction {
         instruction_type: InstructionType::Using(file_data.path),
         start: 0,
         end: 0,
@@ -35,9 +35,9 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
         pop_after: false,
     };
 
-    let mut analyzer_state = StaticAnalysisState::new();
+    let mut analyzer_state = AnalysisState::new();
 
-    let mut root_scope = StaticAnalysisScope::new_raw(
+    let mut root_scope = Scope::new_raw(
         FileData::new("root".to_string(), "".to_string()),
         vec![process],
     );
@@ -48,12 +48,12 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
 
         let generated_instructions = match generated_instructions {
             Ok(v) => v,
-            Err(mut errs) => {
+            Err(_errs) => {
                 return Err(ExitCode::FAILURE);
             }
         };
 
-        let mut new_scope = StaticAnalysisScope::new_raw(native_file_data, generated_instructions);
+        let mut new_scope = Scope::new_raw(native_file_data, generated_instructions);
 
         analyzer_state.analyze_scope(&mut new_scope);
 
@@ -64,14 +64,14 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
 
     analyzer_state.analyze_scope(&mut root_scope);
 
+    // fs::write("aaa", format!("{analyzer_state:#?}").as_bytes());
+
     if !analyzer_state.errors.is_empty() {
         for error in analyzer_state.errors {
-            error.trigger(&analyzer_state.loaded_files)
+            error.trigger(&analyzer_state.loaded_files);
         }
         return Err(ExitCode::FAILURE);
     }
-
-    // println!("{analyzer_state:#?}");
 
     let mut compiler = Compilation::new();
     for function in analyzer_state.function_stack {
@@ -107,7 +107,6 @@ pub struct Compilation {
     pub line_table: BTreeMap<u32, u32>,
     pub bytecode: Vec<u8>,
 
-    // inline_treshold: usize,
     #[cfg(feature = "readable")]
     pub text: Vec<String>,
 
@@ -138,6 +137,9 @@ impl Compilation {
         v
     }
 
+    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_sign_loss)]
     fn compile_to_bytes(&mut self, instruction: Instruction) -> Option<u8> {
         match instruction.instruction_type {
             InstructionType::BinaryOperation {
@@ -169,7 +171,7 @@ impl Compilation {
             }
             InstructionType::LoadVariable(_, index) => {
                 let index = index + self.variable_offset as u16;
-                if index > u8::MAX as u16 {
+                if index > u16::from(u8::MAX) {
                     self.emit_byte(Bytecode::GetVar as u8, instruction.line);
                     let bytes = index.to_le_bytes();
                     self.emit_byte(bytes[0], instruction.line);
@@ -183,7 +185,7 @@ impl Compilation {
                 self.compile_to_bytes(*data);
                 match operator {
                     UnaryOperator::Minus => {
-                        self.emit_byte(Bytecode::Negative as u8, instruction.line)
+                        self.emit_byte(Bytecode::Negative as u8, instruction.line);
                     }
                     UnaryOperator::Not => self.emit_byte(Bytecode::Not as u8, instruction.line),
                 }
@@ -193,7 +195,7 @@ impl Compilation {
             } => {
                 self.compile_to_bytes(*data);
                 if let Some(index) = overwrite {
-                    if index > u8::MAX as u16 {
+                    if index > u16::from(u8::MAX) {
                         self.emit_byte(Bytecode::ReplaceVar as u8, instruction.line);
 
                         let bytes = index.to_le_bytes();
@@ -209,7 +211,7 @@ impl Compilation {
                 let index = index + self.variable_offset as u16;
                 self.compile_to_bytes(*data);
 
-                if index > u8::MAX as u16 {
+                if index > u16::from(u8::MAX) {
                     self.emit_byte(Bytecode::ReplaceVar as u8, instruction.line);
 
                     let bytes = index.to_le_bytes();
@@ -287,25 +289,24 @@ impl Compilation {
                     (self.bytecode.len() - start_of_loop + 1) as u8,
                     instruction.line,
                 );
-                self.bytecode[start_of_loop_skip] =
-                    (self.bytecode.len() - start_of_loop_skip - 1) as u8
+                self.bytecode[start_of_loop_skip] = (self.bytecode.len() - start_of_loop_skip - 1) as u8;
             }
             InstructionType::FunctionDeclaration {
                 body,
                 arguments,
                 return_type,
-                inlined,
-                identifier,
+                inlined: _,
+                identifier: _,
                 ..
             } => {
                 if self.compiled_all_functions {
                     return None;
                 }
                 // TODO: Remove the inlined function fom the bytecode
-                let function_creation = self.bytecode.len();
+                let _function_creation = self.bytecode.len();
                 self.emit_byte(Bytecode::LoadFunction as u8, instruction.line);
                 self.emit_byte(arguments.len() as u8, instruction.line);
-                self.emit_byte((return_type != DataType::Empty) as u8, instruction.line);
+                self.emit_byte(u8::from(return_type != DataType::Empty), instruction.line);
                 let start = self.bytecode.len();
                 self.emit_byte(0, instruction.line); // the amount
 
@@ -317,12 +318,12 @@ impl Compilation {
             InstructionType::FunctionCall {
                 index,
                 arguments,
-                identifier,
-                created_by_accessing,
+                identifier: _,
+                created_by_accessing: _,
             } => {
-                arguments.into_iter().for_each(|x| {
+                for x in arguments {
                     self.compile_to_bytes(x);
-                });
+                }
 
                 match index {
                     crate::ast::FunctionInline::None(x) => {
@@ -343,12 +344,11 @@ impl Compilation {
                 }
                 self.emit_byte(Bytecode::ReturnFromFunction as u8, instruction.line);
             }
-            InstructionType::StructDeclaration { .. } => (),
             InstructionType::CreateStruct { variables, .. } => {
                 let amount = variables.len();
-                variables.into_iter().for_each(|(_, instruction)| {
+                for (_, instruction) in variables {
                     self.compile_to_bytes(instruction);
-                });
+                }
                 self.emit_byte(Bytecode::CreateStruct as u8, instruction.line);
                 self.emit_byte(amount as u8, instruction.line);
             }
@@ -357,12 +357,11 @@ impl Compilation {
                 self.emit_byte(Bytecode::AccessData as u8, instruction.line);
                 self.emit_byte(id as u8, instruction.line);
             }
-            InstructionType::ImplBlock { .. } => (),
             InstructionType::RawCall(v) => {
                 self.emit_byte(Bytecode::RawCall as u8, instruction.line);
                 self.emit_byte(v as u8, instruction.line);
             }
-            InstructionType::Using(_) => {}
+            _ => (),
         }
         if instruction.pop_after {
             self.emit_byte(Bytecode::Pop as u8, instruction.line);

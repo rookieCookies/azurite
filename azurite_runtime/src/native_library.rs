@@ -1,3 +1,4 @@
+#![allow(clippy::unnecessary_wraps)]
 use std::{env, io::Write, str::FromStr};
 
 use rand::{thread_rng, Rng};
@@ -40,7 +41,7 @@ fn error((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     };
     Err(RuntimeError::new_string(
         code.index as u64,
-        message.to_owned(),
+        message.clone(),
     ))
 }
 
@@ -53,10 +54,11 @@ fn read_io((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     let object_index = match vm.stack.pop() {
         VMData::Object(v) => *v,
         _ => {
-            println!("{:?}", vm.stack.data[vm.stack.top]);
             return Err(corrupt_bytecode());
         }
     };
+    vm.stack.step();
+
     let v = match &mut vm.objects.get_mut(object_index as usize).unwrap().data {
         crate::ObjectData::String(v) => v,
         _ => return Err(corrupt_bytecode()),
@@ -95,7 +97,7 @@ fn now((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
             .elapsed()
             .unwrap()
             .as_secs_f64(),
-    ));
+    ))?;
     Ok(())
 }
 
@@ -103,17 +105,17 @@ fn to_string((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
     let data = vm.stack.pop().clone();
     let string = data.to_string(vm);
     let index = vm.create_object(Object::new(ObjectData::String(string)))?;
-    vm.stack.push(VMData::Object(index as u64));
+    vm.stack.push(VMData::Object(index as u64))?;
     Ok(())
 }
 
 fn rand_int((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
-    vm.stack.push(VMData::Integer(thread_rng().gen()));
+    vm.stack.push(VMData::Integer(thread_rng().gen()))?;
     Ok(())
 }
 
 fn rand_float((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
-    vm.stack.push(VMData::Float(thread_rng().gen()));
+    vm.stack.push(VMData::Float(thread_rng().gen()))?;
     Ok(())
 }
 
@@ -126,8 +128,11 @@ fn rand_range_int((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
         VMData::Integer(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
+
+    // vm.stack.step();
+    // vm.stack.step();
     vm.stack
-        .push(VMData::Integer(thread_rng().gen_range(min..max)));
+        .push(VMData::Integer(thread_rng().gen_range(min..max)))?;
     Ok(())
 }
 
@@ -141,25 +146,25 @@ fn rand_range_float((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
         _ => return Err(corrupt_bytecode()),
     };
     vm.stack
-        .push(VMData::Float(thread_rng().gen_range(min..max)));
+        .push(VMData::Float(thread_rng().gen_range(min..max)))?;
     Ok(())
 }
 
 fn parse_str_float((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     let vmdata = VMData::Float(parse(vm, code)?);
-    vm.stack.push(vmdata);
+    vm.stack.push(vmdata)?;
     Ok(())
 }
 
 fn parse_str_int((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     let vmdata = VMData::Integer(parse(vm, code)?);
-    vm.stack.push(vmdata);
+    vm.stack.push(vmdata)?;
     Ok(())
 }
 
 fn parse_str_bool((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     let vmdata = VMData::Bool(parse(vm, code)?);
-    vm.stack.push(vmdata);
+    vm.stack.push(vmdata)?;
     Ok(())
 }
 
@@ -194,7 +199,7 @@ fn env_var((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     match env::var(identifier) {
         Ok(v) => {
             let index = vm.create_object(Object::new(ObjectData::String(v)))?;
-            vm.stack.push(VMData::Object(index as u64));
+            vm.stack.push(VMData::Object(index as u64))?;
             Ok(())
         }
         Err(_) => Err(RuntimeError::new(

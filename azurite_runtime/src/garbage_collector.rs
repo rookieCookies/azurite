@@ -6,7 +6,7 @@ impl VM {
     // TODO: Improve, just kind of slapped it here I mean cmon dude
     pub fn collect_garbage(&mut self) {
         self.mark();
-        self.sweep()
+        self.sweep();
     }
 
     fn mark(&mut self) {
@@ -15,19 +15,19 @@ impl VM {
                 crate::VMData::Object(index) => {
                     let object =
                         unsafe { &*(self.objects.get(index as usize).unwrap() as *const Object) };
-                    object.mark_inner(&mut self.objects)
+                    object.mark_inner(&mut self.objects);
                 }
                 _ => continue,
             }
         }
 
-        for object in self.constants.iter() {
+        for object in &self.constants {
             match object {
                 crate::VMData::Object(index) => {
                     let object = unsafe {
                         &*(self.objects.data.get_unchecked(*index as usize) as *const Object)
                     };
-                    object.mark_inner(&mut self.objects)
+                    object.mark_inner(&mut self.objects);
                 }
                 _ => continue,
             }
@@ -38,6 +38,7 @@ impl VM {
         self.objects.data.retain(|obj| obj.live);
     }
 
+    #[must_use]
     pub fn usage(&self) -> usize {
         self.objects.len() * size_of::<Object>()
     }
