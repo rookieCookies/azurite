@@ -204,7 +204,7 @@ impl DataType {
     /// # Panics
     /// This function will panic if the `DataType` is `DataType::Empty`
     #[must_use]
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             | DataType::Integer
             | DataType::Float => 8,

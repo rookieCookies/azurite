@@ -137,11 +137,10 @@ pub fn load_constants(
             values.push(current_byte);
             continue;
         }
-
-        let mut old_type = current_type.clone();
+        let old_type = current_type.clone();
 
         if size_lookout.is_some() {
-            let data = parse_data(&mut old_type, &values, &mut constant_byte_iterator, vm)?;
+            let data = parse_data(&mut current_type, &values, &mut constant_byte_iterator, vm)?;
             constants.push(data);
             values.clear();
         }
