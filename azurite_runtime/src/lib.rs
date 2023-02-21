@@ -19,7 +19,12 @@ pub mod vm;
 pub fn run_file(path: &str) -> Result<(), ExitCode> {
     let zipfile = std::fs::File::open(&path).unwrap();
 
-    let mut archive = zip::ZipArchive::new(zipfile).unwrap();
+    let mut archive = if let Ok(v) = zip::ZipArchive::new(zipfile) {
+        v
+    } else {
+        eprintln!("{path} is not a valid archive");
+        return Err(ExitCode::FAILURE);
+    };
 
     let mut bytecode_file = if let Ok(file) = archive.by_name("bytecode.azc") {
         file

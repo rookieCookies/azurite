@@ -1,21 +1,16 @@
 #![warn(clippy::pedantic)]
-use std::fs::{OpenOptions, File};
-use std::io::{Write, BufWriter};
-use std::{env, io::Read, vec::IntoIter, process::ExitCode, path::Path};
+use std::fs::OpenOptions;
+use std::io::BufWriter;
+use std::{env, io::{Read, Write}, vec::IntoIter, process::ExitCode, path::Path, fs::File};
 
 use azurite_common::Bytecode;
 use azurite_runtime::{load_constants, vm::VM};
-use colored::Colorize;
+use colored::{Colorize, Color};
 
 use rustyline::{error::ReadlineError, validate::MatchingBracketValidator, Editor};
 use rustyline::{Cmd, EventHandler, KeyCode, KeyEvent, Modifiers};
 use rustyline_derive::{Completer, Helper, Highlighter, Hinter, Validator};
 
-#[derive(Completer, Helper, Highlighter, Hinter, Validator)]
-struct InputValidator {
-    #[rustyline(Validator)]
-    brackets: MatchingBracketValidator,
-}
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), ExitCode> {
     let mut args = env::args();
@@ -27,7 +22,6 @@ fn main() -> Result<(), ExitCode> {
 
     match argument.as_str() {
         "repl" => {
-
             // Using Repl
             let h = InputValidator {
                 brackets: MatchingBracketValidator::new(),
@@ -35,80 +29,65 @@ fn main() -> Result<(), ExitCode> {
             let mut rl = Editor::new().unwrap();
             rl.set_helper(Some(h));
             rl.bind_sequence(
-                KeyEvent(KeyCode::Char('s'), Modifiers::CTRL),
+                KeyEvent(KeyCode::Enter, Modifiers::CTRL),
                 EventHandler::Simple(Cmd::Newline),
             );
-            if rl.load_history("history.txt").is_err() {
+            if rl.load_history("repl/history.txt").is_err() {
                 println!("No previous history.");
             }
-            if let path = Path::new("repl.az").is_file() {
-                if !path {
-                    let mut file = File::create("repl.az");
-                    println!("repl.az created")
-                } else {
-                    std::fs::remove_file("repl.az");
-                    let mut file = File::create("repl.az");
-                    println!("new repl.az created")
-                }
+
+            if !Path::new("repl").is_dir() {
+                std::fs::create_dir("repl").unwrap();
             }
+
+            if Path::new("repl/repl.az").is_file() {
+                std::fs::remove_file("repl/repl.az").unwrap();
+            }
+
+            File::create("repl/repl.az").unwrap();
+            println!("repl.az created");
 
             loop {
                 // Repl prompt
-                let readline = rl.readline("Azurite $ ");
+                let readline = rl.readline(&"azurite $ ".color(Color::TrueColor { r:80, g:80, b:80 }));
                 match readline {
                     Ok(line) => {
                         // Rustlyline History support
-                        rl.add_history_entry(line.as_str());
-                        rl.save_history("history.txt").unwrap();
+                        rl.add_history_entry(line.as_str()).unwrap();
+                        rl.save_history("repl/history.txt").unwrap();
 
                         // Basic repl commands to check
                         if line.to_lowercase() == "exit" {
                             break;
                         };
                         if line.to_lowercase() == "reset" {
-                            if let path = Path::new("repl.az").is_file() {
-                                if !path {
-                                    let mut file = File::create("repl.az");
-                                    println!("repl.az created")
-                                } else {
-                                    std::fs::remove_file("repl.az");
-                                    let mut file = File::create("repl.az");
-                                    println!("new repl.az created")
-                                }
+                            if Path::new("repl/repl.az").is_file() {
+                                std::fs::remove_file("repl/repl.az").unwrap();
                             }
+                            File::create("repl/repl.az").unwrap();
                             continue;
                         };
                         let f = OpenOptions::new()
                             .write(true)
                             .append(true)
-                            .open("repl.az")
+                            .open("repl/repl.az")
                             .expect("unable to open file");
             
                         let mut f = BufWriter::new(f);
                         writeln!(f, "{line}").expect("unable to open repl.az");
                         drop(f);
                         
-                        let file_path = Path::new("repl.az");
-                        let file = "repl.az";
-                        if file_path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("az")) {
-                            azurite_compiler::run_file(file)?;
-                            let file = format!("{file}urite");
-                            let _ = azurite_runtime::run_file(&file);
-                        } else {
-
-                            let _ = azurite_runtime::run_file(&file);
-                        }
+                        let file = "repl/repl.az";
+                        azurite_compiler::run_file(file)?;
+                        let file = format!("{file}urite");
+                        azurite_runtime::run_file(&file)?;
 
                     }
-                    Err(ReadlineError::Interrupted) => {
-                        break;
-                    }
-                    Err(ReadlineError::Eof) => {
+                    Err(ReadlineError::Eof | ReadlineError::Interrupted) => {
                         break;
                     }
                     Err(err) => {
                         println!("Error: {:?}", err);
-                        break;
                     }
                 }
             }
@@ -215,7 +194,7 @@ fn main() -> Result<(), ExitCode> {
 }
 
 fn invalid_usage() -> ! {
-    println!("{}: please provide a sub-command (build, run, disassemble, constants) followed by a file name", "invalid usage".red().bold());
+    println!("{}: please provide a sub-command (build, run, disassemble, constants, repl) followed by a file name", "invalid usage".red().bold());
     std::process::exit(1)
 }
 
@@ -316,4 +295,10 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
         };
         disassemble.push('\n');
     }
+}
+
+#[derive(Completer, Helper, Highlighter, Hinter, Validator)]
+struct InputValidator {
+    #[rustyline(Validator)]
+    brackets: MatchingBracketValidator,
 }

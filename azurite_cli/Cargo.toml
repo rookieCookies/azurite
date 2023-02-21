@@ -11,5 +11,6 @@ azurite_compiler = { path = "../azurite_compiler" }
 azurite_runtime = { path = "../azurite_runtime" }
 zip = { version = "0.6.4", default-features = false }
 colored = "*"
+
 rustyline = "11.0.0"
 rustyline-derive = "0.8.0"

@@ -571,7 +571,9 @@ impl AnalysisState {
                 };
 
                 return_type = function.return_type.clone();
-                // instruction.pop_after = return_type == DataType::Empty;
+                if instruction.pop_after {
+                    instruction.pop_after = return_type != DataType::Empty;
+                }
 
                 if *created_by_accessing && function.is_static {
                     self.errors
