@@ -1,10 +1,22 @@
 #![warn(clippy::pedantic)]
+use std::fs::{OpenOptions, File};
+use std::io::{Write, BufWriter};
 use std::{env, io::Read, vec::IntoIter, process::ExitCode, path::Path};
 
 use azurite_common::Bytecode;
 use azurite_runtime::{load_constants, vm::VM};
 use colored::Colorize;
 
+use rustyline::{error::ReadlineError, validate::MatchingBracketValidator, Editor};
+use rustyline::{Cmd, EventHandler, KeyCode, KeyEvent, Modifiers};
+use rustyline_derive::{Completer, Helper, Highlighter, Hinter, Validator};
+
+#[derive(Completer, Helper, Highlighter, Hinter, Validator)]
+struct InputValidator {
+    #[rustyline(Validator)]
+    brackets: MatchingBracketValidator,
+}
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<(), ExitCode> {
     let mut args = env::args();
     args.next();
@@ -14,6 +26,93 @@ fn main() -> Result<(), ExitCode> {
     };
 
     match argument.as_str() {
+        "repl" => {
+
+            // Using Repl
+            let h = InputValidator {
+                brackets: MatchingBracketValidator::new(),
+            };
+            let mut rl = Editor::new().unwrap();
+            rl.set_helper(Some(h));
+            rl.bind_sequence(
+                KeyEvent(KeyCode::Char('s'), Modifiers::CTRL),
+                EventHandler::Simple(Cmd::Newline),
+            );
+            if rl.load_history("history.txt").is_err() {
+                println!("No previous history.");
+            }
+            if let path = Path::new("repl.az").is_file() {
+                if !path {
+                    let mut file = File::create("repl.az");
+                    println!("repl.az created")
+                } else {
+                    std::fs::remove_file("repl.az");
+                    let mut file = File::create("repl.az");
+                    println!("new repl.az created")
+                }
+            }
+
+            loop {
+                // Repl prompt
+                let readline = rl.readline("Azurite $ ");
+                match readline {
+                    Ok(line) => {
+                        // Rustlyline History support
+                        rl.add_history_entry(line.as_str());
+                        rl.save_history("history.txt").unwrap();
+
+                        // Basic repl commands to check
+                        if line.to_lowercase() == "exit" {
+                            break;
+                        };
+                        if line.to_lowercase() == "reset" {
+                            if let path = Path::new("repl.az").is_file() {
+                                if !path {
+                                    let mut file = File::create("repl.az");
+                                    println!("repl.az created")
+                                } else {
+                                    std::fs::remove_file("repl.az");
+                                    let mut file = File::create("repl.az");
+                                    println!("new repl.az created")
+                                }
+                            }
+                            continue;
+                        };
+                        let f = OpenOptions::new()
+                            .write(true)
+                            .append(true)
+                            .open("repl.az")
+                            .expect("unable to open file");
+            
+                        let mut f = BufWriter::new(f);
+                        writeln!(f, "{line}").expect("unable to open repl.az");
+                        drop(f);
+                        
+                        let file_path = Path::new("repl.az");
+                        let file = "repl.az";
+                        if file_path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("az")) {
+                            azurite_compiler::run_file(file)?;
+                            let file = format!("{file}urite");
+                            let _ = azurite_runtime::run_file(&file);
+                        } else {
+
+                            let _ = azurite_runtime::run_file(&file);
+                        }
+
+                    }
+                    Err(ReadlineError::Interrupted) => {
+                        break;
+                    }
+                    Err(ReadlineError::Eof) => {
+                        break;
+                    }
+                    Err(err) => {
+                        println!("Error: {:?}", err);
+                        break;
+                    }
+                }
+            }
+        }
         "build" => {
             let file = match args.next() {
                 Some(v) => v,
