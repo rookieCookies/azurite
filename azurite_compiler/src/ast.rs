@@ -82,6 +82,7 @@ pub enum FunctionInline {
     None(usize),
     Inline {
         instructions: Box<Instruction>,
+        has_return: bool,
         variable_offset: usize,
     },
 }

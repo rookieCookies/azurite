@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::Read,
-};
+use std::{collections::HashMap, fs::File, io::Read};
 
 use azurite_common::{DataType, FileData};
 
@@ -80,11 +76,7 @@ impl Scope {
 // TODO: Maybe make the multi-file-loading multi-threaded
 
 impl AnalysisState {
-    pub fn analyze(
-        &mut self,
-        scope: &mut Scope,
-        instruction: &mut Instruction,
-    ) -> DataType {
+    pub fn analyze(&mut self, scope: &mut Scope, instruction: &mut Instruction) -> DataType {
         self.analyze_with_type_hint(scope, instruction, None)
     }
 
@@ -118,7 +110,7 @@ impl AnalysisState {
             arguments: arguments.clone(),
             return_type: return_type.clone(),
         };
-        // println!("Hello \n|>{:?}", scope.function_map);
+
         if is_inlined {
             scope
                 .function_map
@@ -167,14 +159,13 @@ impl AnalysisState {
         for instruction in &mut instructions {
             return_type = self.analyze_with_type_hint(scope, instruction, hint.clone());
         }
-        
 
         if dont_pop_last {
             if let Some(v) = instructions.last_mut() {
                 v.pop_after = false;
             }
-        // } else {
-        //     false
+            // } else {
+            //     false
         };
 
         debug_assert!(scope.instructions.is_empty());
@@ -262,8 +253,7 @@ impl AnalysisState {
                     }
                 };
 
-                let mut new_scope =
-                    Scope::new(self, file_data, generated_instructions);
+                let mut new_scope = Scope::new(self, file_data, generated_instructions);
 
                 self.analyze_scope(&mut new_scope);
                 self.loaded_files.insert(file_name.clone(), new_scope);
@@ -302,7 +292,7 @@ impl AnalysisState {
                 };
 
                 if let Some(index) = is_overriding {
-                        scope.variable_map.insert(identifier.clone(), index);
+                    scope.variable_map.insert(identifier.clone(), index);
                 } else {
                     scope.stack_emulation.push(type_of_variable);
                     let index = scope.stack_emulation.len() - 1; // top
@@ -310,16 +300,17 @@ impl AnalysisState {
                 }
             }
             InstructionType::LoadVariable(identifier, index) => {
-                let variable_index = if let Some(variable_index) = scope.variable_map.get(identifier) {
-                    *variable_index
-                } else {
-                    self.errors.push(error_variable_doesnt_exist(
-                        scope,
-                        (instruction.start, instruction.end),
-                        identifier,
-                    ));
-                    return return_type;
-                };
+                let variable_index =
+                    if let Some(variable_index) = scope.variable_map.get(identifier) {
+                        *variable_index
+                    } else {
+                        self.errors.push(error_variable_doesnt_exist(
+                            scope,
+                            (instruction.start, instruction.end),
+                            identifier,
+                        ));
+                        return return_type;
+                    };
                 return_type = scope.stack_emulation[variable_index].clone();
                 *index = variable_index as u16;
             }
@@ -328,16 +319,17 @@ impl AnalysisState {
                 data,
                 index,
             } => {
-                let variable_index = if let Some(variable_index) = scope.variable_map.get(identifier) {
-                    *variable_index
-                } else {
-                    self.errors.push(error_variable_doesnt_exist(
-                        scope,
-                        (instruction.start, instruction.end),
-                        identifier,
-                    ));
-                    return return_type;
-                };
+                let variable_index =
+                    if let Some(variable_index) = scope.variable_map.get(identifier) {
+                        *variable_index
+                    } else {
+                        self.errors.push(error_variable_doesnt_exist(
+                            scope,
+                            (instruction.start, instruction.end),
+                            identifier,
+                        ));
+                        return return_type;
+                    };
 
                 let type_of_data = self.analyze(scope, data);
                 let type_of_variable = scope.stack_emulation.get(variable_index).unwrap();
@@ -377,7 +369,6 @@ impl AnalysisState {
                 // .max(0) as u16;
                 scope.current_file = std::mem::take(&mut new_scope.current_file);
                 *body = new_scope.instructions;
-                
             }
             InstructionType::IfExpression {
                 condition,
@@ -448,7 +439,8 @@ impl AnalysisState {
             InstructionType::UnaryOperation { data, operator } => {
                 let data_type = self.analyze(scope, data);
                 match (&operator, &data_type) {
-                    (UnaryOperator::Minus, DataType::Integer | DataType::Float) | (UnaryOperator::Not, DataType::Bool) => (),
+                    (UnaryOperator::Minus, DataType::Integer | DataType::Float)
+                    | (UnaryOperator::Not, DataType::Bool) => (),
                     _ => {
                         let expected = match operator {
                             UnaryOperator::Minus => DataType::Integer,
@@ -519,12 +511,9 @@ impl AnalysisState {
 
                 let mut instruction = function_scope.instructions.remove(0);
                 match &mut instruction.instruction_type {
-                    InstructionType::Block { body: _, pop: _ } => {
-                        // *pop += arguments.len() as u16;
-                    }
-                    _ => panic!()
+                    InstructionType::Block { .. } => {}
+                    _ => panic!(),
                 }
-
 
                 let function_index = scope.function_map.get(identifier).unwrap();
                 match inlined {
@@ -563,6 +552,7 @@ impl AnalysisState {
                     *index = FunctionInline::Inline {
                         instructions: Box::new(function.instructions.clone()),
                         variable_offset: scope.stack_emulation.len(),
+                        has_return: function.return_type != DataType::Empty,
                     };
                     function
                 } else {
@@ -616,7 +606,10 @@ impl AnalysisState {
                     ));
                 }
             }
-            InstructionType::StructDeclaration { identifier: _, fields } => {
+            InstructionType::StructDeclaration {
+                identifier: _,
+                fields,
+            } => {
                 for (_, datatype) in fields.iter() {
                     match datatype {
                         DataType::Struct(identifier) => {
@@ -720,7 +713,8 @@ impl AnalysisState {
             }
             InstructionType::RawCall(_) => {
                 return_type = hint.unwrap_or(DataType::Empty);
-            },
+                instruction.pop_after = return_type != DataType::Empty;
+            }
             _ => (),
         }
         return_type
@@ -750,11 +744,7 @@ fn error_unable_to_locate_file(
     )
 }
 
-fn error_unable_to_read_file(
-    scope: &Scope,
-    (start, end): (u32, u32),
-    file_name: &String,
-) -> Error {
+fn error_unable_to_read_file(scope: &Scope, (start, end): (u32, u32), file_name: &String) -> Error {
     Error::new(
         vec![(start, end, Highlight::Red)],
         "unable to read file",
@@ -874,10 +864,7 @@ fn error_function_isnt_declared(
     )
 }
 
-fn error_static_function_accessed_non_statically(
-    scope: &Scope,
-    (start, end): (u32, u32),
-) -> Error {
+fn error_static_function_accessed_non_statically(scope: &Scope, (start, end): (u32, u32)) -> Error {
     Error::new(
         vec![(start, end, Highlight::Red)],
         "static function accessed non-statically",

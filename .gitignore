@@ -10,4 +10,3 @@ Cargo.lock
 **/*.rs.bk
 *.azurite
 .DS_Store
-azurite_cli/.DS_Store

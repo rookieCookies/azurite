@@ -13,7 +13,7 @@ macro_rules! opcode {
             $($variant,)*
         }
         #[allow(non_upper_case_globals)]
-        mod consts {
+        pub mod consts {
             $(pub const $variant: $type = super::$name::$variant as $type;)*
         }
         impl $name {
@@ -33,6 +33,7 @@ macro_rules! opcode {
     };
 }
 
+/// # Panics
 pub fn prepare() {
     #[cfg(windows)]
     {
@@ -206,8 +207,7 @@ impl DataType {
     #[must_use]
     pub const fn size(&self) -> usize {
         match self {
-            | DataType::Integer
-            | DataType::Float => 8,
+            DataType::Integer | DataType::Float => 8,
             DataType::String => usize::MAX,
             DataType::Bool => 1,
             DataType::Struct(_) => 0,
@@ -236,6 +236,7 @@ opcode! {
 pub enum Bytecode : u8 {
     Return,
     ReturnFromFunction,
+    ReturnWithoutCallStack,
     LoadConst,
     Add,
     Subtract,

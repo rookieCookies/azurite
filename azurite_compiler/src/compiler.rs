@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap},
-    process::ExitCode,
-};
+use std::process::ExitCode;
 
 use azurite_common::{Bytecode, Data, DataType, FileData};
 
@@ -13,7 +10,7 @@ use crate::{
     error::Error,
     lexer::lex,
     parser::Parser,
-    static_analysis::{Scope, AnalysisState},
+    static_analysis::{AnalysisState, Scope},
 };
 
 const NATIVE_LIBRARY: &str = include_str!("../native.az");
@@ -48,7 +45,9 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
 
         let generated_instructions = match generated_instructions {
             Ok(v) => v,
-            Err(_errs) => {
+            Err(errs) => {
+                errs.into_iter()
+                    .for_each(|x| x.trigger(&analyzer_state.loaded_files));
                 return Err(ExitCode::FAILURE);
             }
         };
@@ -63,9 +62,6 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
     }
 
     analyzer_state.analyze_scope(&mut root_scope);
-
-    // fs::write("aaa", format!("{analyzer_state:#?}").as_bytes());
-
     if !analyzer_state.errors.is_empty() {
         for error in analyzer_state.errors {
             error.trigger(&analyzer_state.loaded_files);
@@ -104,7 +100,7 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
 #[derive(Debug)]
 pub struct Compilation {
     pub constants: Vec<Data>,
-    pub line_table: BTreeMap<u32, u32>,
+    pub line_table: Vec<u32>,
     pub bytecode: Vec<u8>,
 
     #[cfg(feature = "readable")]
@@ -119,7 +115,7 @@ impl Compilation {
         Self {
             constants: Vec::with_capacity(256),
             bytecode: Vec::with_capacity(256),
-            line_table: BTreeMap::new(),
+            line_table: Vec::new(),
             compiled_all_functions: false,
             variable_offset: 0,
         }
@@ -270,9 +266,9 @@ impl Compilation {
                     self.compile_to_bytes(*x);
 
                     self.bytecode[start_of_jump] = (self.bytecode.len() - start_of_jump - 1) as u8;
-                // if its true we just jump over the else branch
+                    // if its true we just jump over the else branch
                 } else {
-                    self.bytecode[start] = (self.bytecode.len() - start) as u8;
+                    self.bytecode[start] = (self.bytecode.len() - start - if instruction.pop_after { 0 } else { 1 }) as u8;
                 }
             }
             InstructionType::WhileStatement { condition, body } => {
@@ -289,7 +285,8 @@ impl Compilation {
                     (self.bytecode.len() - start_of_loop + 1) as u8,
                     instruction.line,
                 );
-                self.bytecode[start_of_loop_skip] = (self.bytecode.len() - start_of_loop_skip - 1) as u8;
+                self.bytecode[start_of_loop_skip] =
+                    (self.bytecode.len() - start_of_loop_skip - 1) as u8;
             }
             InstructionType::FunctionDeclaration {
                 body,
@@ -321,6 +318,7 @@ impl Compilation {
                 identifier: _,
                 created_by_accessing: _,
             } => {
+                let argument_count = arguments.len();
                 for x in arguments {
                     self.compile_to_bytes(x);
                 }
@@ -333,8 +331,26 @@ impl Compilation {
                     crate::ast::FunctionInline::Inline {
                         instructions,
                         variable_offset,
+                        has_return,
                     } => {
                         self.compile_to_bytes_with_variable_offset(*instructions, variable_offset);
+                        if has_return {
+                            self.emit_byte(
+                                Bytecode::ReturnWithoutCallStack as u8,
+                                instruction.line,
+                            );
+                            self.emit_byte(argument_count as u8, instruction.line);
+                        } else {
+                            match argument_count {
+                                0 => (),
+                                1 => self.emit_byte(Bytecode::Pop as u8, instruction.line),
+                                _ => {
+                                    self.emit_byte(Bytecode::PopMulti as u8, instruction.line);
+
+                                    self.emit_byte(argument_count as u8, instruction.line);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -370,11 +386,12 @@ impl Compilation {
     }
 
     fn emit_byte(&mut self, byte: u8, line: u32) {
-        if let std::collections::btree_map::Entry::Vacant(e) = self.line_table.entry(line) {
-            e.insert(1);
-        } else {
-            *self.line_table.get_mut(&line).unwrap() += 1;
-        }
+        // if let std::collections::btree_map::Entry::Vacant(e) = self.line_table.entry(line) {
+        //     e.insert(1);
+        // } else {
+        //     *self.line_table.get_mut(&line).unwrap() += 1;
+        // }
+        self.line_table.push(line);
         self.bytecode.push(byte);
     }
 }

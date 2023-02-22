@@ -1,5 +1,5 @@
-fn addnum(x: int, y: int) {
-    IO::writeln(int::to_string(x+y))
+fn add_num(x: int, y: int) {
+    IO::writeln(int::to_string(x + y))
 }
 
-addnum(4,6)
+add_num(4, 6)

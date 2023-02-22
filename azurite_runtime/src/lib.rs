@@ -1,6 +1,6 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::cast_possible_truncation)]
-use std::{env, mem::size_of, slice::Iter, process::ExitCode, io::Read};
+use std::{env, io::Read, mem::size_of, process::ExitCode, slice::Iter};
 
 use azurite_common::{DataType, STRING_TERMINATOR};
 use object_map::ObjectMap;
@@ -12,7 +12,6 @@ pub mod native_library;
 pub mod object_map;
 pub mod runtime_error;
 pub mod vm;
-
 
 /// # Panics
 /// # Errors
@@ -70,12 +69,8 @@ pub fn run_file(path: &str) -> Result<(), ExitCode> {
         }
     };
     // println!("{:?}", vm.constants);
-    // let instant = Instant::now();
 
     let runtime = vm.run(&bytecode);
-
-    // let end = instant.elapsed().as_millis();
-    // println!("\n\nit took {}ms", end);
 
     #[cfg(feature = "hotspot")]
     {
@@ -168,13 +163,23 @@ pub fn parse_data(
         DataType::Integer => VMData::Integer(i64::from_le_bytes(
             match values[0..DataType::Integer.size()].try_into() {
                 Ok(v) => v,
-                Err(_) => return Err(RuntimeError::new(0, "constants file is corrupt, failed to parse integer")),
+                Err(_) => {
+                    return Err(RuntimeError::new(
+                        0,
+                        "constants file is corrupt, failed to parse integer",
+                    ))
+                }
             },
         )),
         DataType::Float => VMData::Float(f64::from_le_bytes(
             match values[0..DataType::Float.size()].try_into() {
                 Ok(v) => v,
-                Err(_) => return Err(RuntimeError::new(0, "constants file is corrupt, failed to parse float")),
+                Err(_) => {
+                    return Err(RuntimeError::new(
+                        0,
+                        "constants file is corrupt, failed to parse float",
+                    ))
+                }
             },
         )),
         DataType::String => {
@@ -182,17 +187,32 @@ pub fn parse_data(
             // output anything that is not valid UTF-8
             let string = match String::from_utf8(values.to_owned()) {
                 Ok(v) => v,
-                Err(_) => return Err(RuntimeError::new(0, "constants file is corrupt, string is not valid utf-8")),
+                Err(_) => {
+                    return Err(RuntimeError::new(
+                        0,
+                        "constants file is corrupt, string is not valid utf-8",
+                    ))
+                }
             };
 
             let current_byte_of_type = match iterator.next() {
                 Some(v) => v,
-                None => return Err(RuntimeError::new(0, "constants file is corrupt, unable to find type after a string")),
+                None => {
+                    return Err(RuntimeError::new(
+                        0,
+                        "constants file is corrupt, unable to find type after a string",
+                    ))
+                }
             };
-            
+
             *current_type = match current_byte_of_type.try_into() {
                 Ok(v) => v,
-                Err(_) => return Err(RuntimeError::new(0, "constants file is corrupt, unable to parse type after a string")),
+                Err(_) => {
+                    return Err(RuntimeError::new(
+                        0,
+                        "constants file is corrupt, unable to parse type after a string",
+                    ))
+                }
             };
 
             let object = Object::new(ObjectData::String(string));
@@ -203,7 +223,12 @@ pub fn parse_data(
             VMData::Object(index as u64)
         }
         DataType::Bool => VMData::Bool(values[0] > 0),
-        _ => return Err(RuntimeError::new(0, "constants file is corrupt, invalid type"))
+        _ => {
+            return Err(RuntimeError::new(
+                0,
+                "constants file is corrupt, invalid type",
+            ))
+        }
     })
 }
 
@@ -262,8 +287,7 @@ pub struct Object {
 impl ObjectData {
     fn to_string(&self, vm: &VM) -> String {
         match self {
-            | ObjectData::List(list)
-            | ObjectData::Struct(list) => {
+            ObjectData::List(list) | ObjectData::Struct(list) => {
                 let datas = list.iter().enumerate();
                 let mut stringified = String::new();
                 for (index, data) in datas {
@@ -287,9 +311,8 @@ impl Object {
 
     fn mark_inner(&self, objects: &mut ObjectMap) {
         match &self.data {
-            | ObjectData::List(v)
-            | ObjectData::Struct(v) => v.iter().mark(objects),
-            _ => ()
+            ObjectData::List(v) | ObjectData::Struct(v) => v.iter().mark(objects),
+            _ => (),
         }
     }
 }
@@ -302,7 +325,8 @@ impl Mark for Iter<'_, VMData> {
     fn mark(&mut self, objects: &mut ObjectMap) {
         self.for_each(|x| {
             if let VMData::Object(value) = x {
-                unsafe { &mut *(objects.data.get_unchecked_mut(*value as usize) as *mut Object) }.mark_inner(objects);
+                unsafe { &mut *(objects.data.get_unchecked_mut(*value as usize) as *mut Object) }
+                    .mark_inner(objects);
             }
         });
     }

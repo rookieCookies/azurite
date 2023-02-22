@@ -47,8 +47,14 @@ impl Rng {
 }
 
 inline fn assert(value: bool) {
-    if value {
+    if !value {
         Runtime::error("assert failed")
+    }
+}
+
+inline fn assert_info(value: bool, string: str) {
+    if !value {
+        Runtime::error("assert failed".append(string))
     }
 }
 
@@ -81,5 +87,11 @@ impl bool {
     }
     inline fn parse_str(string: str) -> bool {
         raw 12
+    }
+}
+
+impl str {
+    inline fn append(self, other: str) -> str {
+        raw 15
     }
 }

@@ -166,7 +166,7 @@ pub fn lex(data: Vec<char>, current_file: String) -> Result<Vec<Token>, Vec<Erro
             '0'..='9' => unwrap!(lexer.number(), &mut errors),
             'a'..='z' | 'A'..='Z' => lexer.identifier(),
             '"' => unwrap!(lexer.string(), &mut errors),
-            ' ' => {
+            ' ' | '\r' => {
                 lexer.advance();
                 continue;
             }
@@ -179,7 +179,7 @@ pub fn lex(data: Vec<char>, current_file: String) -> Result<Vec<Token>, Vec<Erro
                 errors.push(Error::new(
                     vec![(start as u32, lexer.index as u32, Highlight::Red)],
                     "unknown character",
-                    "this character is not a valid character, please check the docs".to_string(),
+                    format!("this character ({chr:?}) is not a valid character, please check the docs"),
                     &FATAL,
                     lexer.current_file.clone(),
                 ));

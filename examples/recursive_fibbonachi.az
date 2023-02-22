@@ -1,0 +1,8 @@
+fn fib_recursive(n: float) -> float {
+    if n < 2.0 {
+        return n
+    }
+    fib_recursive(n - 1.0) + fib_recursive(n - 2.0)
+}
+
+assert_info(fib_recursive(10.0) == 55.0, "fib_recursive(10.0) == 55.0")

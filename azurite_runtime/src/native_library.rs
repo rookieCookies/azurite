@@ -12,7 +12,7 @@ use crate::{
 type NativeFunctionReturn = Result<(), RuntimeError>;
 type NativeFunctionInput<'a, 'b, 'c> = (&'a mut VM, &'b mut Code<'c>);
 
-pub static RAW_FUNCTIONS: [fn(NativeFunctionInput) -> NativeFunctionReturn; 15] = [
+pub static RAW_FUNCTIONS: [fn(NativeFunctionInput) -> NativeFunctionReturn; 16] = [
     error,
     collect_garbage,
     read_io,
@@ -28,6 +28,7 @@ pub static RAW_FUNCTIONS: [fn(NativeFunctionInput) -> NativeFunctionReturn; 15] 
     parse_str_bool,
     env_var,
     env_set_var,
+    append_str,
 ];
 
 fn error((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
@@ -35,6 +36,8 @@ fn error((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
         VMData::Object(v) => *v,
         _ => return Err(corrupt_bytecode()),
     };
+    vm.stack.step();
+
     let message = match &vm.get_object(message_index as usize).data {
         crate::ObjectData::String(v) => v,
         _ => return Err(corrupt_bytecode()),
@@ -82,12 +85,12 @@ fn write_io((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
         VMData::Object(v) => *v,
         _ => return Err(corrupt_bytecode()),
     };
+    vm.stack.step();
     let message = match &vm.get_object(message_index as usize).data {
         crate::ObjectData::String(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
     print!("{message}");
-    vm.stack.step();
     Ok(())
 }
 
@@ -103,6 +106,8 @@ fn now((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
 
 fn to_string((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
     let data = vm.stack.pop().clone();
+    vm.stack.step();
+
     let string = data.to_string(vm);
     let index = vm.create_object(Object::new(ObjectData::String(string)))?;
     vm.stack.push(VMData::Object(index as u64))?;
@@ -129,8 +134,9 @@ fn rand_range_int((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
         _ => return Err(corrupt_bytecode()),
     };
 
-    // vm.stack.step();
-    // vm.stack.step();
+    vm.stack.step();
+    vm.stack.step();
+
     vm.stack
         .push(VMData::Integer(thread_rng().gen_range(min..max)))?;
     Ok(())
@@ -173,6 +179,7 @@ fn parse<T: FromStr>(vm: &mut VM, code: &Code) -> Result<T, RuntimeError> {
         VMData::Object(v) => *v,
         _ => return Err(corrupt_bytecode()),
     };
+    vm.stack.step();
     let string = match &vm.get_object(string_index as usize).data {
         crate::ObjectData::String(v) => v,
         _ => return Err(corrupt_bytecode()),
@@ -229,5 +236,29 @@ fn env_set_var((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
     };
 
     env::set_var(identifier, value);
+    Ok(())
+}
+
+fn append_str((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
+    let other_index = match vm.stack.pop() {
+        VMData::Object(v) => *v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    let other = match &vm.get_object(other_index as usize).data {
+        crate::ObjectData::String(v) => v.clone(),
+        _ => return Err(corrupt_bytecode()),
+    };
+
+    let self_index = match vm.stack.pop() {
+        VMData::Object(v) => *v,
+        _ => return Err(corrupt_bytecode()),
+    };
+
+    match &mut vm.objects.data.get_mut(self_index as usize).unwrap().data {
+        crate::ObjectData::String(v) => v.push_str(&other),
+        _ => return Err(corrupt_bytecode()),
+    };
+    vm.stack.step();
+    vm.stack.step();
     Ok(())
 }

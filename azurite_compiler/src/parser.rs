@@ -1,5 +1,3 @@
-
-
 use azurite_common::{Data, DataType};
 
 use crate::{
@@ -38,7 +36,7 @@ impl Parser {
 
         let instructions = parser.parse_till(&TokenType::EndOfFile);
 
-    if parser.panic_mode {
+        if parser.panic_mode {
             parser.errors = std::mem::take(&mut parser.panic_errors);
         }
         if parser.errors.is_empty() {
@@ -189,7 +187,7 @@ impl Parser {
                 &FATAL,
                 self.current_file.clone(),
             ));
-            return None
+            return None;
         }
         Some(())
     }
@@ -569,7 +567,6 @@ impl Parser {
             pop_after: false,
         })
     }
-
 }
 
 // ############################
@@ -596,7 +593,7 @@ impl Parser {
             .expect_without_error(&TokenType::ExclamationMark)
             .is_some()
         {
-            return self.not_operation();
+            return self.not_operation(expression_settings);
         }
         self.binary_operation(
             Parser::arithmetic_expression,
@@ -961,12 +958,12 @@ impl Parser {
 
     // not-operation:
     // |> '!' comparison-expression
-    fn not_operation(&mut self) -> Option<Instruction> {
+    fn not_operation(&mut self, expression_settings: &ExpressionSettings) -> Option<Instruction> {
         let context = self.context_of_current_token()?;
         self.expect_and_advance(&TokenType::ExclamationMark)?;
         Some(Instruction {
             instruction_type: InstructionType::UnaryOperation {
-                data: Box::new(self.expression(&ExpressionSettings::new())?),
+                data: Box::new(self.expression(expression_settings)?),
                 operator: UnaryOperator::Not,
             },
             start: context.0,

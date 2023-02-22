@@ -1,0 +1,14 @@
+fn fib_iter(n: float) -> float {
+    var a = 0.0
+    var b = 1.0
+    var i = 0.0
+    while i < n {
+        var c = a + b 
+        a = b
+        b = c
+        i = i + 1.0
+    }
+    a
+}
+
+assert_info(fib_iter(10.0) == 55.0, "fib_iter(10.0) == 55")

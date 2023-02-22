@@ -7,7 +7,11 @@ mod lexer_tests;
 mod parser;
 mod static_analysis;
 
-use std::{fs::{self, File}, io::Write, process::ExitCode};
+use std::{
+    fs::{self, File},
+    io::Write,
+    process::ExitCode,
+};
 
 use azurite_common::{Data, FileData, STRING_TERMINATOR};
 use colored::Colorize;
@@ -36,8 +40,8 @@ pub fn run_file(file: &str) -> Result<(), ExitCode> {
     let name = if let Some(v) = file.split_once(".az") {
         v.0
     } else {
-            eprintln!("file doesn't have a .az extension");
-            return Err(ExitCode::FAILURE)
+        eprintln!("file doesn't have a .az extension");
+        return Err(ExitCode::FAILURE);
     };
     let name = name.to_string();
 
@@ -45,11 +49,11 @@ pub fn run_file(file: &str) -> Result<(), ExitCode> {
         v
     } else {
         eprintln!("unable to create {name}.azurite");
-        return Err(ExitCode::FAILURE)
+        return Err(ExitCode::FAILURE);
     };
 
     if create_file(compilation, file).is_err() {
-        return Err(ExitCode::FAILURE)
+        return Err(ExitCode::FAILURE);
     };
     Ok(())
 }
@@ -71,7 +75,6 @@ fn create_file(compilation: Compilation, file: File) -> Result<(), ()> {
         }
     }
 
-
     let mut zip = zip::ZipWriter::new(file);
 
     let options = FileOptions::default()
@@ -83,8 +86,8 @@ fn create_file(compilation: Compilation, file: File) -> Result<(), ()> {
 
     let mut line_data: Vec<u8> = Vec::with_capacity(compilation.line_table.len());
     compilation.line_table.into_iter().for_each(|x| {
-        line_data.append(&mut x.0.to_le_bytes().into());
-        line_data.append(&mut x.1.to_le_bytes().into());
+        line_data.append(&mut x.to_le_bytes().into());
+        // line_data.append(&mut x.1.to_le_bytes().into());
     });
 
     create_and_write(&mut zip, options, "linetable.azc", &line_data)?;
@@ -96,15 +99,20 @@ fn create_file(compilation: Compilation, file: File) -> Result<(), ()> {
     Ok(())
 }
 
-fn create_and_write(zip: &mut zip::ZipWriter<File>, options: FileOptions, path: &str, data: &[u8]) -> Result<(), ()> {
+fn create_and_write(
+    zip: &mut zip::ZipWriter<File>,
+    options: FileOptions,
+    path: &str,
+    data: &[u8],
+) -> Result<(), ()> {
     if zip.start_file(path, options).is_err() {
         eprintln!("unable to create {path}");
-        return Err(())
+        return Err(());
     }
 
     if zip.write_all(data).is_err() {
         eprintln!("unable to write to {path}");
-        return Err(())
+        return Err(());
     }
     Ok(())
 }
