@@ -11,7 +11,6 @@ use std::{
 };
 
 use azurite_common::consts;
-use azurite_runtime::{load_constants, vm::VM};
 use colored::{Color, Colorize};
 
 use rustyline::{error::ReadlineError, validate::MatchingBracketValidator, Editor};
@@ -161,7 +160,7 @@ fn main() -> Result<(), ExitCode> {
             };
 
             drop(bytecode_file);
-            println!("{}", disassemble(bytecode.into_iter()))
+            println!("{}", disassemble(bytecode.into_iter()));
         }
         _ => invalid_usage(),
     }
@@ -182,6 +181,7 @@ fn compile(file: &str) -> Result<(), ExitCode> {
     Ok(())
 }
 
+#[allow(clippy::format_push_string)]
 fn disassemble(mut v: IntoIter<u8>) -> String {
     let mut depth = 0;
     let mut disassemble = String::new();
@@ -201,8 +201,8 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
             consts::ReturnFromFunction => {
                 disassemble.push_str("return from function");
             }
-            Bytecode::LoadConst => {
-                disassemble.push_str(format!("load const {}", v.next().unwrap()).as_str())
+            consts::LoadConst => {
+                disassemble.push_str(format!("load const {}", v.next().unwrap()).as_str());
             }
             consts::Add => disassemble.push_str("add"),
             consts::Subtract => disassemble.push_str("subtract"),
@@ -218,15 +218,15 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
                 "get var {}",
                 u16::from_le_bytes([v.next().unwrap(), v.next().unwrap()])
             )),
-            Bytecode::GetVarFast => {
-                disassemble.push_str(&format!("get var fast {}", v.next().unwrap()))
+            consts::GetVarFast => {
+                disassemble.push_str(&format!("get var fast {}", v.next().unwrap()));
             }
             consts::ReplaceVar => disassemble.push_str(&format!(
                 "replace var {}",
                 u16::from_le_bytes([v.next().unwrap(), v.next().unwrap()])
             )),
-            Bytecode::ReplaceVarFast => {
-                disassemble.push_str(&format!("replace var fast {}", v.next().unwrap()))
+            consts::ReplaceVarFast => {
+                disassemble.push_str(&format!("replace var fast {}", v.next().unwrap()));
             }
             consts::ReplaceVarInObject => {
                 let size = v.next().unwrap();
@@ -238,12 +238,11 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
                         .collect::<String>()
                 ));
             }
-            Bytecode::Not => disassemble.push_str("not"),
-            Bytecode::Negative => disassemble.push_str("negate"),
-            Bytecode::Assert => todo!(),
-            Bytecode::Pop => disassemble.push_str("pop"),
-            Bytecode::PopMulti => disassemble.push_str(&format!("pop multi {}", v.next().unwrap())),
-            Bytecode::JumpIfFalse => {
+            consts::Not => disassemble.push_str("not"),
+            consts::Negative => disassemble.push_str("negate"),
+            consts::Pop => disassemble.push_str("pop"),
+            consts::PopMulti => disassemble.push_str(&format!("pop multi {}", v.next().unwrap())),
+            consts::JumpIfFalse => {
                 disassemble.push_str(&format!("jump if false {}", v.next().unwrap()));
                 // depth += 1;
             }
@@ -264,21 +263,15 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
             consts::CreateStruct => {
                 let size = v.next().unwrap();
 
-                disassemble.push_str(&format!("create struct {size}"))
+                disassemble.push_str(&format!("create struct {size}"));
             }
-            Bytecode::AccessData => {
-                disassemble.push_str(&format!("access data {}", v.next().unwrap()))
+            consts::AccessData => {
+                disassemble.push_str(&format!("access data {}", v.next().unwrap()));
             }
             _ => panic!(),
         };
         disassemble.push('\n');
     }
-}
-
-#[derive(Completer, Helper, Highlighter, Hinter, Validator)]
-struct InputValidator {
-    #[rustyline(Validator)]
-    brackets: MatchingBracketValidator,
 }
 
 #[derive(Completer, Helper, Highlighter, Hinter, Validator)]
