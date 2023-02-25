@@ -11,6 +11,7 @@ use crate::{
     lexer::lex,
     parser::Parser,
     static_analysis::{AnalysisState, Scope},
+    Generic,
 };
 
 const NATIVE_LIBRARY: &str = include_str!("../native.az");
@@ -35,12 +36,12 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
     let mut analyzer_state = AnalysisState::new();
 
     let mut root_scope = Scope::new_raw(
-        FileData::new("root".to_string(), "".to_string()),
+        FileData::new("root".to_string(), ""),
         vec![process],
     );
 
     {
-        let native_file_data = FileData::new("::native".to_string(), NATIVE_LIBRARY.to_string());
+        let native_file_data = FileData::new("::native".to_string(), NATIVE_LIBRARY);
         let generated_instructions = generate_instructions(&native_file_data);
 
         let generated_instructions = match generated_instructions {
@@ -73,15 +74,18 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
     for function in analyzer_state.function_stack {
         let mut instruction = Instruction {
             instruction_type: InstructionType::Data(Data::Bool(false)),
-            ..function.instructions
+            ..*function.instructions
         };
 
         instruction.instruction_type = InstructionType::FunctionDeclaration {
             identifier: function.identifier,
-            body: Box::new(function.instructions),
+            body: function.instructions,
             arguments: function.arguments,
             return_type: function.return_type,
             inlined: false,
+            generics: Generic {
+                identifiers: vec![],
+            },
         };
 
         compiler.compile_to_bytes(instruction);
@@ -161,8 +165,13 @@ impl Compilation {
                 self.emit_byte(operator_byte, instruction.line);
             }
             InstructionType::Data(v) => {
+                let type_rep = v.type_representation();
                 self.constants.push(v);
-                self.emit_byte(Bytecode::LoadConst as u8, instruction.line);
+
+                match type_rep {
+                    DataType::String => self.emit_byte(Bytecode::LoadConstStr as u8, instruction.line),
+                    _ => self.emit_byte(Bytecode::LoadConst as u8, instruction.line),
+                }
                 self.emit_byte((self.constants.len() - 1) as u8, instruction.line);
             }
             InstructionType::LoadVariable(_, index) => {
@@ -268,7 +277,9 @@ impl Compilation {
                     self.bytecode[start_of_jump] = (self.bytecode.len() - start_of_jump - 1) as u8;
                     // if its true we just jump over the else branch
                 } else {
-                    self.bytecode[start] = (self.bytecode.len() - start - if instruction.pop_after { 0 } else { 1 }) as u8;
+                    self.bytecode[start] =
+                        (self.bytecode.len() - start - if instruction.pop_after { 0 } else { 1 })
+                            as u8;
                 }
             }
             InstructionType::WhileStatement { condition, body } => {
@@ -299,8 +310,6 @@ impl Compilation {
                 if self.compiled_all_functions {
                     return None;
                 }
-                // TODO: Remove the inlined function fom the bytecode
-                let _function_creation = self.bytecode.len();
                 self.emit_byte(Bytecode::LoadFunction as u8, instruction.line);
                 self.emit_byte(arguments.len() as u8, instruction.line);
                 self.emit_byte(u8::from(return_type != DataType::Empty), instruction.line);
@@ -313,10 +322,7 @@ impl Compilation {
                 self.bytecode[start] = (self.bytecode.len() - start - 1) as u8;
             }
             InstructionType::FunctionCall {
-                index,
-                arguments,
-                identifier: _,
-                created_by_accessing: _,
+                index, arguments, ..
             } => {
                 let argument_count = arguments.len();
                 for x in arguments {
@@ -368,7 +374,7 @@ impl Compilation {
                 self.emit_byte(Bytecode::CreateStruct as u8, instruction.line);
                 self.emit_byte(amount as u8, instruction.line);
             }
-            InstructionType::AccessVariable { data, id, .. } => {
+            InstructionType::AccessVariable { data, field_index: id, .. } => {
                 self.compile_to_bytes(*data);
                 self.emit_byte(Bytecode::AccessData as u8, instruction.line);
                 self.emit_byte(id as u8, instruction.line);

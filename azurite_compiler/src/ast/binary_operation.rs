@@ -27,10 +27,11 @@ impl From<&TokenType> for BinaryOperator {
 
             TokenType::EqualsEquals => Self::EqualsEquals,
             TokenType::GreaterEquals => Self::GreaterEquals,
-            TokenType::LessThan => Self::LessThan,
-            TokenType::GreaterThan => Self::GreaterThan,
             TokenType::LesserEquals => Self::LesserEquals,
             TokenType::NotEquals => Self::NotEquals,
+            
+            TokenType::LeftAngle => Self::LessThan,
+            TokenType::RightAngle => Self::GreaterThan,
             _ => panic!("invalid binary operator {value:?}"),
         }
     }

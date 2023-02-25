@@ -10,7 +10,7 @@ use std::{
     vec::IntoIter,
 };
 
-use azurite_common::consts;
+use azurite_common::{consts, prepare};
 use colored::{Color, Colorize};
 
 use rustyline::{error::ReadlineError, validate::MatchingBracketValidator, Editor};
@@ -27,6 +27,7 @@ fn main() -> Result<(), ExitCode> {
     };
 
     env::set_var("RUST_BACKTRACE", "1");
+    prepare();
 
     match argument.as_str() {
         "repl" => {
@@ -161,7 +162,7 @@ fn main() -> Result<(), ExitCode> {
 
             drop(bytecode_file);
             println!("{}", disassemble(bytecode.into_iter()));
-        }
+        },
         _ => invalid_usage(),
     }
     Ok(())
@@ -185,9 +186,13 @@ fn compile(file: &str) -> Result<(), ExitCode> {
 fn disassemble(mut v: IntoIter<u8>) -> String {
     let mut depth = 0;
     let mut disassemble = String::new();
+    let max = v.len();
     loop {
+        let i = v.next().expect(&disassemble);
+        
+        disassemble.push_str(&format!("{:<max$}: ", max-v.len(), max=max.to_string().len()));
         disassemble.push_str("    ".repeat(depth).as_str());
-        match v.next().expect(&disassemble) {
+        match i {
             consts::Return => {
                 disassemble.push_str("return");
                 if depth == 0 {
@@ -201,8 +206,14 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
             consts::ReturnFromFunction => {
                 disassemble.push_str("return from function");
             }
+            consts::ReturnWithoutCallStack => {
+                disassemble.push_str(&format!("return without callstack {}", v.next().unwrap()));
+            }
             consts::LoadConst => {
                 disassemble.push_str(format!("load const {}", v.next().unwrap()).as_str());
+            }
+            consts::LoadConstStr => {
+                disassemble.push_str(format!("load const str {}", v.next().unwrap()).as_str());
             }
             consts::Add => disassemble.push_str("add"),
             consts::Subtract => disassemble.push_str("subtract"),
@@ -268,7 +279,10 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
             consts::AccessData => {
                 disassemble.push_str(&format!("access data {}", v.next().unwrap()));
             }
-            _ => panic!(),
+            consts::RawCall => {
+                disassemble.push_str(&format!("raw call {}", v.next().unwrap()));
+            }
+            _ => disassemble.push_str(&format!("UNKNOWN {}", i))
         };
         disassemble.push('\n');
     }

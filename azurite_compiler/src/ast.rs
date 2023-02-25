@@ -1,5 +1,7 @@
 use azurite_common::{Data, DataType};
 
+use crate::Generic;
+
 use self::{binary_operation::BinaryOperator, unary_operation::UnaryOperator};
 
 pub mod binary_operation;
@@ -49,6 +51,7 @@ pub enum InstructionType {
         body: Box<Instruction>,
         arguments: Vec<(String, DataType)>,
         return_type: DataType,
+        generics: Generic,
         inlined: bool,
     },
     FunctionCall {
@@ -56,6 +59,7 @@ pub enum InstructionType {
         arguments: Vec<Instruction>,
         index: FunctionInline,
         created_by_accessing: bool,
+        generics: Vec<String>,
     },
     StructDeclaration {
         identifier: String,
@@ -68,7 +72,7 @@ pub enum InstructionType {
     AccessVariable {
         identifier: String,
         data: Box<Instruction>,
-        id: u32,
+        field_index: u32,
     },
     ImplBlock {
         datatype: DataType,

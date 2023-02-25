@@ -42,10 +42,7 @@ fn error((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
         crate::ObjectData::String(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
-    Err(RuntimeError::new_string(
-        code.index as u64,
-        message.clone(),
-    ))
+    Err(RuntimeError::new_string(code.index as u64, message.clone()))
 }
 
 fn collect_garbage((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
@@ -106,11 +103,11 @@ fn now((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
 
 fn to_string((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
     let data = vm.stack.pop().clone();
-    vm.stack.step();
 
     let string = data.to_string(vm);
     let index = vm.create_object(Object::new(ObjectData::String(string)))?;
     vm.stack.push(VMData::Object(index as u64))?;
+    vm.stack.step();
     Ok(())
 }
 
@@ -134,11 +131,11 @@ fn rand_range_int((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
         _ => return Err(corrupt_bytecode()),
     };
 
-    vm.stack.step();
-    vm.stack.step();
-
     vm.stack
         .push(VMData::Integer(thread_rng().gen_range(min..max)))?;
+    
+    vm.stack.step();
+    vm.stack.step();
     Ok(())
 }
 
@@ -153,24 +150,30 @@ fn rand_range_float((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
     };
     vm.stack
         .push(VMData::Float(thread_rng().gen_range(min..max)))?;
+    
+    vm.stack.step();
+    vm.stack.step();
     Ok(())
 }
 
 fn parse_str_float((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     let vmdata = VMData::Float(parse(vm, code)?);
     vm.stack.push(vmdata)?;
+    vm.stack.step();
     Ok(())
 }
 
 fn parse_str_int((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     let vmdata = VMData::Integer(parse(vm, code)?);
     vm.stack.push(vmdata)?;
+    vm.stack.step();
     Ok(())
 }
 
 fn parse_str_bool((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     let vmdata = VMData::Bool(parse(vm, code)?);
     vm.stack.push(vmdata)?;
+    vm.stack.step();
     Ok(())
 }
 
@@ -179,7 +182,6 @@ fn parse<T: FromStr>(vm: &mut VM, code: &Code) -> Result<T, RuntimeError> {
         VMData::Object(v) => *v,
         _ => return Err(corrupt_bytecode()),
     };
-    vm.stack.step();
     let string = match &vm.get_object(string_index as usize).data {
         crate::ObjectData::String(v) => v,
         _ => return Err(corrupt_bytecode()),
@@ -249,16 +251,21 @@ fn append_str((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
         _ => return Err(corrupt_bytecode()),
     };
 
+
     let self_index = match vm.stack.pop() {
         VMData::Object(v) => *v,
         _ => return Err(corrupt_bytecode()),
     };
 
+    
+    vm.stack.step();
+    vm.stack.step();
+    vm.stack.step();
+
     match &mut vm.objects.data.get_mut(self_index as usize).unwrap().data {
         crate::ObjectData::String(v) => v.push_str(&other),
         _ => return Err(corrupt_bytecode()),
     };
-    vm.stack.step();
-    vm.stack.step();
+    
     Ok(())
 }

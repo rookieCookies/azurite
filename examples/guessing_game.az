@@ -13,6 +13,6 @@ if input_as_integer == generated_number {
     IO::writeln("congratz! you were right!")
 } else if input_as_integer < generated_number {
     IO::writeln("sorry! you were too low!")
-} else if input_as_integer > generated_number {
+} else {
     IO::writeln("sorry! you were too high!")
 }

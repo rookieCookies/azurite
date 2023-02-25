@@ -23,8 +23,8 @@ pub enum TokenType {
 
     EqualsEquals,
     NotEquals,
-    GreaterThan,
-    LessThan,
+    RightAngle,
+    LeftAngle,
     GreaterEquals,
     LesserEquals,
 
@@ -160,8 +160,8 @@ pub fn lex(data: Vec<char>, current_file: String) -> Result<Vec<Token>, Vec<Erro
             '.' => TokenType::Dot,
             '=' => lexer.check('=', TokenType::EqualsEquals, TokenType::Equals),
             '!' => lexer.check('=', TokenType::NotEquals, TokenType::ExclamationMark),
-            '>' => lexer.check('=', TokenType::GreaterEquals, TokenType::GreaterThan),
-            '<' => lexer.check('=', TokenType::LesserEquals, TokenType::LessThan),
+            '>' => lexer.check('=', TokenType::GreaterEquals, TokenType::RightAngle),
+            '<' => lexer.check('=', TokenType::LesserEquals, TokenType::LeftAngle),
             ':' => lexer.check(':', TokenType::DoubleColon, TokenType::Colon),
             '0'..='9' => unwrap!(lexer.number(), &mut errors),
             'a'..='z' | 'A'..='Z' => lexer.identifier(),
@@ -179,7 +179,9 @@ pub fn lex(data: Vec<char>, current_file: String) -> Result<Vec<Token>, Vec<Erro
                 errors.push(Error::new(
                     vec![(start as u32, lexer.index as u32, Highlight::Red)],
                     "unknown character",
-                    format!("this character ({chr:?}) is not a valid character, please check the docs"),
+                    format!(
+                        "this character ({chr:?}) is not a valid character, please check the docs"
+                    ),
                     &FATAL,
                     lexer.current_file.clone(),
                 ));
@@ -389,7 +391,6 @@ impl Lexer {
         match string.as_str() {
             "true" => TokenType::True,
             "false" => TokenType::False,
-            // "assert" => TokenType::Assert,
             "var" => TokenType::Var,
             "if" => TokenType::If,
             "else" => TokenType::Else,

@@ -119,7 +119,8 @@ pub struct FileData {
 
 impl FileData {
     #[must_use]
-    pub fn new(path: String, data: String) -> Self {
+    pub fn new(path: String, data: &str) -> Self {
+        let data = data.replace('\r', "");
         Self { path, data }
     }
 }
@@ -194,6 +195,7 @@ impl DataType {
     #[must_use]
     pub fn from_string(v: &str) -> DataType {
         match v {
+            "()" => DataType::Empty,
             "int" => DataType::Integer,
             "bool" => DataType::Bool,
             "float" => DataType::Float,
@@ -238,6 +240,7 @@ pub enum Bytecode : u8 {
     ReturnFromFunction,
     ReturnWithoutCallStack,
     LoadConst,
+    LoadConstStr,
     Add,
     Subtract,
     Multiply,

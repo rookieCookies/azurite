@@ -1,6 +1,6 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::cast_possible_truncation)]
-use std::{env, io::Read, mem::size_of, process::ExitCode, slice::Iter};
+use std::{env, io::Read, mem::size_of, process::ExitCode};
 
 use azurite_common::{DataType, STRING_TERMINATOR};
 use object_map::ObjectMap;
@@ -47,7 +47,6 @@ pub fn run_file(path: &str) -> Result<(), ExitCode> {
         return Err(ExitCode::FAILURE);
     };
 
-
     let mut constants = vec![];
     match constants_file.read_to_end(&mut constants) {
         Ok(_) => {}
@@ -69,8 +68,9 @@ pub fn run_file(path: &str) -> Result<(), ExitCode> {
         }
     };
     // println!("{:?}", vm.constants);
-
+    // let start = Instant::now();
     let runtime = vm.run(&bytecode);
+    // println!("{}", start.elapsed().as_secs_f64());
 
     #[cfg(feature = "hotspot")]
     {
@@ -309,26 +309,17 @@ impl Object {
         Self { live: false, data }
     }
 
-    fn mark_inner(&self, objects: &mut ObjectMap) {
+    fn mark_inner(&mut self, mark_as: bool, objects: &mut ObjectMap) {
+        self.live = mark_as;
         match &self.data {
-            ObjectData::List(v) | ObjectData::Struct(v) => v.iter().mark(objects),
+            ObjectData::List(v) | ObjectData::Struct(v) => v.iter().for_each(|x| {
+                if let VMData::Object(value) = x {
+                    unsafe { &mut *(objects.data.get_unchecked_mut(*value as usize) as *mut Object) }
+                        .mark_inner(mark_as, objects);
+                }
+            }),
             _ => (),
         }
-    }
-}
-
-trait Mark {
-    fn mark(&mut self, objects: &mut ObjectMap);
-}
-
-impl Mark for Iter<'_, VMData> {
-    fn mark(&mut self, objects: &mut ObjectMap) {
-        self.for_each(|x| {
-            if let VMData::Object(value) = x {
-                unsafe { &mut *(objects.data.get_unchecked_mut(*value as usize) as *mut Object) }
-                    .mark_inner(objects);
-            }
-        });
     }
 }
 

@@ -116,3 +116,8 @@ fn create_and_write(
     }
     Ok(())
 }
+
+#[derive(Debug, Clone)]
+pub struct Generic {
+    pub identifiers: Vec<String>,
+}

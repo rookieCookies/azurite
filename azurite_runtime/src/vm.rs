@@ -64,8 +64,9 @@ impl VM {
         loop {
             #[cfg(feature = "bytecode")]
             {
-                let value = &Bytecode::from_u8(current.bytecode[current.index]);
-                println!("{value:?}");
+                use azurite_common::Bytecode;
+                let value = &Bytecode::from_u8(current.bytecode[current.index]).unwrap();
+                println!("{:<max$}: {}{value:?}", current.index, "    | ".repeat(callstack.len()), max=code.len().to_string().len());
             }
 
             let value = current.next();
@@ -168,6 +169,21 @@ impl VM {
                     let index = *current.next();
                     self.stack.push(self.constants[index as usize].clone())?;
                 }
+                &consts::LoadConstStr => {
+                    let index = *current.next();
+                    let string_index = match &self.constants[index as usize] {
+                        VMData::Object(v) => *v,
+                        _ => return Err(corrupt_bytecode())
+                    };
+
+                    let string_dup = match &self.objects.data.get(string_index as usize).unwrap().data {
+                        ObjectData::String(v) => v.clone(),
+                        _ => return Err(corrupt_bytecode())
+                    };
+
+                    let object_index = self.create_object(Object::new(ObjectData::String(string_dup)))?;
+                    self.stack.push(VMData::Object(object_index as u64))?;
+                }
                 &consts::Add => {
                     let values = self.stack.pop_two();
                     let result = static_add(values.1, values.0)?;
@@ -196,19 +212,19 @@ impl VM {
                 }
                 &consts::GetVarFast => {
                     let index = *current.next();
-                    debug_assert!(self.stack.top > current.stack_offset + index as usize);
+                    debug_assert!(self.stack.top > current.stack_offset + index as usize, "{} {index}", current.stack_offset);
                     self.stack
                         .push(self.stack.data[current.stack_offset + index as usize].clone())?;
                 }
                 &consts::ReplaceVarFast => {
                     let index = *current.next();
                     self.stack
-                        .swap_top_with(index as usize + current.stack_offset);
+                        .swap_top_with_while_stepping_back(index as usize + current.stack_offset);
                 }
                 &consts::ReplaceVar => {
                     let index = u16::from_le_bytes([*current.next(), *current.next()]);
                     self.stack
-                        .swap_top_with(index as usize + current.stack_offset);
+                        .swap_top_with_while_stepping_back(index as usize + current.stack_offset);
                 }
                 &consts::ReplaceVarInObject => {
                     let size = *current.next();
@@ -273,9 +289,9 @@ impl VM {
                         _ => return Err(corrupt_bytecode()),
                     };
                     match &self.get_object(object as usize).data {
-                        ObjectData::Struct(v) => self
-                            .stack
-                            .push(v.get(*index as usize).unwrap().clone())?,
+                        ObjectData::Struct(v) => {
+                            self.stack.push(v.get(*index as usize).unwrap().clone())?;
+                        }
                         _ => return Err(corrupt_bytecode()),
                     }
                 }
@@ -311,7 +327,7 @@ impl VM {
 
                         self.stack
                             .pop_multi_ignore(self.stack.top - current.stack_offset - 1);
-                        self.stack.swap_top_with(return_value);
+                        self.stack.swap_top_with_while_stepping_back(return_value);
                         self.stack.step();
                     } else {
                         self.stack
@@ -326,15 +342,16 @@ impl VM {
                 &consts::RawCall => {
                     let index = *current.next() as usize;
                     native_library::RAW_FUNCTIONS[index]((self, &mut current))?;
+                    // debug_assert!(start == self.stack.top || start + 1 == self.stack.top, "native function ({index}) doesn't have a stack affect of 0");
                 }
                 &consts::ReturnWithoutCallStack => {
                     let amount = *current.next();
 
-                    let return_value = self.stack.top - 1;
+                    let return_value = self.stack.top-1;
 
                     self.stack.pop_multi_ignore(amount as usize);
                     self.stack.swap_top_with(return_value);
-                    self.stack.step();
+                    // self.stack.step();
                 }
                 _ => panic!(),
             };
@@ -406,7 +423,7 @@ impl Code<'_> {
         self.index += 1;
         // unsafe { self.bytecode.get_unchecked(index) }
 
-        self.bytecode.get(self.index-1).unwrap()
+        self.bytecode.get(self.index - 1).unwrap()
     }
 
     #[inline(always)]
@@ -508,9 +525,14 @@ impl Stack {
     }
 
     #[inline(always)]
-    fn swap_top_with(&mut self, index: usize) {
+    fn swap_top_with_while_stepping_back(&mut self, index: usize) {
         self.step_back();
         // unsafe { self.data.swap_unchecked(index, self.top) };
+        self.data.swap(index, self.top);
+    }
+
+    #[inline(always)]
+    fn swap_top_with(&mut self, index: usize) {
         self.data.swap(index, self.top);
     }
 }

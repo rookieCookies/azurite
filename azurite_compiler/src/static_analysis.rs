@@ -9,6 +9,7 @@ use crate::{
     },
     compiler::generate_instructions,
     error::{Error, Highlight, FATAL},
+    Generic,
 };
 
 #[derive(Debug)]
@@ -18,15 +19,21 @@ pub struct AnalysisState {
 
     pub function_stack: Vec<Function>,
     pub inline_functions: Vec<Function>,
+    pub template_functions: Vec<Function>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Function {
     pub identifier: String,
-    pub instructions: Instruction,
+    pub instructions: Box<Instruction>,
     is_static: bool,
     pub arguments: Vec<(String, DataType)>,
     pub return_type: DataType,
+    generics: Vec<String>,
+
+    start: u32,
+    end: u32,
+    line: u32,
 }
 
 #[derive(Debug)]
@@ -37,8 +44,16 @@ pub struct Scope {
     pub stack_emulation: Vec<DataType>,
 
     pub variable_map: HashMap<String, usize>,
-    pub function_map: HashMap<String, (usize, bool)>,
-    pub structure_map: HashMap<String, Vec<(String, DataType)>>,
+    function_map: HashMap<String, FunctionReference>,
+    pub strcture_map: HashMap<String, Vec<(String, DataType)>>,
+    structure_linkage: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionReference {
+    index: usize,
+    is_inlined: bool,
+    is_template: bool,
 }
 
 impl Scope {
@@ -57,7 +72,8 @@ impl Scope {
             stack_emulation: native.stack_emulation.clone(),
             variable_map: native.variable_map.clone(),
             function_map: native.function_map.clone(),
-            structure_map: native.structure_map.clone(),
+            strcture_map: native.strcture_map.clone(),
+            structure_linkage: native.structure_linkage.clone(),
         }
     }
 
@@ -68,7 +84,15 @@ impl Scope {
             stack_emulation: Vec::new(),
             variable_map: HashMap::new(),
             function_map: HashMap::new(),
-            structure_map: HashMap::new(),
+            strcture_map: HashMap::new(),
+            structure_linkage: HashMap::new(),
+        }
+    }
+
+    fn struct_id<'a>(&'a self, id: &'a String) -> DataType {
+        match self.structure_linkage.get(id) {
+            Some(v) => DataType::from_string(v),
+            None => DataType::from_string(id),
         }
     }
 }
@@ -84,8 +108,9 @@ impl AnalysisState {
         &mut self,
         scope: &mut Scope,
         function_declaration: &mut Instruction,
+        is_in_impl: bool,
     ) {
-        let (identifier, arguments, return_type, is_inlined, body) =
+        let (identifier, arguments, return_type, is_inlined, body, generics) =
             match &function_declaration.instruction_type {
                 InstructionType::FunctionDeclaration {
                     identifier,
@@ -93,35 +118,48 @@ impl AnalysisState {
                     return_type,
                     inlined,
                     body,
-                } => (identifier, arguments, return_type, *inlined, body),
+                    generics,
+                } => (identifier, arguments, return_type, *inlined, body, generics),
                 _ => panic!(),
             };
 
         let function = Function {
             identifier: identifier.clone(),
-            instructions: *body.clone(),
+            instructions: Box::new(*body.clone()),
             is_static: {
                 if let Some(x) = arguments.get(0) {
-                    x.0.as_str() != "self"
+                    x.0.as_str() != "self" || !is_in_impl
                 } else {
                     true
                 }
             },
-            arguments: arguments.clone(),
-            return_type: return_type.clone(),
+            arguments: arguments.iter().map(|x| (x.0.clone(), scope.struct_id(&x.1.to_string()))).collect(),
+            return_type: scope.struct_id(&return_type.to_string()),
+            generics: generics.identifiers.clone(),
+            start: function_declaration.start,
+            end: function_declaration.end,
+            line: function_declaration.line,
         };
 
-        if is_inlined {
-            scope
-                .function_map
-                .insert(identifier.clone(), (self.inline_functions.len(), true));
+        let mut function_reference = FunctionReference {
+            index: 0,
+            is_inlined,
+            is_template: !generics.identifiers.is_empty(),
+        };
+
+        if function_reference.is_template {
+            function_reference.index = self.template_functions.len();
+            self.template_functions.push(function);
+        } else if is_inlined {
+            function_reference.index = self.inline_functions.len();
             self.inline_functions.push(function);
-            return;
+        } else {
+            function_reference.index = self.function_stack.len();
+            self.function_stack.push(function);
         }
         scope
             .function_map
-            .insert(identifier.clone(), (self.function_stack.len(), false));
-        self.function_stack.push(function);
+            .insert(identifier.clone(), function_reference);
     }
 
     pub fn analyze_scope(&mut self, scope: &mut Scope) -> DataType {
@@ -147,18 +185,20 @@ impl AnalysisState {
         for instruction in &mut instructions {
             match &mut instruction.instruction_type {
                 InstructionType::FunctionDeclaration { .. } => {
-                    self.analyze_function_definition(scope, instruction);
+                    self.analyze_function_definition(scope, instruction, false);
                 }
                 InstructionType::ImplBlock { functions, .. } => functions
                     .iter_mut()
-                    .for_each(|x| self.analyze_function_definition(scope, x)),
+                    .for_each(|x| self.analyze_function_definition(scope, x, true)),
                 _ => continue,
             }
         }
 
+        // dbg!("aaaaaaaaaaa", &scope);
         for instruction in &mut instructions {
             return_type = self.analyze_with_type_hint(scope, instruction, hint.clone());
         }
+        // return_type = scope.struct_id(&return_type.to_string());
 
         if dont_pop_last {
             if let Some(v) = instructions.last_mut() {
@@ -179,11 +219,13 @@ impl AnalysisState {
         structure_declaration: &mut Instruction,
     ) {
         let (identifier, fields) = match &mut structure_declaration.instruction_type {
-            InstructionType::StructDeclaration { identifier, fields } => (identifier, fields),
+            InstructionType::StructDeclaration { identifier, fields } => {
+                (scope.struct_id(identifier).to_string(), fields)
+            }
             _ => panic!(),
         };
 
-        if scope.structure_map.contains_key(identifier) {
+        if scope.strcture_map.contains_key(&identifier) {
             self.errors.push(error_structure_already_exists(
                 scope,
                 (structure_declaration.start, structure_declaration.end),
@@ -192,15 +234,24 @@ impl AnalysisState {
 
         fields.sort_by_key(|x| x.0.clone());
         scope
-            .structure_map
-            .insert(identifier.clone(), fields.clone());
+            .strcture_map
+            .insert(identifier, fields.clone());
     }
 
+    pub fn analyze_with_type_hint(
+        &mut self,
+        scope: &mut Scope,
+        instruction: &mut Instruction,
+        hint: Option<DataType>,
+    ) -> DataType {
+        let v = self.analyze_with_type_hint_w(scope, instruction, hint);
+        scope.struct_id(&v.to_string())
+    }
     /// # Panics
     /// # Errors
     #[allow(clippy::too_many_lines)]
     #[allow(clippy::cast_possible_truncation)]
-    pub fn analyze_with_type_hint(
+    pub fn analyze_with_type_hint_w(
         &mut self,
         scope: &mut Scope,
         instruction: &mut Instruction,
@@ -212,9 +263,7 @@ impl AnalysisState {
                 if let Some(loaded_file) = self.loaded_files.get(file_name) {
                     scope.function_map.extend(loaded_file.function_map.clone());
                     scope.variable_map.extend(loaded_file.variable_map.clone());
-                    scope
-                        .structure_map
-                        .extend(loaded_file.structure_map.clone());
+                    scope.strcture_map.extend(loaded_file.strcture_map.clone());
                     return return_type;
                 }
                 let mut file = if let Ok(v) = File::open(&file_name) {
@@ -354,7 +403,8 @@ impl AnalysisState {
                 );
                 new_scope.variable_map = scope.variable_map.clone();
                 new_scope.function_map = scope.function_map.clone();
-                new_scope.structure_map = scope.structure_map.clone();
+                new_scope.strcture_map = scope.strcture_map.clone();
+                new_scope.structure_linkage = scope.structure_linkage.clone();
                 new_scope.stack_emulation = scope.stack_emulation.clone();
 
                 let (rt, _) = self.analyze_scope_with_hint(&mut new_scope, &hint, true);
@@ -366,6 +416,7 @@ impl AnalysisState {
                 // }
                 return_type = rt;
                 *pop = (new_scope.stack_emulation.len() - scope.stack_emulation.len()) as u16;
+
                 // .max(0) as u16;
                 scope.current_file = std::mem::take(&mut new_scope.current_file);
                 *body = new_scope.instructions;
@@ -475,20 +526,27 @@ impl AnalysisState {
                 body,
                 arguments,
                 return_type: function_return_type,
-                inlined,
+                ..
             } => {
+                let function_return_type = match function_return_type {
+                    DataType::Struct(v) => scope.struct_id(v),
+                    _ => function_return_type.clone(),
+                };
                 return_type = function_return_type.clone();
                 let mut function_scope = Scope::new(
                     self,
                     std::mem::take(&mut scope.current_file),
                     vec![*body.clone()],
                 );
+
                 function_scope.variable_map = arguments
                     .iter()
                     .enumerate()
                     .map(|x| (x.1 .0.clone(), x.0))
                     .collect();
                 function_scope.function_map = scope.function_map.clone();
+                function_scope.structure_linkage = scope.structure_linkage.clone();
+                function_scope.strcture_map = scope.strcture_map.clone();
                 function_scope.stack_emulation = arguments
                     .iter()
                     .enumerate()
@@ -498,13 +556,14 @@ impl AnalysisState {
                 let body_return_type = self
                     .analyze_scope_with_hint(&mut function_scope, &Some(return_type.clone()), true)
                     .0;
-
                 scope.current_file = std::mem::take(&mut function_scope.current_file);
-                if body_return_type != *function_return_type {
+
+                if body_return_type != function_return_type {
+                    dbg!(&body_return_type, &function_return_type);
                     self.errors.push(error_function_return_type_is_different(
                         scope,
                         (instruction.start, instruction.end),
-                        function_return_type,
+                        &function_return_type,
                         &body_return_type,
                     ));
                 }
@@ -515,20 +574,28 @@ impl AnalysisState {
                     _ => panic!(),
                 }
 
-                let function_index = scope.function_map.get(identifier).unwrap();
-                match inlined {
-                    true => &mut self.inline_functions,
-                    false => &mut self.function_stack,
+                let function_index = match scope.function_map.get(identifier) {
+                    Some(v) => v,
+                    None => {
+                        dbg!(&scope);
+                        panic!()
+                    }
+                };
+                match (function_index.is_inlined, function_index.is_template) {
+                    (_, true) => &mut self.template_functions,
+                    (true, _) => &mut self.inline_functions,
+                    (_, _) => &mut self.function_stack,
                 }
-                .get_mut(function_index.0)
+                .get_mut(function_index.index)
                 .unwrap()
-                .instructions = instruction;
+                .instructions = Box::new(instruction);
             }
             InstructionType::FunctionCall {
                 identifier,
                 arguments,
                 index,
                 created_by_accessing,
+                generics,
             } => {
                 if *created_by_accessing {
                     let self_type = self.analyze(scope, &mut arguments[0]);
@@ -536,7 +603,7 @@ impl AnalysisState {
                         *identifier = format!("{self_type}::{identifier}");
                     }
                 }
-                let function_meta = if let Some(v) = scope.function_map.get(identifier) {
+                let mut function_meta = if let Some(v) = scope.function_map.get(identifier) {
                     v
                 } else {
                     self.errors.push(error_function_isnt_declared(
@@ -545,19 +612,98 @@ impl AnalysisState {
                         identifier,
                     ));
                     return return_type;
-                };
+                }
+                .clone();
+            
+                if function_meta.is_template {
+                    *identifier = format!("<{} {generics:?}>", identifier);
+                }
 
-                let function = if function_meta.1 {
-                    let function = self.inline_functions[function_meta.0].clone();
+                if function_meta.is_template && !scope.function_map.contains_key(identifier) {
+                    let function = self
+                        .template_functions
+                        .get(function_meta.index)
+                        .unwrap()
+                        .clone();
+
+                    
+                    if function.generics.len() != generics.len() {
+                        self.errors.push(error_invalid_generic_amount(
+                            scope,
+                            (instruction.start, instruction.end),
+                            function.arguments.len(),
+                            arguments.len(),
+                        ));
+                        return return_type;
+                    }
+
+
+
+                    let mut generics_mapping = HashMap::new();
+                    for (function_generic, provided_generic) in function.generics.iter().zip(generics.iter()) {
+                        generics_mapping.insert(function_generic, provided_generic);
+                    }
+
+                    let function_instruction_type = InstructionType::FunctionDeclaration {
+                        identifier: identifier.clone(),
+                        body: function.instructions,
+                        arguments: function.arguments,
+                        return_type: generics_mapping.get(&function.return_type.to_string()).map_or(function.return_type, |v| DataType::from_string(v)),
+                        inlined: function_meta.is_inlined,
+                        generics: Generic {
+                            identifiers: vec![],
+                        },
+                    };
+
+                    let function_instruction = Instruction {
+                        instruction_type: function_instruction_type,
+                        start: function.start,
+                        end: function.end,
+                        line: function.line,
+                        pop_after: false,
+                    };
+
+                    let mut function_scope = Scope::new_raw(
+                        std::mem::take(&mut scope.current_file),
+                        vec![function_instruction],
+                    );
+
+                    function_scope.function_map = std::mem::take(&mut scope.function_map);
+                    function_scope.strcture_map = std::mem::take(&mut scope.strcture_map);
+                    function_scope.structure_linkage = (0..function.generics.len())
+                        .map(|x| (function.generics[x].clone(), generics[x].clone()))
+                        .collect();
+                    self.analyze_scope(&mut function_scope);
+
+                    scope.current_file = std::mem::take(&mut function_scope.current_file);
+                    scope.strcture_map = std::mem::take(&mut function_scope.strcture_map);
+                    scope.function_map = std::mem::take(&mut function_scope.function_map);
+
+                    function_meta = if let Some(v) = scope.function_map.get(identifier) {
+                        v
+                    } else {
+                        self.errors.push(error_function_isnt_declared(
+                            scope,
+                            (instruction.start, instruction.end),
+                            identifier,
+                        ));
+                        return return_type;
+                    }
+                    .clone();
+                }
+
+                let function = if function_meta.is_inlined {
+                    let function = self.inline_functions[function_meta.index].clone();
+
                     *index = FunctionInline::Inline {
-                        instructions: Box::new(function.instructions.clone()),
+                        instructions: function.instructions.clone(),
                         variable_offset: scope.stack_emulation.len(),
                         has_return: function.return_type != DataType::Empty,
                     };
                     function
                 } else {
-                    *index = FunctionInline::None(function_meta.0);
-                    self.function_stack[function_meta.0].clone()
+                    *index = FunctionInline::None(function_meta.index);
+                    self.function_stack[function_meta.index].clone()
                 };
 
                 return_type = function.return_type.clone();
@@ -577,18 +723,20 @@ impl AnalysisState {
                 if function.arguments.len() != arguments.len() {
                     self.errors.push(error_invalid_function_argument_amount(
                         scope,
-                        (instruction.start, instruction.end),
+                        (instruction.start, instruction.end - 1),
                         function.arguments.len(),
                         arguments.len(),
                     ));
                     return return_type;
                 }
 
+
                 for (index, argument) in arguments.iter_mut().enumerate() {
                     let argument_type = self.analyze(scope, argument);
-                    if argument_type == function.arguments[index].1 {
+                    if argument_type == scope.struct_id(&function.arguments[index].1.to_string()) {
                         continue;
                     }
+                    dbg!(&argument_type, scope.struct_id(&function.arguments[index].1.to_string()), &function.arguments[index].1);
                     if index == 0 && *created_by_accessing {
                         self.errors.push(error_function_doesnt_exist_for_type(
                             scope,
@@ -612,15 +760,18 @@ impl AnalysisState {
             } => {
                 for (_, datatype) in fields.iter() {
                     match datatype {
-                        DataType::Struct(identifier) => {
-                            if !scope.structure_map.contains_key(identifier) {
-                                self.errors.push(error_structure_field_type_doesnt_exist(
-                                    scope,
-                                    (instruction.start, instruction.end),
-                                    datatype,
-                                ));
+                        DataType::Struct(identifier) => match scope.struct_id(identifier) {
+                            DataType::Struct(v) => {
+                                if !scope.strcture_map.contains_key(&v) {
+                                    self.errors.push(error_structure_field_type_doesnt_exist(
+                                        scope,
+                                        (instruction.start, instruction.end),
+                                        datatype,
+                                    ));
+                                }
                             }
-                        }
+                            _ => continue,
+                        },
                         _ => continue,
                     }
                 }
@@ -630,7 +781,10 @@ impl AnalysisState {
                 variables,
             } => {
                 return_type = DataType::Struct(identifier.clone());
-                let structure_fields = if let Some(v) = scope.structure_map.get(identifier) {
+                let structure_fields = if let Some(v) = scope
+                    .strcture_map
+                    .get(&scope.struct_id(identifier).to_string())
+                {
                     v
                 } else {
                     self.errors.push(error_structure_doesnt_exist(
@@ -674,7 +828,7 @@ impl AnalysisState {
 
                 let missing: Vec<_> = existing_fields
                     .iter()
-                    .filter(|x| variable_map.contains_key(x.0))
+                    .filter(|x| !variable_map.contains_key(x.0))
                     .map(|x| x.0)
                     .collect();
                 if !missing.is_empty() {
@@ -697,14 +851,21 @@ impl AnalysisState {
                     | DataType::String
                     | DataType::Bool
                     | DataType::Empty => (),
-                    DataType::Struct(identifier) => {
-                        if !scope.structure_map.contains_key(identifier) {
-                            self.errors.push(error_structure_doesnt_exist(
-                                scope,
-                                (instruction.start, instruction.end),
-                            ));
+                    DataType::Struct(identifier) => match scope.struct_id(identifier) {
+                        DataType::Integer
+                        | DataType::Float
+                        | DataType::String
+                        | DataType::Bool
+                        | DataType::Empty => (),
+                        DataType::Struct(identifier) => {
+                            if !scope.strcture_map.contains_key(&identifier) {
+                                self.errors.push(error_structure_doesnt_exist(
+                                    scope,
+                                    (instruction.start, instruction.end),
+                                ));
+                            }
                         }
-                    }
+                    },
                 }
 
                 for i in functions.iter_mut() {
@@ -715,7 +876,21 @@ impl AnalysisState {
                 return_type = hint.unwrap_or(DataType::Empty);
                 instruction.pop_after = return_type != DataType::Empty;
             }
-            _ => (),
+            InstructionType::AccessVariable { identifier, data, field_index } => {
+                let datatype = self.analyze(scope, data);
+                if let DataType::Struct(v) = &datatype {
+                    let structure = scope.strcture_map.get(v).unwrap();
+                    for (index, i) in structure.iter().enumerate() {
+                        if i.0 == *identifier {
+                            *field_index = (structure.len() - 1 - index) as u32;
+                            return_type = i.1.clone();
+                            return return_type
+                        }
+                    }
+                }
+                self.errors.push(error_structure_doesnt_have_a_field_named(scope, (instruction.start, instruction.end), &datatype.to_string(), identifier));
+            },
+            InstructionType::Return(None) => todo!(),
         }
         return_type
     }
@@ -726,6 +901,7 @@ impl AnalysisState {
             loaded_files: HashMap::new(),
             function_stack: Vec::new(),
             inline_functions: Vec::new(),
+            template_functions: Vec::new(),
         }
     }
 }
@@ -890,6 +1066,21 @@ fn error_invalid_function_argument_amount(
     )
 }
 
+fn error_invalid_generic_amount(
+    scope: &Scope,
+    (start, end): (u32, u32),
+    expected: usize,
+    found: usize,
+) -> Error {
+    Error::new(
+        vec![(start, end, Highlight::Red)],
+        "invalid generic amount",
+        format!("this function accepts {expected} generics but you've provided {found}",),
+        &FATAL,
+        scope.current_file.path.clone(),
+    )
+}
+
 fn error_function_doesnt_exist_for_type(
     scope: &Scope,
     (start, end): (u32, u32),
@@ -967,6 +1158,21 @@ fn error_structure_fields_differ_in_type(
         vec![(start, end, Highlight::Red)],
         "structure field doesn't exist",
         format!("the field {field} of {structure_identifier} is of type {field_type} but the given type is {found_field_type}"),
+        &FATAL,
+        scope.current_file.path.clone(),
+    )
+}
+
+fn error_structure_doesnt_have_a_field_named(
+    scope: &Scope,
+    (start, end): (u32, u32),
+    structure_identifier: &String,
+    field_name: &String,
+) -> Error {
+    Error::new(
+        vec![(start, end, Highlight::Red)],
+        "structure doesn't have that field",
+        format!("the structure {structure_identifier} does not have a field called {field_name}"),
         &FATAL,
         scope.current_file.path.clone(),
     )

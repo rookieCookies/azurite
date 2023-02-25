@@ -11,25 +11,32 @@ trait LineAt {
 
 impl LineAt for String {
     fn line_at(&self, index: usize) -> Option<usize> {
-        let mut current_index = 0;
-        for (line_number, line) in self.lines().enumerate() {
-            current_index += line.len() + 1;
-            if current_index > index {
-                return Some(line_number);
+        let mut line_count = 0;
+        for (indx, chr) in self.chars().enumerate() {
+            if indx == index {
+                return Some(line_count)
+            }
+            if chr == '\n' {
+                line_count += 1;
             }
         }
-        None
+        Some(self.lines().count() - 1)
     }
 
     fn start_of_line(&self, target_line: usize) -> Option<usize> {
-        let mut current_index = 0;
-        for (current_line, line) in self.lines().enumerate() {
-            if current_line == target_line {
-                return Some(current_index);
+        let mut line_count = 0;
+        let mut last_index = 0;
+        for (index, chr) in self.chars().enumerate() {
+            if chr == '\n' {
+                if line_count >= target_line {
+                    return Some(last_index)
+                }
+                last_index = index;
+                line_count += 1;
             }
-
-            current_index += line.len();
-            current_index += 1;
+        }
+        if line_count == target_line {
+            return Some(last_index)
         }
         None
     }
@@ -88,7 +95,6 @@ impl Error {
         colour_scheme: &'static ErrorColourScheme,
         file_name: String,
     ) -> Self {
-        // panic!();
         Self {
             positions,
             name,
@@ -135,7 +141,7 @@ impl Error {
                 " -->".color(self.colour_scheme.arrow_to_message),
                 path,
                 start_line + 1,
-                self.positions[0].0 as usize - data.start_of_line(start_line).unwrap() + 1
+                self.positions[0].0 as usize - data.start_of_line(start_line).unwrap()
             )
             .as_str(),
         );
@@ -237,7 +243,8 @@ impl Error {
                             "{}{}",
                             " ".repeat(
                                 (positions.0 as i32
-                                    - file_data.start_of_line(line_number).unwrap() as i32)
+                                    - file_data.start_of_line(line_number).unwrap() as i32
+                                    - 1)
                                     .max(0) as usize
                             ),
                             "^".repeat(
@@ -251,12 +258,13 @@ impl Error {
                             .color(self.colour_scheme.arrow_to_error)
                         )
                     } else if line_number == end_line {
+                        dbg!(&positions, file_data.start_of_line(line_number).unwrap());
                         format!(
                             "{}",
                             "^".repeat(
-                                positions.1 as usize
-                                    - file_data.start_of_line(line_number).unwrap()
-                                    + 1
+                                (positions.1 + 1) as usize
+                                    - file_data.start_of_line(line_number-1).unwrap()
+                                    
                             )
                             .color(self.colour_scheme.arrow_to_error)
                         )

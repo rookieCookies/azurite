@@ -7,6 +7,7 @@ use crate::{
     },
     error::{Error, Highlight, FATAL},
     lexer::{Token, TokenType},
+    Generic,
 };
 
 pub struct Parser {
@@ -91,6 +92,45 @@ impl Parser {
     fn parse_type(&mut self) -> Option<DataType> {
         let identifier = self.expect_identifier()?;
         Some(DataType::from_string(identifier))
+    }
+
+    fn parse_generic_declaration(&mut self) -> Option<Generic> {
+        self.expect_and_advance(&TokenType::LeftAngle)?;
+        let mut identifiers = vec![];
+        loop {
+            let current_token = self.current_token().unwrap();
+            if [TokenType::RightAngle, TokenType::EndOfFile].contains(&current_token.token_type) {
+                break;
+            }
+            if !identifiers.is_empty() {
+                self.expect_and_advance(&TokenType::Comma)?;
+            }
+            identifiers.push(self.expect_identifier()?.clone());
+            self.advance();
+        }
+        self.expect(&TokenType::RightAngle)?;
+        Some(Generic { identifiers })
+    }
+
+    // ! NOTE: These two are identical yes, but later on when I add traits
+    // ! it will be useful to have them separated
+
+    fn parse_generic_usage(&mut self) -> Option<Vec<String>> {
+        self.expect_and_advance(&TokenType::LeftAngle)?;
+        let mut identifiers = vec![];
+        loop {
+            let current_token = self.current_token().unwrap();
+            if [TokenType::RightAngle, TokenType::EndOfFile].contains(&current_token.token_type) {
+                break;
+            }
+            if !identifiers.is_empty() {
+                self.expect_and_advance(&TokenType::Comma)?;
+            }
+            identifiers.push(self.expect_identifier()?.clone());
+            self.advance();
+        }
+        self.expect(&TokenType::RightAngle)?;
+        Some(identifiers)
     }
 }
 
@@ -181,7 +221,7 @@ impl Parser {
                 None => return None,
             };
             self.errors.push(Error::new(
-                vec![(current_token.start, current_token.end, Highlight::Red)],
+                vec![(current_token.start + 1, current_token.end + 1, Highlight::Red)],
                 "unexpected token",
                 format!("expected {value:?}, found {current_token:?}"),
                 &FATAL,
@@ -368,6 +408,15 @@ impl Parser {
             .expect_without_error_and_advance(&TokenType::Inline)
             .is_some();
         self.expect_and_advance(&TokenType::Fn)?;
+        let generics = if self.expect_without_error(&TokenType::LeftAngle).is_some() {
+            let temp = self.parse_generic_declaration()?;
+            self.advance();
+            temp
+        } else {
+            Generic {
+                identifiers: vec![],
+            }
+        };
         let identifier = self.expect_identifier_and_advance()?;
         self.expect_and_advance(&TokenType::LeftParenthesis)?;
         let mut arguments = vec![];
@@ -422,6 +471,7 @@ impl Parser {
                 arguments,
                 return_type,
                 inlined,
+                generics,
             },
             start: context.0,
             end: self.context_of_current_token()?.1,
@@ -602,10 +652,10 @@ impl Parser {
             &[
                 TokenType::EqualsEquals,
                 TokenType::NotEquals,
+                TokenType::LeftAngle,
+                TokenType::RightAngle,
                 TokenType::GreaterEquals,
                 TokenType::LesserEquals,
-                TokenType::GreaterThan,
-                TokenType::LessThan,
             ],
         )
     }
@@ -709,7 +759,7 @@ impl Parser {
                 instruction_type: InstructionType::AccessVariable {
                     identifier,
                     data: Box::new(instruction),
-                    id: 0,
+                    field_index: 0,
                 },
             };
             self.advance();
@@ -879,6 +929,13 @@ impl Parser {
     fn function_call(&mut self) -> Option<Instruction> {
         let context = self.context_of_current_token()?;
         let identifier = self.expect_identifier_and_advance()?;
+        let generics = if self.expect_without_error(&TokenType::LeftAngle).is_some() {
+            let temp = self.parse_generic_usage()?;
+            self.advance();
+            temp
+        } else {
+            vec![]
+        };
         self.expect_and_advance(&TokenType::LeftParenthesis)?;
 
         let mut arguments = vec![];
@@ -906,6 +963,7 @@ impl Parser {
                 arguments,
                 index: FunctionInline::None(0),
                 created_by_accessing: false,
+                generics,
             },
             start: context.0,
             end: self.context_of_current_token()?.1,
