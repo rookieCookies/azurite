@@ -59,14 +59,15 @@ impl Parser {
 
             if self.panic_mode
                 && [
-                    TokenType::Assert,
                     TokenType::Var,
-                    TokenType::If,
-                    TokenType::Else,
                     TokenType::While,
                     TokenType::Fn,
                     TokenType::Return,
                     TokenType::Struct,
+                    TokenType::Impl,
+                    TokenType::Raw,
+                    TokenType::Using,
+                    TokenType::Inline,
                 ]
                 .contains(&self.current_token().unwrap().token_type)
             {
@@ -76,9 +77,13 @@ impl Parser {
 
             let instruction = if let Some(instruction) = self.statement() {
                 instruction
-            } else {
+            } else if !self.panic_mode {
                 self.panic_mode = true;
+                self.panic_errors.clear();
                 self.panic_errors = std::mem::take(&mut self.errors);
+                self.advance();
+                continue;
+            } else {
                 self.advance();
                 continue;
             };
@@ -221,9 +226,9 @@ impl Parser {
                 None => return None,
             };
             self.errors.push(Error::new(
-                vec![(current_token.start + 1, current_token.end + 1, Highlight::Red)],
+                vec![(current_token.start, current_token.end, Highlight::Red)],
                 "unexpected token",
-                format!("expected {value:?}, found {current_token:?}"),
+                format!("expected {value:?}, found {:?}", current_token.token_type),
                 &FATAL,
                 self.current_file.clone(),
             ));

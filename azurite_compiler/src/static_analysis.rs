@@ -408,12 +408,7 @@ impl AnalysisState {
                 new_scope.stack_emulation = scope.stack_emulation.clone();
 
                 let (rt, _) = self.analyze_scope_with_hint(&mut new_scope, &hint, true);
-                // if instruction.pop_after && rt == DataType::Empty {
-                //     println!("{:#?}", body);
-                //     instruction.pop_after = false;
-                // } else {
-                //     println!("{rt}");
-                // }
+
                 return_type = rt;
                 *pop = (new_scope.stack_emulation.len() - scope.stack_emulation.len()) as u16;
 
@@ -437,6 +432,7 @@ impl AnalysisState {
                 }
 
                 return_type = self.analyze(scope, body);
+                instruction.pop_after = return_type != DataType::Empty;
 
                 match else_part {
                     Some(else_part) => {

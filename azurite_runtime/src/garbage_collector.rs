@@ -1,4 +1,4 @@
-use crate::{vm::VM, Object, object_map::ObjectMap, VMData};
+use crate::{vm::VM, Object, VMData};
 
 impl VM {
     // TODO: Improve, just kind of slapped it here I mean cmon dude

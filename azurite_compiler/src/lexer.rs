@@ -41,8 +41,7 @@ pub enum TokenType {
 
     True,
     False,
-
-    Assert,
+    
     Var,
     If,
     Else,
