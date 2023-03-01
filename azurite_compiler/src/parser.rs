@@ -622,6 +622,14 @@ impl Parser {
             pop_after: false,
         })
     }
+
+    // bytecode-statement:
+    // |> 'bytecode' '{' bytecode '}'
+    fn _bytecode_statement(&mut self) -> Option<Instruction> {
+        let context = self.context_of_current_token()?;
+        self.expect_and_advance(&TokenType::Bytecode)?;
+        None
+    }
 }
 
 // ############################

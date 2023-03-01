@@ -53,6 +53,7 @@ pub enum TokenType {
     Raw,
     Using,
     Inline,
+    Bytecode,
 
     EndOfFile,
 }
@@ -401,6 +402,7 @@ impl Lexer {
             "raw" => TokenType::Raw,
             "inline" => TokenType::Inline,
             "using" => TokenType::Using,
+            "bytecode" => TokenType::Bytecode,
             _ => TokenType::Identifier(string),
         }
     }

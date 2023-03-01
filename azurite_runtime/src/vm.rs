@@ -79,7 +79,7 @@ impl VM {
                         (VMData::Bool(v1), VMData::Bool(v2)) => v1 == v2,
                         (VMData::Object(v1), VMData::Object(v2)) => {
                             let (v1, v2) = (*v1, *v2);
-                            self.get_object(v1 as usize) == self.get_object(v2 as usize)
+                            self.get_object(v1 as usize).data == self.get_object(v2 as usize).data
                         }
                         _ => return Err(corrupt_bytecode()),
                     });
@@ -93,7 +93,7 @@ impl VM {
                         (VMData::Bool(v1), VMData::Bool(v2)) => v1 != v2,
                         (VMData::Object(v1), VMData::Object(v2)) => {
                             let (v1, v2) = (*v1, *v2);
-                            self.get_object(v1 as usize) != self.get_object(v2 as usize)
+                            self.get_object(v1 as usize).data != self.get_object(v2 as usize).data
                         }
                         _ => return Err(corrupt_bytecode()),
                     });
@@ -135,6 +135,10 @@ impl VM {
                     });
                     self.stack.push(value)?;
                 }
+                &consts::Jump => {
+                    let i = *current.next() as usize;
+                    current.skip(i);
+                }
                 &consts::JumpIfFalse => {
                     let condition = match self.stack.pop() {
                         VMData::Bool(v) => v,
@@ -145,13 +149,27 @@ impl VM {
                         current.skip(amount);
                     }
                 }
-                &consts::Jump => {
-                    let i = *current.next() as usize;
-                    current.skip(i);
-                }
                 &consts::JumpBack => {
                     let i = *current.next() as usize;
                     current.back_skip(i);
+                }
+                &consts::JumpLarge => {
+                    let amount = u16::from_le_bytes([*current.next(), *current.next()]) as usize;
+                    current.skip(amount);
+                }
+                &consts::JumpIfFalseLarge => {
+                    let condition = match self.stack.pop() {
+                        VMData::Bool(v) => v,
+                        _ => return Err(corrupt_bytecode()),
+                    };
+                    let amount = u16::from_le_bytes([*current.next(), *current.next()]) as usize;
+                    if !condition {
+                        current.skip(amount);
+                    }
+                }
+                &consts::JumpBackLarge => {
+                    let amount = u16::from_le_bytes([*current.next(), *current.next()]) as usize;
+                    current.back_skip(amount);
                 }
                 &consts::LoadFunction => {
                     let arg_count = *current.next();

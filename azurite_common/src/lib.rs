@@ -148,7 +148,7 @@ impl DataType {
     /// # Panics
     /// This function will panic if the `DataType` is `DataType::Empty`
     #[must_use]
-    pub fn byte_representation(&self) -> u8 {
+    pub fn into_byte_representation(&self) -> u8 {
         match self {
             DataType::Integer => 0,
             DataType::Float => 1,
@@ -157,6 +157,17 @@ impl DataType {
             DataType::Struct(_) => 4,
             DataType::Empty => panic!("empty types should not get past static analysis"),
         }
+    }
+
+    #[must_use]
+    pub fn from_byte_representation(v: u8) -> Option<DataType> {
+        Some(match v {
+                    0 => DataType::Integer,
+                    1 => DataType::Float,
+                    2 => DataType::String,
+                    3 => DataType::Bool,
+                    _ => return None
+                })
     }
 }
 
@@ -230,8 +241,6 @@ impl Data {
     }
 }
 
-pub const STRING_TERMINATOR: u8 = 255;
-
 opcode! {
 // #[repr(u8)]
 #[derive(Hash, PartialEq, Eq, Debug)]
@@ -260,9 +269,12 @@ pub enum Bytecode : u8 {
     Negative,
     Pop,
     PopMulti,
-    JumpIfFalse,
     Jump,
+    JumpIfFalse,
     JumpBack,
+    JumpLarge,
+    JumpIfFalseLarge,
+    JumpBackLarge,
     LoadFunction,
     CallFunction,
     CreateStruct,

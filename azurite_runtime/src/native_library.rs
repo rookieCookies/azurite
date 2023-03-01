@@ -63,6 +63,7 @@ fn read_io((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
         crate::ObjectData::String(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
+    v.clear();
     std::io::stdout().flush().unwrap();
     match std::io::stdin().read_line(v) {
         Ok(_) => {}

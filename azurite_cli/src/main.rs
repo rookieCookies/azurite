@@ -1,6 +1,7 @@
 #![warn(clippy::pedantic)]
 use std::fs::OpenOptions;
 use std::io::BufWriter;
+use std::time::Instant;
 use std::{
     env,
     fs::File,
@@ -177,8 +178,9 @@ fn invalid_usage() -> ! {
 
 fn compile(file: &str) -> Result<(), ExitCode> {
     println!("{} {file}", "Compiling..".bright_green().bold());
+    let instant = Instant::now();
     azurite_compiler::run_file(file)?;
-    println!("{}", "Finished!".bright_green().bold());
+    println!("{}", format!("Finished in {} seconds!", instant.elapsed().as_secs_f64()).bright_green().bold());
     Ok(())
 }
 
@@ -190,7 +192,7 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
     loop {
         let i = v.next().expect(&disassemble);
         
-        disassemble.push_str(&format!("{:<max$}: ", max-v.len(), max=max.to_string().len()));
+        disassemble.push_str(&format!("\n{:<max$}: ", max-v.len(), max=max.to_string().len()));
         disassemble.push_str("    ".repeat(depth).as_str());
         match i {
             consts::Return => {
@@ -199,7 +201,8 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
                     if v.next().is_none() {
                         return disassemble;
                     }
-                    panic!("{disassemble}")
+                    disassemble.push_str(" - ERROR!".red().bold().to_string().as_str());
+                    depth += 1;
                 }
                 depth -= 1;
             }
@@ -253,12 +256,12 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
             consts::Negative => disassemble.push_str("negate"),
             consts::Pop => disassemble.push_str("pop"),
             consts::PopMulti => disassemble.push_str(&format!("pop multi {}", v.next().unwrap())),
-            consts::JumpIfFalse => {
-                disassemble.push_str(&format!("jump if false {}", v.next().unwrap()));
-                // depth += 1;
-            }
             consts::Jump => disassemble.push_str(&format!("jump {}", v.next().unwrap())),
+            consts::JumpIfFalse => disassemble.push_str(&format!("jump if false {}", v.next().unwrap())),
             consts::JumpBack => disassemble.push_str(&format!("jump back {}", v.next().unwrap())),
+            consts::JumpLarge => disassemble.push_str(&format!("jump large {}", u16::from_le_bytes([v.next().unwrap(), v.next().unwrap()]))),
+            consts::JumpIfFalseLarge => disassemble.push_str(&format!("jump if false large {}", u16::from_le_bytes([v.next().unwrap(), v.next().unwrap()]))),
+            consts::JumpBackLarge => disassemble.push_str(&format!("jump back large {}", u16::from_le_bytes([v.next().unwrap(), v.next().unwrap()]))),
             consts::LoadFunction => {
                 disassemble.push_str(&format!(
                     "load function (arg count: {}) (has return {}) {}",
@@ -282,9 +285,8 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
             consts::RawCall => {
                 disassemble.push_str(&format!("raw call {}", v.next().unwrap()));
             }
-            _ => disassemble.push_str(&format!("UNKNOWN {}", i))
+            _ => disassemble.push_str(&format!("UNKNOWN INDEX{{{}}}", i))
         };
-        disassemble.push('\n');
     }
 }
 

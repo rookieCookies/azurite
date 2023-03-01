@@ -11,3 +11,4 @@ azurite_common = { path = "../azurite_common" }
 colored = "*"
 zip = { version = "0.6.4", default-features = false }
 unicode-segmentation = "*"
+slotmap = "*"

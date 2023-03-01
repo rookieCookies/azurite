@@ -2,7 +2,7 @@
 #![allow(clippy::cast_possible_truncation)]
 use std::{env, io::Read, mem::size_of, process::ExitCode};
 
-use azurite_common::{DataType, STRING_TERMINATOR};
+use azurite_common::{DataType};
 use object_map::ObjectMap;
 use runtime_error::RuntimeError;
 use vm::VM;
@@ -121,42 +121,42 @@ pub fn load_constants(
     let mut constant_byte_iterator = constant_bytes.into_iter();
 
     let mut size_lookout = None;
-    let mut current_type = DataType::Integer;
+    let mut current_type = None;
     let mut values: Vec<u8> = Vec::with_capacity(32);
     while let Some(current_byte) = constant_byte_iterator.next() {
-        if size_lookout.is_some() && values.len() < size_lookout.unwrap() &&
-            // If it is looking for a string and the
-            // the current byte is the termination byte
-            (current_type != DataType::String || current_byte != STRING_TERMINATOR)
-        {
-            values.push(current_byte);
-            continue;
-        }
-        let old_type = current_type.clone();
-
-        if size_lookout.is_some() {
-            let data = parse_data(&mut current_type, &values, &mut constant_byte_iterator, vm)?;
-            constants.push(data);
-            values.clear();
-        }
-        if old_type == current_type {
-            current_type = match current_byte.try_into() {
-                Ok(v) => v,
-                Err(_) => current_type,
+        if let Some(size) = size_lookout {
+            if values.len() < size {
+                values.push(current_byte);
+                continue
             }
+            let data = parse_data(current_type.as_ref().unwrap(), &values, vm)?;
+            constants.push(data);
+            current_type = None;
         }
-        size_lookout = Some(current_type.size());
-    }
 
+        if current_type.is_none() {
+            values.clear();
+
+            current_type = Some(DataType::from_byte_representation(current_byte).unwrap());
+            size_lookout = Some(match current_type.as_ref().unwrap() {
+                DataType::String => u32::from_le_bytes([
+                    constant_byte_iterator.next().unwrap(),
+                    constant_byte_iterator.next().unwrap(),
+                    constant_byte_iterator.next().unwrap(),
+                    constant_byte_iterator.next().unwrap(),
+                ]) as usize,
+                _ => current_type.as_ref().unwrap().size(),
+            });
+        }
+    }
     Ok(constants)
 }
 
 /// # Errors
 /// - Not enough memory in the VM to be able to allocate strings
 pub fn parse_data(
-    current_type: &mut DataType,
+    current_type: &DataType,
     values: &[u8],
-    iterator: &mut impl Iterator<Item = u8>,
     vm: &mut VM,
 ) -> Result<VMData, RuntimeError> {
     Ok(match current_type {
@@ -191,26 +191,6 @@ pub fn parse_data(
                     return Err(RuntimeError::new(
                         0,
                         "constants file is corrupt, string is not valid utf-8",
-                    ))
-                }
-            };
-
-            let current_byte_of_type = match iterator.next() {
-                Some(v) => v,
-                None => {
-                    return Err(RuntimeError::new(
-                        0,
-                        "constants file is corrupt, unable to find type after a string",
-                    ))
-                }
-            };
-
-            *current_type = match current_byte_of_type.try_into() {
-                Ok(v) => v,
-                Err(_) => {
-                    return Err(RuntimeError::new(
-                        0,
-                        "constants file is corrupt, unable to parse type after a string",
                     ))
                 }
             };
@@ -278,7 +258,7 @@ impl VMData {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Object {
     live: bool,
     data: ObjectData,

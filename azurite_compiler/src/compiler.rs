@@ -1,6 +1,7 @@
 use std::process::ExitCode;
 
 use azurite_common::{Bytecode, Data, DataType, FileData};
+use slotmap::{SlotMap, DefaultKey};
 
 use crate::{
     ast::{
@@ -98,6 +99,8 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
         }
     }
     compiler.emit_byte(Bytecode::Return as u8, 0);
+
+    assert!(compiler.jump_map.is_empty(), "not all jumps are finished {:#?}", compiler.jump_map);
     Ok(compiler)
 }
 
@@ -110,8 +113,10 @@ pub struct Compilation {
     #[cfg(feature = "readable")]
     pub text: Vec<String>,
 
+    // Compiler state
     compiled_all_functions: bool,
     variable_offset: usize,
+    jump_map: SlotMap<DefaultKey, (JumpType, usize)>,
 }
 
 impl Compilation {
@@ -122,6 +127,7 @@ impl Compilation {
             line_table: Vec::new(),
             compiled_all_functions: false,
             variable_offset: 0,
+            jump_map: SlotMap::new(),
         }
     }
 
@@ -258,46 +264,37 @@ impl Compilation {
                 else_part,
             } => {
                 self.compile_to_bytes(*condition);
-                self.emit_byte(Bytecode::JumpIfFalse as u8, instruction.line);
-
                 let start = self.bytecode.len();
-                self.emit_byte(0, instruction.line); // placeholder
+                let jump_key = self.emit_jump(instruction.line, JumpType::JumpIfFalse);
 
                 self.compile_to_bytes(*body);
                 if let Some(x) = else_part {
-                    self.emit_byte(Bytecode::Jump as u8, x.line);
-
+                    let else_jump = self.emit_jump(instruction.line, JumpType::Jump);
                     let start_of_jump = self.bytecode.len();
-                    self.emit_byte(0, instruction.line);
 
-                    self.bytecode[start] = (self.bytecode.len() - start - 1) as u8; // if its false we jump here and execute the else branch
+                    self.finish_jump(jump_key, self.bytecode.len() - start); // if its false we jump here and execute the else branch
 
                     self.compile_to_bytes(*x);
 
-                    self.bytecode[start_of_jump] = (self.bytecode.len() - start_of_jump - 1) as u8;
+                    self.finish_jump(else_jump, self.bytecode.len() - start_of_jump - 1);
                     // if its true we just jump over the else branch
                 } else {
-                    self.bytecode[start] =
-                        (self.bytecode.len() - start - if instruction.pop_after { 0 } else { 1 })
-                            as u8;
+                    self.finish_jump(jump_key, self.bytecode.len() - start - if instruction.pop_after { 0 } else { 1 });
                 }
             }
             InstructionType::WhileStatement { condition, body } => {
                 let start_of_loop = self.bytecode.len();
                 self.compile_to_bytes(*condition);
-                self.emit_byte(Bytecode::JumpIfFalse as u8, instruction.line);
+
                 let start_of_loop_skip = self.bytecode.len();
-                self.emit_byte(0, instruction.line); // placeholder
+                let jump_key = self.emit_jump(instruction.line, JumpType::JumpIfFalse);
 
                 self.compile_to_bytes(*body);
 
-                self.emit_byte(Bytecode::JumpBack as u8, instruction.line);
-                self.emit_byte(
-                    (self.bytecode.len() - start_of_loop + 1) as u8,
-                    instruction.line,
-                );
-                self.bytecode[start_of_loop_skip] =
-                    (self.bytecode.len() - start_of_loop_skip - 1) as u8;
+                let jump_back = self.emit_jump(instruction.line, JumpType::JumpBack);
+                self.finish_jump(jump_back, self.bytecode.len() - start_of_loop + 2);
+
+                self.finish_jump(jump_key, self.bytecode.len() - start_of_loop_skip - 1);
             }
             InstructionType::FunctionDeclaration {
                 body,
@@ -392,12 +389,55 @@ impl Compilation {
     }
 
     fn emit_byte(&mut self, byte: u8, line: u32) {
-        // if let std::collections::btree_map::Entry::Vacant(e) = self.line_table.entry(line) {
-        //     e.insert(1);
-        // } else {
-        //     *self.line_table.get_mut(&line).unwrap() += 1;
-        // }
         self.line_table.push(line);
         self.bytecode.push(byte);
     }
+
+    fn emit_jump(&mut self, line: u32, jump_type: JumpType) -> DefaultKey {
+        let key = self.jump_map.insert((jump_type, self.bytecode.len()));
+        self.emit_byte(255, line);
+        key
+    }
+
+    fn finish_jump(&mut self, jump: DefaultKey, amount: usize) {
+        let (jump_type, index) = self.jump_map.remove(jump).unwrap();
+        let change;
+        if let Ok(amount) = u8::try_from(amount) {
+            let byte = match jump_type {
+                JumpType::Jump => Bytecode::Jump,
+                JumpType::JumpIfFalse => Bytecode::JumpIfFalse,
+                JumpType::JumpBack => Bytecode::JumpBack,
+            };
+            self.bytecode[index] = byte as u8;
+            self.bytecode.insert(index+1, amount);
+            change = 1;
+        } else if let Ok(amount) = u16::try_from(amount) {
+            let byte = match jump_type {
+                JumpType::Jump => Bytecode::JumpLarge,
+                JumpType::JumpIfFalse => Bytecode::JumpIfFalseLarge,
+                JumpType::JumpBack => Bytecode::JumpBackLarge,
+            };
+            self.bytecode[index] = byte as u8;
+            let bytes = amount.to_le_bytes();
+            self.bytecode.insert(index+1, bytes[0]);
+            self.bytecode.insert(index+2, bytes[1]);
+            change = 2;
+        } else {
+            panic!("too big of a jump")
+        }
+
+        for jump_value in self.jump_map.iter_mut() {
+            if jump_value.1.1 > index {
+                jump_value.1.1 += change;
+            }
+        }
+
+    }
+}
+
+#[derive(Debug)]
+enum JumpType {
+    Jump,
+    JumpIfFalse,
+    JumpBack,
 }

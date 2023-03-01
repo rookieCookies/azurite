@@ -13,7 +13,7 @@ use std::{
     process::ExitCode,
 };
 
-use azurite_common::{Data, FileData, STRING_TERMINATOR};
+use azurite_common::{Data, FileData};
 use colored::Colorize;
 use compiler::{compile, Compilation};
 use zip::write::FileOptions;
@@ -63,13 +63,18 @@ fn create_file(compilation: Compilation, file: File) -> Result<(), ()> {
     // representation to a byte representation
     let mut data: Vec<u8> = vec![];
     for item in compilation.constants {
-        data.push(item.type_representation().byte_representation());
+        data.push(item.type_representation().into_byte_representation());
         match item {
             Data::Integer(v) => data.extend(v.to_le_bytes()),
             Data::Float(v) => data.extend(v.to_le_bytes()),
             Data::String(v) => {
+                let value : u32 = v.len().try_into().expect("constant string too big");
+                let values = value.to_le_bytes();
+                data.push(values[0]);
+                data.push(values[1]);
+                data.push(values[2]);
+                data.push(values[3]);
                 data.extend(v.as_bytes());
-                data.push(STRING_TERMINATOR); // terminate character
             }
             Data::Bool(v) => data.push(u8::from(v)),
         }
