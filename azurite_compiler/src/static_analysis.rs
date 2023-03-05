@@ -894,7 +894,7 @@ impl AnalysisState {
                 self.send_error(error_structure_doesnt_have_a_field_named(scope, (instruction.start, instruction.end), &datatype.to_string(), identifier));
             },
             InstructionType::Return(None) => todo!(),
-            InstructionType::InlineBytecode { .. } => (),
+            InstructionType::InlineBytecode { .. } => return_type = hint.unwrap_or(DataType::Empty),
         }
         return_type
     }

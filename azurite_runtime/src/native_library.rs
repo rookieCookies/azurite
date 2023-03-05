@@ -12,7 +12,7 @@ use crate::{
 type NativeFunctionReturn = Result<(), RuntimeError>;
 type NativeFunctionInput<'a, 'b, 'c> = (&'a mut VM, &'b mut Code<'c>);
 
-pub static RAW_FUNCTIONS: [fn(NativeFunctionInput) -> NativeFunctionReturn; 16] = [
+pub static RAW_FUNCTIONS: [fn(NativeFunctionInput) -> NativeFunctionReturn; 17] = [
     error,
     collect_garbage,
     read_io,
@@ -29,6 +29,7 @@ pub static RAW_FUNCTIONS: [fn(NativeFunctionInput) -> NativeFunctionReturn; 16] 
     env_var,
     env_set_var,
     append_str,
+    writeln_io,
 ];
 
 fn error((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
@@ -268,5 +269,19 @@ fn append_str((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
         _ => return Err(corrupt_bytecode()),
     };
     
+    Ok(())
+}
+
+fn writeln_io((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
+    let message_index = match vm.stack.pop() {
+        VMData::Object(v) => *v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    vm.stack.step();
+    let message = match &vm.get_object(message_index as usize).data {
+        crate::ObjectData::String(v) => v,
+        _ => return Err(corrupt_bytecode()),
+    };
+    println!("{message}");
     Ok(())
 }
