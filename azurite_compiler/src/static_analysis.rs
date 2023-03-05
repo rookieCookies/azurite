@@ -9,7 +9,7 @@ use crate::{
     },
     compiler::generate_instructions,
     error::{Error, Highlight, FATAL},
-    Generic,
+    Generic, utils::find_similar_string,
 };
 
 #[derive(Debug)]
@@ -47,7 +47,7 @@ pub struct Scope {
 
     pub variable_map: HashMap<String, usize>,
     function_map: HashMap<String, FunctionReference>,
-    pub strcture_map: HashMap<String, Vec<(String, DataType)>>,
+    pub structure_map: HashMap<String, Vec<(String, DataType)>>,
     structure_linkage: HashMap<String, String>,
 }
 
@@ -74,7 +74,7 @@ impl Scope {
             stack_emulation: native.stack_emulation.clone(),
             variable_map: native.variable_map.clone(),
             function_map: native.function_map.clone(),
-            strcture_map: native.strcture_map.clone(),
+            structure_map: native.structure_map.clone(),
             structure_linkage: native.structure_linkage.clone(),
         }
     }
@@ -86,7 +86,7 @@ impl Scope {
             stack_emulation: Vec::new(),
             variable_map: HashMap::new(),
             function_map: HashMap::new(),
-            strcture_map: HashMap::new(),
+            structure_map: HashMap::new(),
             structure_linkage: HashMap::new(),
         }
     }
@@ -224,7 +224,7 @@ impl AnalysisState {
             _ => panic!(),
         };
 
-        if scope.strcture_map.contains_key(&identifier) {
+        if scope.structure_map.contains_key(&identifier) {
             self.send_error(error_structure_already_exists(
                 scope,
                 (structure_declaration.start, structure_declaration.end),
@@ -233,7 +233,7 @@ impl AnalysisState {
 
         fields.sort_by_key(|x| x.0.clone());
         scope
-            .strcture_map
+            .structure_map
             .insert(identifier, fields.clone());
     }
 
@@ -262,7 +262,7 @@ impl AnalysisState {
                 if let Some(loaded_file) = self.loaded_files.get(file_name) {
                     scope.function_map.extend(loaded_file.function_map.clone());
                     scope.variable_map.extend(loaded_file.variable_map.clone());
-                    scope.strcture_map.extend(loaded_file.strcture_map.clone());
+                    scope.structure_map.extend(loaded_file.structure_map.clone());
                     return return_type;
                 }
                 let mut file = if let Ok(v) = File::open(&file_name) {
@@ -356,6 +356,7 @@ impl AnalysisState {
                             scope,
                             (instruction.start, instruction.end),
                             identifier,
+                            &scope.variable_map.keys().map(String::as_str).collect::<Vec<_>>()
                         ));
                         return return_type;
                     };
@@ -375,6 +376,7 @@ impl AnalysisState {
                             scope,
                             (instruction.start, instruction.end),
                             identifier,
+                            &scope.variable_map.keys().map(String::as_str).collect::<Vec<_>>()
                         ));
                         return return_type;
                     };
@@ -402,7 +404,7 @@ impl AnalysisState {
                 );
                 new_scope.variable_map = scope.variable_map.clone();
                 new_scope.function_map = scope.function_map.clone();
-                new_scope.strcture_map = scope.strcture_map.clone();
+                new_scope.structure_map = scope.structure_map.clone();
                 new_scope.structure_linkage = scope.structure_linkage.clone();
                 new_scope.stack_emulation = scope.stack_emulation.clone();
 
@@ -541,7 +543,7 @@ impl AnalysisState {
                     .collect();
                 function_scope.function_map = scope.function_map.clone();
                 function_scope.structure_linkage = scope.structure_linkage.clone();
-                function_scope.strcture_map = scope.strcture_map.clone();
+                function_scope.structure_map = scope.structure_map.clone();
                 function_scope.stack_emulation = arguments
                     .iter()
                     .enumerate()
@@ -605,6 +607,7 @@ impl AnalysisState {
                         scope,
                         (instruction.start, instruction.end),
                         identifier,
+                        &scope.function_map.keys().map(std::string::String::as_str).collect::<Vec<&str>>()
                     ));
                     return return_type;
                 }
@@ -664,14 +667,14 @@ impl AnalysisState {
                     );
 
                     function_scope.function_map = std::mem::take(&mut scope.function_map);
-                    function_scope.strcture_map = std::mem::take(&mut scope.strcture_map);
+                    function_scope.structure_map = std::mem::take(&mut scope.structure_map);
                     function_scope.structure_linkage = (0..function.generics.len())
                         .map(|x| (function.generics[x].clone(), generics[x].clone()))
                         .collect();
                     self.analyze_scope(&mut function_scope);
 
                     scope.current_file = std::mem::take(&mut function_scope.current_file);
-                    scope.strcture_map = std::mem::take(&mut function_scope.strcture_map);
+                    scope.structure_map = std::mem::take(&mut function_scope.structure_map);
                     scope.function_map = std::mem::take(&mut function_scope.function_map);
 
                     function_meta = if let Some(v) = scope.function_map.get(identifier) {
@@ -681,6 +684,7 @@ impl AnalysisState {
                             scope,
                             (instruction.start, instruction.end),
                             identifier,
+                            &scope.function_map.keys().map(std::string::String::as_str).collect::<Vec<&str>>()
                         ));
                         return return_type;
                     }
@@ -756,7 +760,7 @@ impl AnalysisState {
                     match datatype {
                         DataType::Struct(identifier) => match scope.struct_id(identifier) {
                             DataType::Struct(v) => {
-                                if !scope.strcture_map.contains_key(&v) {
+                                if !scope.structure_map.contains_key(&v) {
                                     self.send_error(error_structure_field_type_doesnt_exist(
                                         scope,
                                         (instruction.start, instruction.end),
@@ -776,14 +780,16 @@ impl AnalysisState {
             } => {
                 return_type = DataType::Struct(identifier.clone());
                 let structure_fields = if let Some(v) = scope
-                    .strcture_map
+                    .structure_map
                     .get(&scope.struct_id(identifier).to_string())
                 {
                     v
                 } else {
                     self.send_error(error_structure_doesnt_exist(
                         scope,
-                        (instruction.start, instruction.end),
+                        (instruction.start, instruction.start + identifier.len() as u32 - 1),
+                        identifier,
+                        &scope.structure_map.iter().map(|x| x.0.as_str()).collect::<Vec<_>>()
                     ));
                     return return_type;
                 };
@@ -802,6 +808,7 @@ impl AnalysisState {
                             (variable_data.start, variable_data.end),
                             identifier,
                             variable_identifier,
+                            &existing_fields.keys().map(String::as_str).collect::<Vec<_>>()
                         ));
                         continue;
                     };
@@ -852,10 +859,12 @@ impl AnalysisState {
                         | DataType::Bool
                         | DataType::Empty => (),
                         DataType::Struct(identifier) => {
-                            if !scope.strcture_map.contains_key(&identifier) {
+                            if !scope.structure_map.contains_key(&identifier) {
                                 self.send_error(error_structure_doesnt_exist(
                                     scope,
                                     (instruction.start, instruction.end),
+                                    &identifier,
+                                    &scope.structure_map.iter().map(|x| x.0.as_str()).collect::<Vec<_>>()
                                 ));
                             }
                         }
@@ -873,7 +882,7 @@ impl AnalysisState {
             InstructionType::AccessVariable { identifier, data, field_index } => {
                 let datatype = self.analyze(scope, data);
                 if let DataType::Struct(v) = &datatype {
-                    let structure = scope.strcture_map.get(v).unwrap();
+                    let structure = scope.structure_map.get(v).unwrap();
                     for (index, i) in structure.iter().enumerate() {
                         if i.0 == *identifier {
                             *field_index = (structure.len() - 1 - index) as u32;
@@ -954,12 +963,15 @@ fn error_explicit_type_and_value_differ(
 fn error_variable_doesnt_exist(
     scope: &Scope,
     (start, end): (u32, u32),
-    identifier: &String,
+    identifier: &str,
+    variables: &[&str],
 ) -> Error {
+    const TRESHOLD : usize = 5;
+    let possible_string = find_similar_string(identifier, variables, TRESHOLD);
     Error::new(
         vec![(start, end, Highlight::Red)],
         "variable doesn't exist",
-        format!("the variable {identifier} doesn't exist in the current scope",),
+        format!("the variable {identifier} doesn't exist in the current scope{}", if let Some(v) = possible_string { format!(". perhaps you meant {v}") } else { "".to_string() } ),
         &FATAL,
         scope.current_file.path.clone(),
     )
@@ -974,7 +986,7 @@ fn error_variable_type_and_value_type_differ(
 ) -> Error {
     Error::new(
         vec![(start, end, Highlight::Red)],
-        "variable doesn't exist",
+        "variable is of different type",
         format!(
             "the variable {identifier} is of type {variable_type} but the value assigned to it is of type {assigned_type}, consider trying re-declaring the variable with \"var {identifier} = ...\"",
         ),
@@ -1034,11 +1046,14 @@ fn error_function_isnt_declared(
     scope: &Scope,
     (start, end): (u32, u32),
     identifier: &String,
+    functions: &[&str],
 ) -> Error {
+    const TRESHOLD : usize = 5;
+    let possible_string = find_similar_string(identifier, functions, TRESHOLD);
     Error::new(
         vec![(start, end, Highlight::Red)],
         "function doesn't exist",
-        format!("function {identifier} isn't declared prior to this point",),
+        format!("function {identifier} isn't declared prior to this point{}", if let Some(v) = possible_string { format!(". perhaps you meant {v}") } else { "".to_string() } ),
         &FATAL,
         scope.current_file.path.clone(),
     )
@@ -1125,11 +1140,13 @@ fn error_structure_already_exists(scope: &Scope, (start, end): (u32, u32)) -> Er
     )
 }
 
-fn error_structure_doesnt_exist(scope: &Scope, (start, end): (u32, u32)) -> Error {
+fn error_structure_doesnt_exist(scope: &Scope, (start, end): (u32, u32), identifier: &str, structs: &[&str]) -> Error {
+    const TRESHOLD : usize = 5;
+    let possible_string = find_similar_string(identifier, structs, TRESHOLD);
     Error::new(
         vec![(start, end, Highlight::Red)],
         "structure doesn't exist",
-        "structure isn't declared prior to this point".to_string(),
+        format!("structure isn't declared prior to this point{}", if let Some(v) = possible_string { format!(". perhaps you meant {v}") } else { "".to_string() } ),
         &FATAL,
         scope.current_file.path.clone(),
     )
@@ -1139,12 +1156,15 @@ fn error_structure_field_doesnt_exist(
     scope: &Scope,
     (start, end): (u32, u32),
     structure_identifier: &String,
-    field: &String,
+    field: &str,
+    fields: &[&str]
 ) -> Error {
+    const TRESHOLD : usize = 5;
+    let possible_string = find_similar_string(field, fields, TRESHOLD);
     Error::new(
         vec![(start, end, Highlight::Red)],
         "structure field doesn't exist",
-        format!("the structure {structure_identifier} does not have a field named {field}"),
+        format!("the structure {structure_identifier} does not have a field named {field}{}", if let Some(v) = possible_string { format!(". perhaps you meant {v}") } else { "".to_string() } ),
         &FATAL,
         scope.current_file.path.clone(),
     )
@@ -1313,3 +1333,4 @@ fn type_check_binary_operation_order(
         )),
     }
 }
+

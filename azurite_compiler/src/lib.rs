@@ -6,6 +6,7 @@ mod lexer;
 mod lexer_tests;
 mod parser;
 mod static_analysis;
+mod utils;
 
 use std::{
     fs::{self, File},

@@ -1,22 +1,21 @@
 var a = 3
 var b = 2
-bytecode {
-         // [3, 2    ]
-    dup  // [3, 2, 2 ]
-    mul  // [3, 4    ]
-    jmpl
-    jmp 321498763456789
-}
-
-IO::writeln(b.to_string()) // prints 4
 
 bytecode {
-         // [3, 4    ]
-    swap // [4, 3    ]
-    over // [4, 3, 4 ]
-    mul  // [4, 12   ]
-    swap // [12, 4   ]
+         // [ 3, 2    ]
+    dup  // [ 3, 2, 2 ]
+    mul  // [ 3, 4    ]
 }
 
-IO::writeln(a.to_string()) // prints 12
-IO::writeln(b.to_string()) // prints 4
+IO::writeln(b.to_string()) // -> 4
+
+bytecode {
+         // [ 3, 4    ]
+    swap // [ 4, 3    ]
+    over // [ 4, 3, 4 ]
+    mul  // [ 4, 12   ]
+    swap // [ 12, 4   ]
+}
+
+IO::writeln(a.to_string()) // -> 12
+IO::writeln(b.to_string()) // -> 4
