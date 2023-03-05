@@ -429,6 +429,12 @@ impl Compilation {
                         BytecodeInstructions::Over => self.emit_byte(Bytecode::Over as u8, instruction.line),
                         BytecodeInstructions::Swap => self.emit_byte(Bytecode::Swap as u8, instruction.line),
                         BytecodeInstructions::Duplicate => self.emit_byte(Bytecode::Duplicate as u8, instruction.line),
+                        BytecodeInstructions::IndexSwap(v1, v2) => {
+                            self.emit_byte(Bytecode::IndexSwap as u8, instruction.line);
+                            self.emit_byte(v1, instruction.line);
+                            self.emit_byte(v2, instruction.line);
+                        },
+                        BytecodeInstructions::AddOne => self.emit_byte(Bytecode::Increment as u8, instruction.line),
                     }
                 }
             },

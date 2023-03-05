@@ -387,6 +387,18 @@ impl VM {
                 &consts::Duplicate => {
                     self.stack.push(self.stack.data[self.stack.top-1].clone())?;
                 }
+                &consts::IndexSwap => {
+                    let v1 = *current.next();
+                    let v2 = *current.next();
+                    self.stack.data.swap(v1 as usize, v2 as usize);
+                }
+                &consts::Increment => {
+                    match self.stack.data.get_mut(self.stack.top-1).unwrap() {
+                        VMData::Integer(v) => *v += 1,
+                        VMData::Float(v) => *v += 1.0,
+                        _ => return Err(corrupt_bytecode())
+                    }
+                }
                 _ => panic!(),
             };
 

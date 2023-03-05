@@ -1,6 +1,6 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::cast_possible_truncation)]
-use std::{env, io::Read, mem::size_of, process::ExitCode};
+use std::{env, io::Read, mem::size_of, process::ExitCode, time::Instant};
 
 use azurite_common::{DataType};
 use object_map::ObjectMap;
@@ -68,9 +68,9 @@ pub fn run_file(path: &str) -> Result<(), ExitCode> {
         }
     };
     // println!("{:?}", vm.constants);
-    // let start = Instant::now();
+    let start = Instant::now();
     let runtime = vm.run(&bytecode);
-    // println!("{}", start.elapsed().as_secs_f64());
+    println!("{}", start.elapsed().as_secs_f64());
 
     #[cfg(feature = "hotspot")]
     {

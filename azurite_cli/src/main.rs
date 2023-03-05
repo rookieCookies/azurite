@@ -185,6 +185,7 @@ fn compile(file: &str) -> Result<(), ExitCode> {
 }
 
 #[allow(clippy::format_push_string)]
+#[allow(clippy::too_many_lines)]
 fn disassemble(mut v: IntoIter<u8>) -> String {
     let mut depth = 0;
     let mut disassemble = String::new();
@@ -282,7 +283,15 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
             consts::Rotate => disassemble.push_str("rotate"),
             consts::Over => disassemble.push_str("over"),
             consts::Swap => disassemble.push_str("swap"),
+            consts::IndexSwap => {
+                disassemble.push_str(&format!(
+                    "index swap {} {}",
+                    v.next().unwrap(),
+                    v.next().unwrap(),
+                ));
+            },
             consts::Duplicate => disassemble.push_str("duplicate"),
+            consts::Increment => disassemble.push_str("increment"),
             _ => disassemble.push_str(&format!("UNKNOWN INDEX{{{}}}", i))
         };
     }

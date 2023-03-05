@@ -367,6 +367,20 @@ Note: Inline bytecode is an advanced feature, please do not use it unless you ab
     stack affect: ( x y -- y x )
 
 
+### iswap (Indexed Swap)
+    info: swaps the values at an arbitrary index with a value at another arbitrary index
+
+    usage: 'iswap [index] [index]'
+    
+    bytecode size: 3
+
+    stack affect: ( x y -- y x )
+
+    expectations:
+        - both indexs is a valid stack index
+        - both indexs is less than 255
+
+
 ### dup (Duplicate)
     info: duplicates and pushes the value at the top of the stack
 
@@ -375,3 +389,13 @@ Note: Inline bytecode is an advanced feature, please do not use it unless you ab
     bytecode size: 1
 
     stack affect: ( x -- x x )
+
+
+### inc (Increment)
+    info: increments the value in place
+
+    usage: 'inc'
+    
+    bytecode size: 1
+
+    stack affect: ( x -- x )

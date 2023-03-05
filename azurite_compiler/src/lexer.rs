@@ -261,7 +261,7 @@ impl Lexer {
         while let Some(chr) = self.current_char() {
             match chr {
                 '.' => {
-                    if let Some('a'..='z' | 'A'..='Z' | '0'..='9' | '_') = self.peek() {
+                    if let Some('a'..='z' | 'A'..='Z' | '_') = self.peek() {
                         break
                     }
                     dot_count += 1;

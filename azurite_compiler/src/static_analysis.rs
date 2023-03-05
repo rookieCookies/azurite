@@ -321,7 +321,6 @@ impl AnalysisState {
                 // the rest of this fails and early returns
                 // the rest of the analysis assumes the variable
                 // at least exists
-                let is_overriding = scope.variable_map.insert(identifier.clone(), usize::MAX);
                 let type_of_data = self.analyze(scope, data);
                 let type_of_variable = match type_declaration {
                     Some(v) => {
@@ -332,6 +331,7 @@ impl AnalysisState {
                                 v,
                                 &type_of_data,
                             ));
+                            scope.variable_map.insert(identifier.clone(), usize::MAX);
                             return return_type;
                         }
                         v.clone()
@@ -339,6 +339,7 @@ impl AnalysisState {
                     None => type_of_data,
                 };
 
+                let is_overriding = scope.variable_map.insert(identifier.clone(), usize::MAX);
                 if let Some(index) = is_overriding {
                     scope.variable_map.insert(identifier.clone(), index);
                 } else {
@@ -567,7 +568,7 @@ impl AnalysisState {
 
                 let mut instruction = function_scope.instructions.remove(0);
                 match &mut instruction.instruction_type {
-                    InstructionType::Block { .. } => {}
+                    InstructionType::Block { pop, .. } => *pop = 0,
                     _ => panic!(),
                 }
 

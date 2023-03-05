@@ -284,6 +284,9 @@ pub enum Bytecode : u8 {
     Rotate,
     Over,
     Swap,
+    IndexSwap,
     Duplicate,
+
+    Increment,
 }
 }
