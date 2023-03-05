@@ -260,7 +260,12 @@ impl Lexer {
         let mut dot_count = 0;
         while let Some(chr) = self.current_char() {
             match chr {
-                '.' => dot_count += 1,
+                '.' => {
+                    if let Some('a'..='z' | 'A'..='Z' | '0'..='9' | '_') = self.peek() {
+                        break
+                    }
+                    dot_count += 1;
+                },
                 '0'..='9' => (),
                 '_' => {
                     self.advance();

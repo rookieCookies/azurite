@@ -271,20 +271,18 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
                 ));
                 depth += 1;
             }
-            consts::CallFunction => {
-                disassemble.push_str(&format!("call function {}", v.next().unwrap()));
-            }
+            consts::CallFunction => disassemble.push_str(&format!("call function {}", v.next().unwrap())),
             consts::CreateStruct => {
                 let size = v.next().unwrap();
 
                 disassemble.push_str(&format!("create struct {size}"));
             }
-            consts::AccessData => {
-                disassemble.push_str(&format!("access data {}", v.next().unwrap()));
-            }
-            consts::RawCall => {
-                disassemble.push_str(&format!("raw call {}", v.next().unwrap()));
-            }
+            consts::AccessData => disassemble.push_str(&format!("access data {}", v.next().unwrap())),
+            consts::RawCall => disassemble.push_str(&format!("raw call {}", v.next().unwrap())),
+            consts::Rotate => disassemble.push_str("rotate"),
+            consts::Over => disassemble.push_str("over"),
+            consts::Swap => disassemble.push_str("swap"),
+            consts::Duplicate => disassemble.push_str("duplicate"),
             _ => disassemble.push_str(&format!("UNKNOWN INDEX{{{}}}", i))
         };
     }

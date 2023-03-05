@@ -1,3 +1,5 @@
+pub mod inline_bytecode;
+
 use azurite_common::{Data, DataType};
 
 use crate::{
@@ -68,6 +70,7 @@ impl Parser {
                     TokenType::Raw,
                     TokenType::Using,
                     TokenType::Inline,
+                    TokenType::Bytecode
                 ]
                 .contains(&self.current_token().unwrap().token_type)
             {
@@ -312,6 +315,7 @@ impl Parser {
             TokenType::Impl => return self.impl_block(),
             TokenType::Raw => return self.raw_call(),
             TokenType::Using => return self.using_statement(),
+            TokenType::Bytecode => return self.bytecode_statement(),
             TokenType::Identifier(_) => {
                 if let Some(peeked_token) = self.peek() {
                     if TokenType::Equals == peeked_token.token_type {
@@ -563,7 +567,7 @@ impl Parser {
                     InstructionType::FunctionDeclaration { identifier, .. } => {
                         *identifier = format!("{datatype}::{identifier}");
                     }
-                    _ => panic!("unreachable"),
+                    _ => unreachable!(),
                 }
                 functions.push(function);
             }
@@ -591,7 +595,7 @@ impl Parser {
         self.expect(&TokenType::Integer(0))?;
         let integer = match self.current_token().unwrap().token_type {
             TokenType::Integer(v) => v,
-            _ => panic!("unreachable"),
+            _ => unreachable!(),
         };
         Some(Instruction {
             instruction_type: InstructionType::RawCall(integer),
@@ -610,7 +614,7 @@ impl Parser {
         self.expect(&TokenType::String(String::new()))?;
         let string = match &self.current_token().unwrap().token_type {
             TokenType::String(v) => v.clone(),
-            _ => panic!("unreachable"),
+            _ => unreachable!(),
         };
         let _end_context = self.context_of_current_token()?;
 
@@ -622,15 +626,9 @@ impl Parser {
             pop_after: false,
         })
     }
-
-    // bytecode-statement:
-    // |> 'bytecode' '{' bytecode '}'
-    fn _bytecode_statement(&mut self) -> Option<Instruction> {
-        let context = self.context_of_current_token()?;
-        self.expect_and_advance(&TokenType::Bytecode)?;
-        None
-    }
 }
+
+
 
 // ############################
 //
@@ -758,7 +756,7 @@ impl Parser {
                         *arguments = a;
                         *created_by_accessing = true;
                     }
-                    _ => panic!("unreachable"),
+                    _ => unreachable!(),
                 }
                 instruction = function;
                 self.advance();
@@ -820,7 +818,7 @@ impl Parser {
                                 InstructionType::FunctionCall { identifier, .. } => {
                                     *identifier = format!("{v}::{identifier}");
                                 }
-                                _ => panic!("unreachable"),
+                                _ => unreachable!(),
                             };
                             Some(function)
                         }

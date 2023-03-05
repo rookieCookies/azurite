@@ -1,6 +1,6 @@
 use azurite_common::{Data, DataType};
 
-use crate::Generic;
+use crate::{Generic, parser::inline_bytecode::BytecodeInstructions};
 
 use self::{binary_operation::BinaryOperator, unary_operation::UnaryOperator};
 
@@ -79,6 +79,9 @@ pub enum InstructionType {
         functions: Vec<Instruction>,
     },
     RawCall(i64),
+    InlineBytecode {
+        bytecode: Vec<BytecodeInstructions>,
+    },
 }
 
 #[derive(Debug, Clone)]

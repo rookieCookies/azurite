@@ -230,7 +230,7 @@ impl VM {
                 }
                 &consts::GetVarFast => {
                     let index = *current.next();
-                    debug_assert!(self.stack.top > current.stack_offset + index as usize, "{} {index}", current.stack_offset);
+                    debug_assert!(self.stack.top > current.stack_offset + index as usize, "get var out of bounds {} {index}", current.stack_offset);
                     self.stack
                         .push(self.stack.data[current.stack_offset + index as usize].clone())?;
                 }
@@ -370,6 +370,22 @@ impl VM {
                     self.stack.pop_multi_ignore(amount as usize);
                     self.stack.swap_top_with(return_value);
                     // self.stack.step();
+                }
+                &consts::Rotate => {
+                    self.stack.step_back();
+                    self.stack.swap_top_with(self.stack.top-1);
+                    self.stack.swap_top_with(self.stack.top-2);
+                    self.stack.step();
+                }
+                &consts::Over => {
+                    self.stack.push(self.stack.data[self.stack.top-2].clone())?;
+                }
+                &consts::Swap => {
+                    self.stack.swap_top_with_while_stepping_back(self.stack.top-2);
+                    self.stack.step();
+                }
+                &consts::Duplicate => {
+                    self.stack.push(self.stack.data[self.stack.top-1].clone())?;
                 }
                 _ => panic!(),
             };

@@ -20,6 +20,8 @@ pub struct AnalysisState {
     pub function_stack: Vec<Function>,
     pub inline_functions: Vec<Function>,
     pub template_functions: Vec<Function>,
+
+    pub is_in_panic: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -194,18 +196,15 @@ impl AnalysisState {
             }
         }
 
-        // dbg!("aaaaaaaaaaa", &scope);
         for instruction in &mut instructions {
             return_type = self.analyze_with_type_hint(scope, instruction, hint.clone());
+            self.is_in_panic = false;
         }
-        // return_type = scope.struct_id(&return_type.to_string());
 
         if dont_pop_last {
             if let Some(v) = instructions.last_mut() {
                 v.pop_after = false;
             }
-            // } else {
-            //     false
         };
 
         debug_assert!(scope.instructions.is_empty());
@@ -226,7 +225,7 @@ impl AnalysisState {
         };
 
         if scope.strcture_map.contains_key(&identifier) {
-            self.errors.push(error_structure_already_exists(
+            self.send_error(error_structure_already_exists(
                 scope,
                 (structure_declaration.start, structure_declaration.end),
             ));
@@ -244,14 +243,14 @@ impl AnalysisState {
         instruction: &mut Instruction,
         hint: Option<DataType>,
     ) -> DataType {
-        let v = self.analyze_with_type_hint_w(scope, instruction, hint);
+        let v = self.analyze_with_type_hint_raw(scope, instruction, hint);
         scope.struct_id(&v.to_string())
     }
     /// # Panics
     /// # Errors
     #[allow(clippy::too_many_lines)]
     #[allow(clippy::cast_possible_truncation)]
-    pub fn analyze_with_type_hint_w(
+    pub fn analyze_with_type_hint_raw(
         &mut self,
         scope: &mut Scope,
         instruction: &mut Instruction,
@@ -269,7 +268,7 @@ impl AnalysisState {
                 let mut file = if let Ok(v) = File::open(&file_name) {
                     v
                 } else {
-                    self.errors.push(error_unable_to_locate_file(
+                    self.send_error(error_unable_to_locate_file(
                         scope,
                         (instruction.start, instruction.end),
                         file_name,
@@ -279,7 +278,7 @@ impl AnalysisState {
 
                 let mut file_buffer = String::new();
                 if file.read_to_string(&mut file_buffer).is_err() {
-                    self.errors.push(error_unable_to_read_file(
+                    self.send_error(error_unable_to_read_file(
                         scope,
                         (instruction.start, instruction.end),
                         file_name,
@@ -327,7 +326,7 @@ impl AnalysisState {
                 let type_of_variable = match type_declaration {
                     Some(v) => {
                         if type_of_data != *v {
-                            self.errors.push(error_explicit_type_and_value_differ(
+                            self.send_error(error_explicit_type_and_value_differ(
                                 scope,
                                 (instruction.start, instruction.end),
                                 v,
@@ -353,7 +352,7 @@ impl AnalysisState {
                     if let Some(variable_index) = scope.variable_map.get(identifier) {
                         *variable_index
                     } else {
-                        self.errors.push(error_variable_doesnt_exist(
+                        self.send_error(error_variable_doesnt_exist(
                             scope,
                             (instruction.start, instruction.end),
                             identifier,
@@ -372,7 +371,7 @@ impl AnalysisState {
                     if let Some(variable_index) = scope.variable_map.get(identifier) {
                         *variable_index
                     } else {
-                        self.errors.push(error_variable_doesnt_exist(
+                        self.send_error(error_variable_doesnt_exist(
                             scope,
                             (instruction.start, instruction.end),
                             identifier,
@@ -384,7 +383,7 @@ impl AnalysisState {
                 let type_of_variable = scope.stack_emulation.get(variable_index).unwrap();
 
                 if type_of_data != *type_of_variable {
-                    self.errors.push(error_variable_type_and_value_type_differ(
+                    self.send_error(error_variable_type_and_value_type_differ(
                         scope,
                         (instruction.start, instruction.end),
                         identifier,
@@ -423,7 +422,7 @@ impl AnalysisState {
             } => {
                 let condition_type = self.analyze(scope, condition);
                 if condition_type != DataType::Bool {
-                    self.errors.push(error_non_expected_type(
+                    self.send_error(error_non_expected_type(
                         scope,
                         (condition.start, condition.end),
                         &DataType::Bool,
@@ -438,7 +437,7 @@ impl AnalysisState {
                     Some(else_part) => {
                         let else_type = self.analyze(scope, else_part);
                         if return_type != else_type {
-                            self.errors.push(error_else_clause_isnt_of_type(
+                            self.send_error(error_else_clause_isnt_of_type(
                                 scope,
                                 (instruction.start, else_part.end),
                                 &return_type,
@@ -464,7 +463,7 @@ impl AnalysisState {
                     &scope.current_file.path,
                     (left.start, right.end),
                 ) {
-                    self.errors.push(v);
+                    self.send_error(v);
                 }
 
                 return_type = match operator {
@@ -493,7 +492,7 @@ impl AnalysisState {
                             UnaryOperator::Minus => DataType::Integer,
                             UnaryOperator::Not => todo!(),
                         };
-                        self.errors.push(error_non_expected_type(
+                        self.send_error(error_non_expected_type(
                             scope,
                             (instruction.start, instruction.end),
                             &expected,
@@ -556,7 +555,7 @@ impl AnalysisState {
 
                 if body_return_type != function_return_type {
                     dbg!(&body_return_type, &function_return_type);
-                    self.errors.push(error_function_return_type_is_different(
+                    self.send_error(error_function_return_type_is_different(
                         scope,
                         (instruction.start, instruction.end),
                         &function_return_type,
@@ -602,7 +601,7 @@ impl AnalysisState {
                 let mut function_meta = if let Some(v) = scope.function_map.get(identifier) {
                     v
                 } else {
-                    self.errors.push(error_function_isnt_declared(
+                    self.send_error(error_function_isnt_declared(
                         scope,
                         (instruction.start, instruction.end),
                         identifier,
@@ -624,7 +623,7 @@ impl AnalysisState {
 
                     
                     if function.generics.len() != generics.len() {
-                        self.errors.push(error_invalid_generic_amount(
+                        self.send_error(error_invalid_generic_amount(
                             scope,
                             (instruction.start, instruction.end),
                             function.arguments.len(),
@@ -678,7 +677,7 @@ impl AnalysisState {
                     function_meta = if let Some(v) = scope.function_map.get(identifier) {
                         v
                     } else {
-                        self.errors.push(error_function_isnt_declared(
+                        self.send_error(error_function_isnt_declared(
                             scope,
                             (instruction.start, instruction.end),
                             identifier,
@@ -708,8 +707,7 @@ impl AnalysisState {
                 }
 
                 if *created_by_accessing && function.is_static {
-                    self.errors
-                        .push(error_static_function_accessed_non_statically(
+                    self.send_error(error_static_function_accessed_non_statically(
                             scope,
                             (instruction.start, instruction.end),
                         ));
@@ -717,7 +715,7 @@ impl AnalysisState {
                 }
 
                 if function.arguments.len() != arguments.len() {
-                    self.errors.push(error_invalid_function_argument_amount(
+                    self.send_error(error_invalid_function_argument_amount(
                         scope,
                         (instruction.start, instruction.end - 1),
                         function.arguments.len(),
@@ -734,7 +732,7 @@ impl AnalysisState {
                     }
                     dbg!(&argument_type, scope.struct_id(&function.arguments[index].1.to_string()), &function.arguments[index].1);
                     if index == 0 && *created_by_accessing {
-                        self.errors.push(error_function_doesnt_exist_for_type(
+                        self.send_error(error_function_doesnt_exist_for_type(
                             scope,
                             (instruction.start, instruction.end),
                             identifier,
@@ -742,7 +740,7 @@ impl AnalysisState {
                         ));
                         continue;
                     }
-                    self.errors.push(error_function_arguments_differ_in_type(
+                    self.send_error(error_function_arguments_differ_in_type(
                         scope,
                         (argument.start, argument.end),
                         &function.arguments[index].1,
@@ -759,7 +757,7 @@ impl AnalysisState {
                         DataType::Struct(identifier) => match scope.struct_id(identifier) {
                             DataType::Struct(v) => {
                                 if !scope.strcture_map.contains_key(&v) {
-                                    self.errors.push(error_structure_field_type_doesnt_exist(
+                                    self.send_error(error_structure_field_type_doesnt_exist(
                                         scope,
                                         (instruction.start, instruction.end),
                                         datatype,
@@ -783,7 +781,7 @@ impl AnalysisState {
                 {
                     v
                 } else {
-                    self.errors.push(error_structure_doesnt_exist(
+                    self.send_error(error_structure_doesnt_exist(
                         scope,
                         (instruction.start, instruction.end),
                     ));
@@ -799,7 +797,7 @@ impl AnalysisState {
                     let field_type = if let Some(v) = existing_fields.get(variable_identifier) {
                         v
                     } else {
-                        self.errors.push(error_structure_field_doesnt_exist(
+                        self.send_error(error_structure_field_doesnt_exist(
                             scope,
                             (variable_data.start, variable_data.end),
                             identifier,
@@ -811,7 +809,7 @@ impl AnalysisState {
                     let variable_type = self.analyze(scope, variable_data);
 
                     if variable_type != *field_type {
-                        self.errors.push(error_structure_fields_differ_in_type(
+                        self.send_error(error_structure_fields_differ_in_type(
                             scope,
                             (variable_data.start, variable_data.end),
                             identifier,
@@ -828,7 +826,7 @@ impl AnalysisState {
                     .map(|x| x.0)
                     .collect();
                 if !missing.is_empty() {
-                    self.errors.push(error_structure_missing_fields(
+                    self.send_error(error_structure_missing_fields(
                         scope,
                         (instruction.start, instruction.end),
                         &missing,
@@ -855,7 +853,7 @@ impl AnalysisState {
                         | DataType::Empty => (),
                         DataType::Struct(identifier) => {
                             if !scope.strcture_map.contains_key(&identifier) {
-                                self.errors.push(error_structure_doesnt_exist(
+                                self.send_error(error_structure_doesnt_exist(
                                     scope,
                                     (instruction.start, instruction.end),
                                 ));
@@ -884,9 +882,10 @@ impl AnalysisState {
                         }
                     }
                 }
-                self.errors.push(error_structure_doesnt_have_a_field_named(scope, (instruction.start, instruction.end), &datatype.to_string(), identifier));
+                self.send_error(error_structure_doesnt_have_a_field_named(scope, (instruction.start, instruction.end), &datatype.to_string(), identifier));
             },
             InstructionType::Return(None) => todo!(),
+            InstructionType::InlineBytecode { .. } => (),
         }
         return_type
     }
@@ -898,7 +897,16 @@ impl AnalysisState {
             function_stack: Vec::new(),
             inline_functions: Vec::new(),
             template_functions: Vec::new(),
+            is_in_panic: false,
         }
+    }
+
+    pub fn send_error(&mut self, error: Error) {
+        if self.is_in_panic {
+            return
+        }
+        self.errors.push(error);
+        self.is_in_panic = true;
     }
 }
 

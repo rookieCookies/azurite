@@ -10,7 +10,7 @@ use crate::{
     },
     error::Error,
     lexer::lex,
-    parser::Parser,
+    parser::{Parser, inline_bytecode::BytecodeInstructions},
     static_analysis::{AnalysisState, Scope},
     Generic,
 };
@@ -380,7 +380,61 @@ impl Compilation {
                 self.emit_byte(Bytecode::RawCall as u8, instruction.line);
                 self.emit_byte(v as u8, instruction.line);
             }
-            _ => (),
+            InstructionType::InlineBytecode { bytecode } => {
+                for bytecode in bytecode {
+                    match bytecode {
+                        BytecodeInstructions::Equals => self.emit_byte(Bytecode::EqualsTo as u8, instruction.line),
+                        BytecodeInstructions::NotEquals => self.emit_byte(Bytecode::NotEqualsTo as u8, instruction.line),
+                        BytecodeInstructions::GreaterThan => self.emit_byte(Bytecode::GreaterThan as u8, instruction.line),
+                        BytecodeInstructions::LessThan => self.emit_byte(Bytecode::LesserThan as u8, instruction.line),
+                        BytecodeInstructions::GreaterEquals => self.emit_byte(Bytecode::GreaterEquals as u8, instruction.line),
+                        BytecodeInstructions::LesserEquals => self.emit_byte(Bytecode::LesserEquals as u8, instruction.line),
+                        BytecodeInstructions::Jump(v) => self.emit_quick_jump(instruction.line, JumpType::Jump, v as usize),
+                        BytecodeInstructions::JumpIfFalse(v) => self.emit_quick_jump(instruction.line, JumpType::JumpIfFalse, v as usize),
+                        BytecodeInstructions::BackJump(v) => self.emit_quick_jump(instruction.line, JumpType::JumpBack, v as usize),
+                        BytecodeInstructions::JumpLarge(v) => self.emit_quick_jump(instruction.line, JumpType::Jump, v as usize),
+                        BytecodeInstructions::JumpIfFalseLarge(v) => self.emit_quick_jump(instruction.line, JumpType::JumpIfFalse, v as usize),
+                        BytecodeInstructions::BackJumpLarge(v) => self.emit_quick_jump(instruction.line, JumpType::JumpBack, v as usize),
+                        BytecodeInstructions::Add => self.emit_byte(Bytecode::Add as u8, instruction.line),
+                        BytecodeInstructions::Subtract => self.emit_byte(Bytecode::Subtract as u8, instruction.line),
+                        BytecodeInstructions::Multiply => self.emit_byte(Bytecode::Multiply as u8, instruction.line),
+                        BytecodeInstructions::Division => self.emit_byte(Bytecode::Divide as u8, instruction.line),
+                        BytecodeInstructions::TakeFast(v) => {
+                            self.emit_byte(Bytecode::GetVarFast as u8, instruction.line);
+                            self.emit_byte(v, instruction.line);
+                        },
+                        BytecodeInstructions::Take(v) => {
+                            self.emit_byte(Bytecode::GetVarFast as u8, instruction.line);
+                            let values = v.to_le_bytes();
+                            self.emit_byte(values[0], instruction.line);
+                            self.emit_byte(values[1], instruction.line);
+                        },
+                        BytecodeInstructions::ReplaceFast(v) => {
+                            self.emit_byte(Bytecode::ReplaceVarFast as u8, instruction.line);
+                            self.emit_byte(v, instruction.line);
+                        },
+                        BytecodeInstructions::Replace(v) => {
+                            self.emit_byte(Bytecode::ReplaceVar as u8, instruction.line);
+                            let values = v.to_le_bytes();
+                            self.emit_byte(values[0], instruction.line);
+                            self.emit_byte(values[1], instruction.line);
+                        },
+                        BytecodeInstructions::Not => self.emit_byte(Bytecode::Not as u8, instruction.line),
+                        BytecodeInstructions::Negate => self.emit_byte(Bytecode::Negative as u8, instruction.line),
+                        BytecodeInstructions::Raw(v) => {
+                            self.emit_byte(Bytecode::RawCall as u8, instruction.line);
+                            self.emit_byte(v, instruction.line);
+                        },
+                        BytecodeInstructions::Rotate => self.emit_byte(Bytecode::Rotate as u8, instruction.line),
+                        BytecodeInstructions::Over => self.emit_byte(Bytecode::Over as u8, instruction.line),
+                        BytecodeInstructions::Swap => self.emit_byte(Bytecode::Swap as u8, instruction.line),
+                        BytecodeInstructions::Duplicate => self.emit_byte(Bytecode::Duplicate as u8, instruction.line),
+                    }
+                }
+            },
+            | InstructionType::Using(_)
+            | InstructionType::StructDeclaration { .. }
+            | InstructionType::ImplBlock { .. } => (), // Virtual Nodes
         }
         if instruction.pop_after {
             self.emit_byte(Bytecode::Pop as u8, instruction.line);
@@ -397,6 +451,11 @@ impl Compilation {
         let key = self.jump_map.insert((jump_type, self.bytecode.len()));
         self.emit_byte(255, line);
         key
+    }
+
+    fn emit_quick_jump(&mut self, line: u32, jump_type: JumpType, amount: usize) {
+        let key = self.emit_jump(line, jump_type);
+        self.finish_jump(key, amount);
     }
 
     fn finish_jump(&mut self, jump: DefaultKey, amount: usize) {
