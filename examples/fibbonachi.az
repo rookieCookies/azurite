@@ -1,3 +1,23 @@
+fn fib_iter(n: float) -> float {
+    var a = 0.0
+    var b = 1.0
+    var i = 0.0
+    while i < n {
+        var c = a + b 
+        a = b
+        b = c
+        i = i + 1.0
+    }
+    a
+}
+
+fn fib_recursive(n: float) -> float {
+    if n < 2.0 {
+        return n
+    }
+    fib_recursive(n - 1.0) + fib_recursive(n - 2.0)
+}
+
 fn bytecode_fib(n: float) -> float {
     var a = 0.0
     var b = 1.0
@@ -31,4 +51,7 @@ fn bytecode_fib(n: float) -> float {
     }
 }
 
+
+assert_info(fib_iter(10.0) == 55.0, "fib_iter(10.0) == 55")
+assert_info(fib_recursive(10.0) == 55.0, "fib_recursive(10.0) == 55.0")
 assert_info(bytecode_fib(10.0) == 55.0, "bytecode_fib(10.0) == 55.0")

@@ -280,13 +280,11 @@ pub enum Bytecode : u8 {
     CreateStruct,
     AccessData,
     RawCall,
-
     Rotate,
     Over,
     Swap,
     IndexSwap,
     Duplicate,
-
     Increment,
 }
 }

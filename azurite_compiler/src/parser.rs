@@ -313,6 +313,7 @@ impl Parser {
             TokenType::Return => return self.return_statement(),
             TokenType::Struct => return self.structure_declaration(),
             TokenType::Impl => return self.impl_block(),
+            TokenType::Namespace => return self.namespace_block(),
             TokenType::Raw => return self.raw_call(),
             TokenType::Using => return self.using_statement(),
             TokenType::Bytecode => return self.bytecode_statement(),
@@ -578,6 +579,46 @@ impl Parser {
         Some(Instruction {
             instruction_type: InstructionType::ImplBlock {
                 datatype,
+                functions,
+            },
+            start: context.0,
+            end: self.context_of_current_token()?.1,
+            line: context.2,
+            pop_after: false,
+        })
+    }
+
+    // namespace-block:
+    // |> 'namespace' identifier '{' function-declaration* '}'
+    fn namespace_block(&mut self) -> Option<Instruction> {
+        let context = self.context_of_current_token()?;
+        self.expect_and_advance(&TokenType::Namespace)?;
+        let datatype = self.expect_identifier_and_advance()?;
+        self.expect_and_advance(&TokenType::LeftCurly)?;
+        let mut functions = vec![];
+        loop {
+            let current_token = self.current_token().unwrap();
+            if [TokenType::RightCurly, TokenType::EndOfFile].contains(&current_token.token_type) {
+                break;
+            }
+            if self.expect_without_error(&TokenType::Inline).is_some()
+                || self.expect(&TokenType::Fn).is_some()
+            {
+                let mut function = self.function_declaration(&None)?;
+                match &mut function.instruction_type {
+                    InstructionType::FunctionDeclaration { identifier, .. } => {
+                        *identifier = format!("{datatype}::{identifier}");
+                    }
+                    _ => unreachable!(),
+                }
+                functions.push(function);
+            }
+            self.advance();
+        }
+        self.expect(&TokenType::RightCurly)?;
+
+        Some(Instruction {
+            instruction_type: InstructionType::NamespaceBlock {
                 functions,
             },
             start: context.0,

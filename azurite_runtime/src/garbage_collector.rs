@@ -1,4 +1,4 @@
-use crate::{vm::VM, Object, VMData};
+use crate::{vm::VM, Object, VMData, object_map::ObjectMap, ObjectData};
 
 impl VM {
     // TODO: Improve, just kind of slapped it here I mean cmon dude
@@ -9,37 +9,25 @@ impl VM {
 
     fn mark(&mut self) {
         let a = unsafe { &mut *std::ptr::addr_of_mut!(self.objects) };
-        self.objects
-            .data.iter_mut().for_each(|x| 
-            unsafe { &mut *(x as *mut Object) }
-            .mark_inner(false, a)
-        );
+        self.objects.data.iter_mut().for_each(|x| x.mark_inner(false, a));
 
-        // ! UNDEFINED BEHAVIOUR
         for object in 0..self.stack.top {
             match self.stack.data[object] {
-                crate::VMData::Object(index) => {
-                    let object =
-                        unsafe { &mut *(self.objects.get_mut(index as usize).unwrap() as *mut Object) };
-                    object.mark_inner(true, &mut self.objects);
-                }
+                crate::VMData::Object(index) => self.objects.get(index as usize).unwrap().mark_inner(true, &self.objects),
                 _ => continue,
-            }
+            };
         }
 
         for object in &self.constants {
             match object {
-                crate::VMData::Object(index) => {
-                    let object = unsafe { &mut *(self.objects.get_mut(*index as usize).unwrap() as *mut Object) };
-                    object.mark_inner(true, &mut self.objects);
-                }
+                crate::VMData::Object(index) => self.objects.get(*index as usize).unwrap().mark_inner(true, &self.objects),
                 _ => continue,
             }
         }
     }
 
     fn sweep(&mut self) {
-        self.objects.data.retain(|obj| obj.live);
+        self.objects.data.retain(|obj| obj.live.take());
     }
 
     #[must_use]
@@ -59,5 +47,19 @@ impl VM {
                 crate::ObjectData::Free { .. } => 0,
             }
         }).sum()
+    }
+}
+
+impl Object {
+    fn mark_inner(&self, mark_as: bool, objects: &ObjectMap) {
+        self.live.set(mark_as);
+        match &self.data {
+            ObjectData::List(v) | ObjectData::Struct(v) => v.iter().for_each(|x| {
+                if let VMData::Object(value) = x {
+                    objects.data.get(*value as usize).unwrap().mark_inner(mark_as, objects);
+                }
+            }),
+            _ => (),
+        }
     }
 }

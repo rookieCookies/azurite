@@ -366,10 +366,8 @@ impl VM {
                     let amount = *current.next();
 
                     let return_value = self.stack.top-1;
-
                     self.stack.pop_multi_ignore(amount as usize);
-                    self.stack.swap_top_with(return_value);
-                    // self.stack.step();
+                    self.stack.data.swap(return_value, self.stack.top-1);
                 }
                 &consts::Rotate => {
                     self.stack.step_back();
@@ -492,7 +490,7 @@ pub struct Stack {
 impl Stack {
     fn new() -> Self {
         let mut stack = Vec::with_capacity(5000 / size_of::<VMData>());
-        stack.resize(5000 / size_of::<VMData>(), VMData::Integer(0));
+        stack.resize(5000 / size_of::<VMData>(), VMData::Empty);
         Self {
             data: stack.try_into().unwrap(),
             top: 0,
@@ -571,14 +569,14 @@ impl Stack {
     }
 
     #[inline(always)]
-    fn swap_top_with_while_stepping_back(&mut self, index: usize) {
+    pub fn swap_top_with_while_stepping_back(&mut self, index: usize) {
         self.step_back();
         // unsafe { self.data.swap_unchecked(index, self.top) };
         self.data.swap(index, self.top);
     }
 
     #[inline(always)]
-    fn swap_top_with(&mut self, index: usize) {
+    pub fn swap_top_with(&mut self, index: usize) {
         self.data.swap(index, self.top);
     }
 }

@@ -440,6 +440,7 @@ impl Compilation {
             },
             | InstructionType::Using(_)
             | InstructionType::StructDeclaration { .. }
+            | InstructionType::NamespaceBlock { .. }
             | InstructionType::ImplBlock { .. } => (), // Virtual Nodes
         }
         if instruction.pop_after {

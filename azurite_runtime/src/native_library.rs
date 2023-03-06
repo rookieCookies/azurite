@@ -108,8 +108,9 @@ fn to_string((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
 
     let string = data.to_string(vm);
     let index = vm.create_object(Object::new(ObjectData::String(string)))?;
-    vm.stack.push(VMData::Object(index as u64))?;
+    
     vm.stack.step();
+    vm.stack.push(VMData::Object(index as u64))?;
     Ok(())
 }
 
@@ -133,11 +134,12 @@ fn rand_range_int((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
         _ => return Err(corrupt_bytecode()),
     };
 
+    vm.stack.step();
+    vm.stack.step();
+
     vm.stack
         .push(VMData::Integer(thread_rng().gen_range(min..max)))?;
     
-    vm.stack.step();
-    vm.stack.step();
     Ok(())
 }
 
@@ -167,8 +169,8 @@ fn parse_str_float((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
 
 fn parse_str_int((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     let vmdata = VMData::Integer(parse(vm, code)?);
-    vm.stack.push(vmdata)?;
     vm.stack.step();
+    vm.stack.push(vmdata)?;
     Ok(())
 }
 
@@ -262,6 +264,7 @@ fn append_str((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
     
     vm.stack.step();
     vm.stack.step();
+    vm.stack.swap_top_with(vm.stack.top - 2);
     vm.stack.step();
 
     match &mut vm.objects.data.get_mut(self_index as usize).unwrap().data {

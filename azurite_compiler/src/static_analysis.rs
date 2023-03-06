@@ -91,10 +91,24 @@ impl Scope {
         }
     }
 
-    fn struct_id<'a>(&'a self, id: &'a String) -> DataType {
+    fn struct_id<'a>(&'a self,  id: &'a String, state: &mut AnalysisState, (start, end): (u32, u32)) -> DataType {
+        match id.as_str() {
+            "int" => return DataType::Integer,
+            "float" => return DataType::Float,
+            "bool" => return DataType::Bool,
+            "str" => return DataType::String,
+            "()" => return DataType::Empty,
+            _ => ()
+        }
         match self.structure_linkage.get(id) {
             Some(v) => DataType::from_string(v),
-            None => DataType::from_string(id),
+            None => {
+                if !self.structure_map.contains_key(id) {
+                    state.is_in_panic = false;
+                    state.send_error(error_structure_doesnt_exist(self, (start, end), id, &self.structure_map.iter().map(|x| x.0.as_str()).collect::<Vec<_>>()));
+                }
+                DataType::from_string(id)
+            },
         }
     }
 }
@@ -135,8 +149,8 @@ impl AnalysisState {
                     true
                 }
             },
-            arguments: arguments.iter().map(|x| (x.0.clone(), scope.struct_id(&x.1.to_string()))).collect(),
-            return_type: scope.struct_id(&return_type.to_string()),
+            arguments: arguments.iter().map(|x| (x.0.clone(), scope.struct_id(&x.1.to_string(), self, (function_declaration.start, function_declaration.end)))).collect(),
+            return_type: scope.struct_id(&return_type.to_string(), self, (function_declaration.start, function_declaration.end)),
             generics: generics.identifiers.clone(),
             start: function_declaration.start,
             end: function_declaration.end,
@@ -176,6 +190,10 @@ impl AnalysisState {
     ) -> (DataType, bool) {
         let mut instructions = std::mem::take(&mut scope.instructions);
         let mut return_type = DataType::Empty;
+
+        let errors = std::mem::take(&mut self.errors);
+
+        // These should NOT produce any errors :p
         for instruction in &mut instructions {
             match &mut instruction.instruction_type {
                 InstructionType::StructDeclaration { .. } => {
@@ -189,12 +207,18 @@ impl AnalysisState {
                 InstructionType::FunctionDeclaration { .. } => {
                     self.analyze_function_definition(scope, instruction, false);
                 }
+                InstructionType::NamespaceBlock { functions, .. } => functions
+                    .iter_mut()
+                    .for_each(|x| self.analyze_function_definition(scope, x, false)),
                 InstructionType::ImplBlock { functions, .. } => functions
                     .iter_mut()
                     .for_each(|x| self.analyze_function_definition(scope, x, true)),
                 _ => continue,
             }
         }
+
+        self.errors = errors;
+        // Now these can
 
         for instruction in &mut instructions {
             return_type = self.analyze_with_type_hint(scope, instruction, hint.clone());
@@ -219,7 +243,7 @@ impl AnalysisState {
     ) {
         let (identifier, fields) = match &mut structure_declaration.instruction_type {
             InstructionType::StructDeclaration { identifier, fields } => {
-                (scope.struct_id(identifier).to_string(), fields)
+                (scope.struct_id(identifier, self, (structure_declaration.start, structure_declaration.end)).to_string(), fields)
             }
             _ => panic!(),
         };
@@ -244,7 +268,7 @@ impl AnalysisState {
         hint: Option<DataType>,
     ) -> DataType {
         let v = self.analyze_with_type_hint_raw(scope, instruction, hint);
-        scope.struct_id(&v.to_string())
+        scope.struct_id(&v.to_string(), self, (instruction.start, instruction.end))
     }
     /// # Panics
     /// # Errors
@@ -317,10 +341,6 @@ impl AnalysisState {
                 type_declaration,
                 overwrite: _,
             } => {
-                // we place a placeholder value so even if
-                // the rest of this fails and early returns
-                // the rest of the analysis assumes the variable
-                // at least exists
                 let type_of_data = self.analyze(scope, data);
                 let type_of_variable = match type_declaration {
                     Some(v) => {
@@ -527,7 +547,7 @@ impl AnalysisState {
                 ..
             } => {
                 let function_return_type = match function_return_type {
-                    DataType::Struct(v) => scope.struct_id(v),
+                    DataType::Struct(v) => scope.struct_id(v, self, (instruction.start, instruction.end)),
                     _ => function_return_type.clone(),
                 };
                 return_type = function_return_type.clone();
@@ -566,16 +586,12 @@ impl AnalysisState {
                     ));
                 }
 
-                let mut instruction = function_scope.instructions.remove(0);
-                match &mut instruction.instruction_type {
-                    InstructionType::Block { pop, .. } => *pop = 0,
-                    _ => panic!(),
-                }
+                let instruction = function_scope.instructions.remove(0);
 
                 let function_index = match scope.function_map.get(identifier) {
                     Some(v) => v,
                     None => {
-                        dbg!(&scope);
+                        dbg!(identifier, &scope);
                         panic!()
                     }
                 };
@@ -732,10 +748,10 @@ impl AnalysisState {
 
                 for (index, argument) in arguments.iter_mut().enumerate() {
                     let argument_type = self.analyze(scope, argument);
-                    if argument_type == scope.struct_id(&function.arguments[index].1.to_string()) {
+                    if argument_type == scope.struct_id(&function.arguments[index].1.to_string(), self, (instruction.start, instruction.end)) {
                         continue;
                     }
-                    dbg!(&argument_type, scope.struct_id(&function.arguments[index].1.to_string()), &function.arguments[index].1);
+                    // dbg!(&argument_type, scope.struct_id(&function.arguments[index].1.to_string(), self, (instruction.start, instruction.end)), &function.arguments[index].1);
                     if index == 0 && *created_by_accessing {
                         self.send_error(error_function_doesnt_exist_for_type(
                             scope,
@@ -754,25 +770,16 @@ impl AnalysisState {
                 }
             }
             InstructionType::StructDeclaration {
-                identifier: _,
                 fields,
+                ..
             } => {
                 for (_, datatype) in fields.iter() {
                     match datatype {
-                        DataType::Struct(identifier) => match scope.struct_id(identifier) {
-                            DataType::Struct(v) => {
-                                if !scope.structure_map.contains_key(&v) {
-                                    self.send_error(error_structure_field_type_doesnt_exist(
-                                        scope,
-                                        (instruction.start, instruction.end),
-                                        datatype,
-                                    ));
-                                }
-                            }
-                            _ => continue,
+                        DataType::Struct(identifier) => {
+                            scope.struct_id(identifier, self, (instruction.start, instruction.end));
                         },
                         _ => continue,
-                    }
+                    };
                 }
             }
             InstructionType::CreateStruct {
@@ -782,7 +789,7 @@ impl AnalysisState {
                 return_type = DataType::Struct(identifier.clone());
                 let structure_fields = if let Some(v) = scope
                     .structure_map
-                    .get(&scope.struct_id(identifier).to_string())
+                    .get(&scope.struct_id(identifier, self, (instruction.start, instruction.end)).to_string())
                 {
                     v
                 } else {
@@ -853,7 +860,7 @@ impl AnalysisState {
                     | DataType::String
                     | DataType::Bool
                     | DataType::Empty => (),
-                    DataType::Struct(identifier) => match scope.struct_id(identifier) {
+                    DataType::Struct(identifier) => match scope.struct_id(identifier, self, (instruction.start, instruction.end)) {
                         DataType::Integer
                         | DataType::Float
                         | DataType::String
@@ -872,9 +879,11 @@ impl AnalysisState {
                     },
                 }
 
+                scope.structure_linkage.insert("Self".to_string(), datatype.to_string());
                 for i in functions.iter_mut() {
                     self.analyze(scope, i);
                 }
+                scope.structure_linkage.remove("Self");
             }
             InstructionType::RawCall(_) => {
                 return_type = hint.unwrap_or(DataType::Empty);
@@ -883,7 +892,10 @@ impl AnalysisState {
             InstructionType::AccessVariable { identifier, data, field_index } => {
                 let datatype = self.analyze(scope, data);
                 if let DataType::Struct(v) = &datatype {
-                    let structure = scope.structure_map.get(v).unwrap();
+                    let structure = match scope.structure_map.get(v) {
+                        Some(v) => v,
+                        None => return return_type,
+                    };
                     for (index, i) in structure.iter().enumerate() {
                         if i.0 == *identifier {
                             *field_index = (structure.len() - 1 - index) as u32;
@@ -896,6 +908,12 @@ impl AnalysisState {
             },
             InstructionType::Return(None) => todo!(),
             InstructionType::InlineBytecode { .. } => return_type = hint.unwrap_or(DataType::Empty),
+            InstructionType::NamespaceBlock { functions } => {
+                
+                for i in functions.iter_mut() {
+                    self.analyze(scope, i);
+                }
+            },
         }
         return_type
     }
@@ -1147,7 +1165,7 @@ fn error_structure_doesnt_exist(scope: &Scope, (start, end): (u32, u32), identif
     Error::new(
         vec![(start, end, Highlight::Red)],
         "structure doesn't exist",
-        format!("structure isn't declared prior to this point{}", if let Some(v) = possible_string { format!(". perhaps you meant {v}") } else { "".to_string() } ),
+        format!("structure {identifier} isn't declared prior to this point{}", if let Some(v) = possible_string { format!(". perhaps you meant {v}") } else { "".to_string() } ),
         &FATAL,
         scope.current_file.path.clone(),
     )
@@ -1227,19 +1245,19 @@ fn error_structure_missing_fields(
     )
 }
 
-fn error_structure_field_type_doesnt_exist(
-    scope: &Scope,
-    (start, end): (u32, u32),
-    datatype: &DataType,
-) -> Error {
-    Error::new(
-        vec![(start, end, Highlight::Red)],
-        "type of field does not exist",
-        format!("{datatype} is not a valid type"),
-        &FATAL,
-        scope.current_file.path.clone(),
-    )
-}
+// fn error_structure_field_type_doesnt_exist(
+//     scope: &Scope,
+//     (start, end): (u32, u32),
+//     datatype: &DataType,
+// ) -> Error {
+//     Error::new(
+//         vec![(start, end, Highlight::Red)],
+//         "type of field does not exist",
+//         format!("{datatype} is not a valid type"),
+//         &FATAL,
+//         scope.current_file.path.clone(),
+//     )
+// }
 
 fn type_check_binary_operation(
     left: &DataType,

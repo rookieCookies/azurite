@@ -1,9 +1,8 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::cast_possible_truncation)]
-use std::{env, io::Read, mem::size_of, process::ExitCode, time::Instant};
+use std::{env, io::Read, mem::size_of, process::ExitCode, time::Instant, cell::Cell};
 
-use azurite_common::{DataType};
-use object_map::ObjectMap;
+use azurite_common::DataType;
 use runtime_error::RuntimeError;
 use vm::VM;
 
@@ -240,6 +239,7 @@ pub enum VMData {
     Float(f64),
     Object(u64), // stores index // TODO: change to a pointer
     Bool(bool),
+    Empty,
 }
 
 impl VMData {
@@ -253,6 +253,7 @@ impl VMData {
                 let obj = vm.get_object(object as usize);
                 obj.data.to_string(vm)
             }
+            VMData::Empty => todo!(),
         };
         text
     }
@@ -260,7 +261,7 @@ impl VMData {
 
 #[derive(Debug, Clone)]
 pub struct Object {
-    live: bool,
+    live: Cell<bool>,
     data: ObjectData,
 }
 
@@ -286,20 +287,7 @@ impl ObjectData {
 
 impl Object {
     fn new(data: ObjectData) -> Self {
-        Self { live: false, data }
-    }
-
-    fn mark_inner(&mut self, mark_as: bool, objects: &mut ObjectMap) {
-        self.live = mark_as;
-        match &self.data {
-            ObjectData::List(v) | ObjectData::Struct(v) => v.iter().for_each(|x| {
-                if let VMData::Object(value) = x {
-                    unsafe { &mut *(objects.data.get_unchecked_mut(*value as usize) as *mut Object) }
-                        .mark_inner(mark_as, objects);
-                }
-            }),
-            _ => (),
-        }
+        Self { live: Cell::new(false), data }
     }
 }
 

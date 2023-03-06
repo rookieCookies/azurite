@@ -54,6 +54,7 @@ pub enum TokenType {
     Using,
     Inline,
     Bytecode,
+    Namespace,
 
     EndOfFile,
 }
@@ -408,6 +409,7 @@ impl Lexer {
             "inline" => TokenType::Inline,
             "using" => TokenType::Using,
             "bytecode" => TokenType::Bytecode,
+            "namespace" => TokenType::Namespace,
             _ => TokenType::Identifier(string),
         }
     }
