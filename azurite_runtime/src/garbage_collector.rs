@@ -39,7 +39,7 @@ impl VM {
                 // We don't need to add up the inner-objects as all objects are in
                 // the object map so eventually we will also add that objects size
                 | crate::ObjectData::List(v)
-                | crate::ObjectData::Struct(v) => std::mem::size_of::<Object>() + v.iter().map(|_| std::mem::size_of::<VMData>()).sum::<usize>(),
+                | crate::ObjectData::Struct(v) => std::mem::size_of::<Object>() + v.len() * std::mem::size_of::<VMData>(),
 
                 // If the object is free, it is technically still occupying space
                 // in the VM but that is not considered as "used" memory so it

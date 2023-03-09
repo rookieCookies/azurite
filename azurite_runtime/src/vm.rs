@@ -1,7 +1,7 @@
 #![allow(clippy::inline_always)]
 #![allow(clippy::unnecessary_wraps)]
 
-use std::mem::size_of;
+
 
 use azurite_common::consts;
 #[cfg(feature = "hotspot")]
@@ -29,8 +29,12 @@ pub struct VM {
 }
 
 #[must_use]
+#[inline(always)]
 pub fn corrupt_bytecode() -> RuntimeError {
-    RuntimeError::new(0, "corrupt bytecode")
+    #[cfg(debug_assertions)]
+    return RuntimeError::new(0, "corrupt bytecode");
+    #[cfg(not(debug_assertions))]
+    unsafe { std::hint::unreachable_unchecked() }
 }
 
 impl VM {
@@ -185,7 +189,7 @@ impl VM {
                 }
                 &consts::LoadConst => {
                     let index = *current.next();
-                    self.stack.push(self.constants[index as usize].clone())?;
+                    self.stack.push(self.constants[index as usize])?;
                 }
                 &consts::LoadConstStr => {
                     let index = *current.next();
@@ -195,11 +199,11 @@ impl VM {
                     };
 
                     let string_dup = match &self.objects.data.get(string_index as usize).unwrap().data {
-                        ObjectData::String(v) => v.clone(),
+                        ObjectData::String(v) => v,
                         _ => return Err(corrupt_bytecode())
                     };
 
-                    let object_index = self.create_object(Object::new(ObjectData::String(string_dup)))?;
+                    let object_index = self.create_object(Object::new(ObjectData::String(string_dup.clone())))?;
                     self.stack.push(VMData::Object(object_index as u64))?;
                 }
                 &consts::Add => {
@@ -226,13 +230,13 @@ impl VM {
                     let index = u16::from_le_bytes([*current.next(), *current.next()]);
                     debug_assert!(self.stack.top > current.stack_offset + index as usize);
                     self.stack
-                        .push(self.stack.data[current.stack_offset + index as usize].clone())?;
+                        .push(self.stack.data[current.stack_offset + index as usize])?;
                 }
                 &consts::GetVarFast => {
                     let index = *current.next();
                     debug_assert!(self.stack.top > current.stack_offset + index as usize, "get var out of bounds {} {index}", current.stack_offset);
                     self.stack
-                        .push(self.stack.data[current.stack_offset + index as usize].clone())?;
+                        .push(self.stack.data[current.stack_offset + index as usize])?;
                 }
                 &consts::ReplaceVarFast => {
                     let index = *current.next();
@@ -246,7 +250,7 @@ impl VM {
                 }
                 &consts::ReplaceVarInObject => {
                     let size = *current.next();
-                    let data = self.stack.pop().clone();
+                    let data = self.stack.pop();
                     let mut object = self.stack.data.get_mut(*current.next() as usize).unwrap();
                     for _ in 0..(size - 1) {
                         object = match object {
@@ -288,7 +292,7 @@ impl VM {
                     let amount_of_variables = *current.next() as usize;
                     let mut data = Vec::with_capacity(amount_of_variables);
                     for _ in 0..amount_of_variables {
-                        data.push(self.stack.pop().clone());
+                        data.push(self.stack.pop());
                     }
                     let object_index = self.create_object(Object::new(ObjectData::Struct(data)));
                     self.stack.push(VMData::Object(match object_index {
@@ -303,12 +307,12 @@ impl VM {
                     let data = self.stack.pop();
                     let index = current.next();
                     let object = match data {
-                        VMData::Object(v) => *v,
+                        VMData::Object(v) => v,
                         _ => return Err(corrupt_bytecode()),
                     };
                     match &self.get_object(object as usize).data {
                         ObjectData::Struct(v) => {
-                            self.stack.push(v.get(*index as usize).unwrap().clone())?;
+                            self.stack.push(v[*index as usize])?;
                         }
                         _ => return Err(corrupt_bytecode()),
                     }
@@ -376,14 +380,14 @@ impl VM {
                     self.stack.step();
                 }
                 &consts::Over => {
-                    self.stack.push(self.stack.data[self.stack.top-2].clone())?;
+                    self.stack.push(self.stack.data[self.stack.top-2])?;
                 }
                 &consts::Swap => {
                     self.stack.swap_top_with_while_stepping_back(self.stack.top-2);
                     self.stack.step();
                 }
                 &consts::Duplicate => {
-                    self.stack.push(self.stack.data[self.stack.top-1].clone())?;
+                    self.stack.push(self.stack.data[self.stack.top-1])?;
                 }
                 &consts::IndexSwap => {
                     let v1 = *current.next();
@@ -483,16 +487,14 @@ impl Code<'_> {
 
 #[derive(Debug)]
 pub struct Stack {
-    pub data: [VMData; 5000 / size_of::<VMData>()],
+    pub data: [VMData; 512],
     pub top: usize,
 }
 
 impl Stack {
     fn new() -> Self {
-        let mut stack = Vec::with_capacity(5000 / size_of::<VMData>());
-        stack.resize(5000 / size_of::<VMData>(), VMData::Empty);
         Self {
-            data: stack.try_into().unwrap(),
+            data: [VMData::Empty; 512],
             top: 0,
         }
     }
@@ -511,10 +513,6 @@ impl Stack {
 
     #[inline(always)]
     pub fn step(&mut self) {
-        // debug_assert!(self.top.checked_add(1).is_some());
-        // unsafe {
-        //     self.top = self.top.unchecked_add(1);
-        // }
         self.top += 1;
     }
 
@@ -529,23 +527,15 @@ impl Stack {
     /// like this
     #[inline(always)]
     #[must_use]
-    pub fn pop(&mut self) -> &VMData {
+    pub fn pop(&mut self) -> VMData {
         self.step_back();
-        self.data.get(self.top).unwrap()
+        self.data[self.top]
     }
 
-    /// # Errors
-    /// This function will error if the data is not a valid
-    /// index in the vector
     #[inline(always)]
-    pub fn view_behind(&self, amount: usize) -> Result<&VMData, RuntimeError> {
-        match self.data.get(self.top - amount) {
-            Some(v) => Ok(v),
-            None => Err(RuntimeError::new(
-                0,
-                "tried to view data behind that's none existant",
-            )),
-        }
+    #[must_use]
+    pub fn view_behind(&self, amount: usize) -> VMData {
+        self.data[self.top - amount]
     }
 
     #[inline(always)]

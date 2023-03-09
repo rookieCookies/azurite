@@ -34,7 +34,7 @@ pub static RAW_FUNCTIONS: [fn(NativeFunctionInput) -> NativeFunctionReturn; 17] 
 
 fn error((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     let message_index = match vm.stack.pop() {
-        VMData::Object(v) => *v,
+        VMData::Object(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
     vm.stack.step();
@@ -53,7 +53,7 @@ fn collect_garbage((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
 
 fn read_io((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     let object_index = match vm.stack.pop() {
-        VMData::Object(v) => *v,
+        VMData::Object(v) => v,
         _ => {
             return Err(corrupt_bytecode());
         }
@@ -81,7 +81,7 @@ fn read_io((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
 
 fn write_io((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
     let message_index = match vm.stack.pop() {
-        VMData::Object(v) => *v,
+        VMData::Object(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
     vm.stack.step();
@@ -104,7 +104,7 @@ fn now((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
 }
 
 fn to_string((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
-    let data = vm.stack.pop().clone();
+    let data = vm.stack.pop();
 
     let string = data.to_string(vm);
     let index = vm.create_object(Object::new(ObjectData::String(string)))?;
@@ -125,11 +125,12 @@ fn rand_float((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
 }
 
 fn rand_range_int((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
-    let max = *match vm.stack.pop() {
+    let max = match vm.stack.pop() {
         VMData::Integer(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
-    let min = *match vm.stack.pop() {
+
+    let min = match vm.stack.pop() {
         VMData::Integer(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
@@ -144,14 +145,16 @@ fn rand_range_int((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
 }
 
 fn rand_range_float((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
-    let max = *match vm.stack.pop() {
+    let max = match vm.stack.pop() {
         VMData::Float(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
-    let min = *match vm.stack.pop() {
+
+    let min = match vm.stack.pop() {
         VMData::Float(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
+
     vm.stack
         .push(VMData::Float(thread_rng().gen_range(min..max)))?;
     
@@ -183,7 +186,7 @@ fn parse_str_bool((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
 
 fn parse<T: FromStr>(vm: &mut VM, code: &Code) -> Result<T, RuntimeError> {
     let string_index = match vm.stack.pop() {
-        VMData::Object(v) => *v,
+        VMData::Object(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
     let string = match &vm.get_object(string_index as usize).data {
@@ -201,7 +204,7 @@ fn parse<T: FromStr>(vm: &mut VM, code: &Code) -> Result<T, RuntimeError> {
 
 fn env_var((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     let identifier_index = match vm.stack.pop() {
-        VMData::Object(v) => *v,
+        VMData::Object(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
     let identifier = match &vm.get_object(identifier_index as usize).data {
@@ -224,7 +227,7 @@ fn env_var((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
 
 fn env_set_var((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
     let value_index = match vm.stack.pop() {
-        VMData::Object(v) => *v,
+        VMData::Object(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
     let value = match &vm.get_object(value_index as usize).data {
@@ -233,7 +236,7 @@ fn env_set_var((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
     };
 
     let identifier_index = match vm.stack.pop() {
-        VMData::Object(v) => *v,
+        VMData::Object(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
     let identifier = match &vm.get_object(identifier_index as usize).data {
@@ -247,7 +250,7 @@ fn env_set_var((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
 
 fn append_str((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
     let other_index = match vm.stack.pop() {
-        VMData::Object(v) => *v,
+        VMData::Object(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
     let other = match &vm.get_object(other_index as usize).data {
@@ -257,7 +260,7 @@ fn append_str((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
 
 
     let self_index = match vm.stack.pop() {
-        VMData::Object(v) => *v,
+        VMData::Object(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
 
@@ -277,7 +280,7 @@ fn append_str((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
 
 fn writeln_io((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
     let message_index = match vm.stack.pop() {
-        VMData::Object(v) => *v,
+        VMData::Object(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
     vm.stack.step();

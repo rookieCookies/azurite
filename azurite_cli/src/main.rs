@@ -5,12 +5,13 @@ use std::time::Instant;
 use std::{
     env,
     fs::File,
-    io::{Read, Write},
+    io::Write,
     path::Path,
     process::ExitCode,
     vec::IntoIter,
 };
 
+use azurite_archiver::Packed;
 use azurite_common::{consts, prepare};
 use colored::{Color, Colorize};
 
@@ -144,25 +145,12 @@ fn main() -> Result<(), ExitCode> {
             let file = format!("{file}urite");
             println!("{} {file}", "Disassembling..".bright_green().bold());
 
-            let zipfile = std::fs::File::open(&file).unwrap();
+            let file_data = std::fs::read(&file).unwrap();
 
-            let mut archive = zip::ZipArchive::new(zipfile).unwrap();
-
-            let mut bytecode_file = if let Ok(file) = archive.by_name("bytecode.azc") {
-                file
-            } else {
-                println!("bytecode.azc not found");
-                return Ok(());
-            };
-
-            let mut bytecode = vec![];
-            match bytecode_file.read_to_end(&mut bytecode) {
-                Ok(_) => {}
-                Err(_) => return Ok(()),
-            };
-
-            drop(bytecode_file);
-            println!("{}", disassemble(bytecode.into_iter()));
+            let packed = Packed::from_bytes(file_data.iter()).unwrap();
+            let mut data : Vec<_> = packed.into();
+            
+            println!("{}", disassemble(std::mem::take(&mut data[0].0).into_iter()));
         },
         _ => invalid_usage(),
     }

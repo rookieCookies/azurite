@@ -14,10 +14,10 @@ use std::{
     process::ExitCode,
 };
 
+use azurite_archiver::{Packed, Data as ArchiverData};
 use azurite_common::{Data, FileData};
 use colored::Colorize;
 use compiler::{compile, Compilation};
-use zip::write::FileOptions;
 
 /// # Errors
 pub fn run_file(file: &str) -> Result<(), ExitCode> {
@@ -59,7 +59,7 @@ pub fn run_file(file: &str) -> Result<(), ExitCode> {
     Ok(())
 }
 
-fn create_file(compilation: Compilation, file: File) -> Result<(), ()> {
+fn create_file(compilation: Compilation, mut file: File) -> Result<(), ()> {
     // Convert the constants from an enum
     // representation to a byte representation
     let mut data: Vec<u8> = vec![];
@@ -81,45 +81,21 @@ fn create_file(compilation: Compilation, file: File) -> Result<(), ()> {
         }
     }
 
-    let mut zip = zip::ZipWriter::new(file);
-
-    let options = FileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored)
-        .unix_permissions(0o755);
-
-    create_and_write(&mut zip, options, "bytecode.azc", &compilation.bytecode)?;
-    create_and_write(&mut zip, options, "constants.azc", &data)?;
-
     let mut line_data: Vec<u8> = Vec::with_capacity(compilation.line_table.len());
     compilation.line_table.into_iter().for_each(|x| {
         line_data.append(&mut x.to_le_bytes().into());
-        // line_data.append(&mut x.1.to_le_bytes().into());
     });
 
-    create_and_write(&mut zip, options, "linetable.azc", &line_data)?;
+    let packed = Packed::new()
+        .with(ArchiverData(compilation.bytecode))
+        .with(ArchiverData(data))
+        .with(ArchiverData(line_data));
 
-    match zip.finish() {
-        Ok(v) => v,
-        Err(_) => return Err(()),
+    if file.write_all(&packed.as_bytes()).is_err(){
+        eprintln!("unable to write to the file");
+        return Err(())
     };
-    Ok(())
-}
 
-fn create_and_write(
-    zip: &mut zip::ZipWriter<File>,
-    options: FileOptions,
-    path: &str,
-    data: &[u8],
-) -> Result<(), ()> {
-    if zip.start_file(path, options).is_err() {
-        eprintln!("unable to create {path}");
-        return Err(());
-    }
-
-    if zip.write_all(data).is_err() {
-        eprintln!("unable to write to {path}");
-        return Err(());
-    }
     Ok(())
 }
 
