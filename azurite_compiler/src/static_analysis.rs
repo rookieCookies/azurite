@@ -36,6 +36,7 @@ pub struct Function {
     start: u32,
     end: u32,
     line: u32,
+    pub used: bool,
 }
 
 #[derive(Debug)]
@@ -155,6 +156,7 @@ impl AnalysisState {
             start: function_declaration.start,
             end: function_declaration.end,
             line: function_declaration.line,
+            used: false,
         };
 
         let mut function_reference = FunctionReference {
@@ -537,7 +539,13 @@ impl AnalysisState {
                     );
                 }
 
-                self.analyze(scope, body);
+                let rt = self.analyze(scope, body);
+
+                if let InstructionType::Block { pop, .. } = &mut body.instruction_type {
+                    if rt != DataType::Empty {
+                        *pop += 1;
+                    }
+                }
             }
             InstructionType::FunctionDeclaration {
                 identifier,
@@ -719,6 +727,7 @@ impl AnalysisState {
                     function
                 } else {
                     *index = FunctionInline::None(function_meta.index);
+                    self.function_stack[function_meta.index].used = true;
                     self.function_stack[function_meta.index].clone()
                 };
 
@@ -884,10 +893,6 @@ impl AnalysisState {
                     self.analyze(scope, i);
                 }
                 scope.structure_linkage.remove("Self");
-            }
-            InstructionType::RawCall(_) => {
-                return_type = hint.unwrap_or(DataType::Empty);
-                instruction.pop_after = return_type != DataType::Empty;
             }
             InstructionType::AccessVariable { identifier, data, field_index } => {
                 let datatype = self.analyze(scope, data);

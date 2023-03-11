@@ -16,6 +16,7 @@ azurite_archiver = { path = "../crates/azurite_archiver" }
 colored = "*"
 fxhash = "*"
 rand = "*"
+rayon = "*"
 # zip = { version = "0.6.4", default-features = false }
 
 [dev-dependencies]

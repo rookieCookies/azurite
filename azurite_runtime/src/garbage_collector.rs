@@ -1,62 +1,79 @@
+use std::{time::Instant, sync::atomic::AtomicUsize};
+
+use rayon::prelude::{ParallelIterator, IntoParallelRefMutIterator, IndexedParallelIterator};
+
 use crate::{vm::VM, Object, VMData, object_map::ObjectMap, ObjectData};
 
 impl VM {
     // TODO: Improve, just kind of slapped it here I mean cmon dude
     pub fn collect_garbage(&mut self) {
+        let current_usage = self.usage();
+        let time = Instant::now();
+        println!("running gc {current_usage}");
         self.mark();
         self.sweep();
+        let usage = self.usage();
+        println!("ran the gc in {}ms cleaned up {} bytes now at {usage} bytes", time.elapsed().as_millis(), current_usage - usage);
     }
 
     fn mark(&mut self) {
-        let a = unsafe { &mut *std::ptr::addr_of_mut!(self.objects) };
-        self.objects.data.iter_mut().for_each(|x| x.mark_inner(false, a));
-
         for object in 0..self.stack.top {
             match self.stack.data[object] {
-                crate::VMData::Object(index) => self.objects.get(index as usize).unwrap().mark_inner(true, &self.objects),
+                crate::VMData::Object(index) => self.objects.data[index as usize].mark(true, &self.objects),
                 _ => continue,
             };
         }
 
         for object in &self.constants {
             match object {
-                crate::VMData::Object(index) => self.objects.get(*index as usize).unwrap().mark_inner(true, &self.objects),
+                crate::VMData::Object(index) => self.objects.data[*index as usize].mark(true, &self.objects),
                 _ => continue,
             }
         }
     }
 
     fn sweep(&mut self) {
-        self.objects.data.retain(|obj| obj.live.take());
+        let free = AtomicUsize::new(self.objects.free);
+        self.objects.data
+            .par_iter_mut()
+            .enumerate()
+            .filter(|(_, object)| !matches!(object.data, ObjectData::Free { .. }))
+            .filter(|(_, object)| !object.live.replace(false))
+            .for_each(|(index, object)| object.data = ObjectData::Free { next: free.swap(index, std::sync::atomic::Ordering::Relaxed) });
+
+        self.objects.free = free.into_inner();
     }
 
     #[must_use]
     pub fn usage(&self) -> usize {
-        self.objects.data.iter().map(|obj| {
-            match &obj.data {
-                crate::ObjectData::String(v) => std::mem::size_of::<Object>() + v.len(),
-        
-                // We don't need to add up the inner-objects as all objects are in
-                // the object map so eventually we will also add that objects size
-                | crate::ObjectData::List(v)
-                | crate::ObjectData::Struct(v) => std::mem::size_of::<Object>() + v.len() * std::mem::size_of::<VMData>(),
+        self.objects.data
+            .iter()
+            .map(|obj| {
+                match &obj.data {
+                    crate::ObjectData::String(v) => std::mem::size_of::<Object>() + v.len(),
+            
+                    // We don't need to add up the inner-objects as all objects are in
+                    // the object map so eventually we will also add that objects size
+                    | crate::ObjectData::List(v)
+                    | crate::ObjectData::Struct(v) => std::mem::size_of::<Object>() + v.len() * std::mem::size_of::<VMData>(),
 
-                // If the object is free, it is technically still occupying space
-                // in the VM but that is not considered as "used" memory so it
-                // would not be accurate to add it in the calculation
-                crate::ObjectData::Free { .. } => 0,
-            }
-        }).sum()
+                    // If the object is free, it is technically still occupying space
+                    // in the VM but that is not considered as "used" memory so it
+                    // would not be accurate to add it in the calculation
+                    crate::ObjectData::Free { .. } => 0,
+                }
+            })
+            .sum()
     }
 }
 
 impl Object {
-    fn mark_inner(&self, mark_as: bool, objects: &ObjectMap) {
+    fn mark(&self, mark_as: bool, objects: &ObjectMap) {
         self.live.set(mark_as);
         match &self.data {
             ObjectData::List(v) | ObjectData::Struct(v) => v.iter().for_each(|x| {
                 if let VMData::Object(value) = x {
-                    objects.data.get(*value as usize).unwrap().mark_inner(mark_as, objects);
+                    objects.data[*value as usize].mark(mark_as, objects);
                 }
             }),
             _ => (),

@@ -11,11 +11,11 @@ mod utils;
 use std::{
     fs::{self, File},
     io::Write,
-    process::ExitCode,
+    process::ExitCode, env,
 };
 
 use azurite_archiver::{Packed, Data as ArchiverData};
-use azurite_common::{Data, FileData};
+use azurite_common::{Data, FileData, environment};
 use colored::Colorize;
 use compiler::{compile, Compilation};
 
@@ -81,10 +81,28 @@ fn create_file(compilation: Compilation, mut file: File) -> Result<(), ()> {
         }
     }
 
+    let is_release_mode = env::var(environment::RELEASE_MODE).map(|v| v == "1").unwrap_or(false);
     let mut line_data: Vec<u8> = Vec::with_capacity(compilation.line_table.len());
-    compilation.line_table.into_iter().for_each(|x| {
-        line_data.append(&mut x.to_le_bytes().into());
-    });
+
+    if !is_release_mode {
+        let mut counter : u32 = 0;
+        let mut number : u32 = 0;
+        for i in compilation.line_table {
+            if i != number {
+                line_data.append(&mut counter.to_le_bytes().into());
+                line_data.append(&mut number.to_le_bytes().into());
+
+                counter = 0;
+                number = i;
+            }
+
+            counter += 1;
+        }
+
+        line_data.append(&mut counter.to_le_bytes().into());
+        line_data.append(&mut number.to_le_bytes().into());
+
+    }
 
     let packed = Packed::new()
         .with(ArchiverData(compilation.bytecode))

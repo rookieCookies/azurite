@@ -1,6 +1,6 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::cast_possible_truncation)]
-use std::{env, mem::size_of, process::ExitCode, time::Instant, cell::Cell};
+use std::{env, process::ExitCode, time::Instant, cell::Cell};
 
 use azurite_archiver::Packed;
 use azurite_common::DataType;
@@ -17,43 +17,6 @@ pub mod vm;
 /// # Errors
 pub fn run_file(path: &str) -> Result<(), ExitCode> {
     let file = std::fs::read(&path).unwrap();
-
-    // let mut archive = if let Ok(v) = zip::ZipArchive::new(zipfile) {
-    //     v
-    // } else {
-    //     eprintln!("{path} is not a valid archive");
-    //     return Err(ExitCode::FAILURE);
-    // };
-
-    // let mut bytecode_file = if let Ok(file) = archive.by_name("bytecode.azc") {
-    //     file
-    // } else {
-    //     println!("bytecode.azc not found");
-    //     return Err(ExitCode::FAILURE);
-    // };
-
-    // let mut bytecode = vec![];
-    // match bytecode_file.read_to_end(&mut bytecode) {
-    //     Ok(_) => {}
-    //     Err(_) => return Err(ExitCode::FAILURE),
-    // };
-
-    // drop(bytecode_file);
-
-    // let mut constants_file = if let Ok(file) = archive.by_name("constants.azc") {
-    //     file
-    // } else {
-    //     println!("constants.azc not found");
-    //     return Err(ExitCode::FAILURE);
-    // };
-
-    // let mut constants = vec![];
-    // match constants_file.read_to_end(&mut constants) {
-    //     Ok(_) => {}
-    //     Err(_) => return Err(ExitCode::FAILURE),
-    // };
-
-    // drop(constants_file);
 
     let packed = match Packed::from_bytes(file.iter()) {
         Some(v) => v,
@@ -231,8 +194,8 @@ pub fn parse_data(
 /// # Errors
 /// This function will error if the environment value is
 /// not a valid parseable value
-pub fn get_vm_memory() -> Result<usize, RuntimeError> {
-    let binding = env::var("AZURITE_MEMORY").unwrap_or_else(|_| "MB10".to_string());
+pub fn get_vm_memory_in_bytes() -> Result<usize, RuntimeError> {
+    let binding = env::var("AZURITE_MEMORY").unwrap_or_else(|_| "MB128".to_string());
     let v = binding.split_at(2);
     let mut base = match v.1.parse::<usize>() {
         Ok(v) => v,
@@ -246,7 +209,7 @@ pub fn get_vm_memory() -> Result<usize, RuntimeError> {
         "GB" => 8 * 1000 * 1000 * 1000,
         _ => return Err(RuntimeError::new(0, "failed to parse AZURITE_MEMORY")),
     };
-    base /= size_of::<Object>() * 8;
+    base /= 8;
     Ok(base)
 }
 

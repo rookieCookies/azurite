@@ -1,6 +1,6 @@
-use std::process::ExitCode;
+use std::{process::ExitCode, env};
 
-use azurite_common::{Bytecode, Data, DataType, FileData};
+use azurite_common::{Bytecode, Data, DataType, FileData, environment};
 use slotmap::{SlotMap, DefaultKey};
 
 use crate::{
@@ -71,8 +71,13 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
         return Err(ExitCode::FAILURE);
     }
 
+    let is_release_mode = env::var(environment::RELEASE_MODE).map(|v| v == "1").unwrap_or(false);
+
     let mut compiler = Compilation::new();
     for function in analyzer_state.function_stack {
+        if is_release_mode && !function.used {
+            continue
+        }
         let mut instruction = Instruction {
             instruction_type: InstructionType::Data(Data::Bool(false)),
             ..*function.instructions
@@ -375,10 +380,6 @@ impl Compilation {
                 self.compile_to_bytes(*data);
                 self.emit_byte(Bytecode::AccessData as u8, instruction.line);
                 self.emit_byte(id as u8, instruction.line);
-            }
-            InstructionType::RawCall(v) => {
-                self.emit_byte(Bytecode::RawCall as u8, instruction.line);
-                self.emit_byte(v as u8, instruction.line);
             }
             InstructionType::InlineBytecode { bytecode } => {
                 for bytecode in bytecode {

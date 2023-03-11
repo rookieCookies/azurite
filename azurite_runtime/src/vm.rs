@@ -8,13 +8,14 @@ use azurite_common::consts;
 use fxhash::FxBuildHasher;
 #[cfg(feature = "hotspot")]
 use std::collections::HashMap;
+use std::mem::size_of;
 #[cfg(feature = "hotspot")]
 use std::time::Instant;
 
 // TODO: Eventually make it so the code can't panic even with corrupted bytecode
 
 use crate::{
-    get_vm_memory, native_library, object_map::ObjectMap, runtime_error::RuntimeError, Object,
+    get_vm_memory_in_bytes, native_library, object_map::ObjectMap, runtime_error::RuntimeError, Object,
     ObjectData, VMData,
 };
 
@@ -23,6 +24,7 @@ pub struct VM {
     pub constants: Vec<VMData>,
     pub stack: Stack,
     pub functions: Vec<Function>,
+    pub map_capacity: usize,
 
     #[cfg(feature = "hotspot")]
     pub hotspots: HashMap<Bytecode, (usize, f64), FxBuildHasher>,
@@ -46,7 +48,8 @@ impl VM {
             constants: vec![],
             stack: Stack::new(),
             functions: Vec::with_capacity(16),
-            objects: ObjectMap::with_capacity(get_vm_memory()?),
+            objects: ObjectMap::with_capacity(get_vm_memory_in_bytes()? / size_of::<Object>()),
+            map_capacity: get_vm_memory_in_bytes()?,
 
             #[cfg(feature = "hotspot")]
             hotspots: HashMap::with_capacity_and_hasher(32, FxBuildHasher::default()),
@@ -440,7 +443,7 @@ impl VM {
     /// it will return a `out of memory` error
     #[inline(always)]
     pub fn create_object(&mut self, object: Object) -> Result<usize, RuntimeError> {
-        match self.objects.push(object) {
+        let result = match self.objects.push(object) {
             Ok(v) => Ok(v),
             Err(obj) => {
                 self.collect_garbage();
@@ -449,7 +452,14 @@ impl VM {
                     Err(_) => Err(RuntimeError::new(0, "out of memory")),
                 }
             }
+        };
+        if self.usage() > self.map_capacity {
+            self.collect_garbage();
+            if self.usage() > self.map_capacity {
+                return Err(RuntimeError::new(0, "out of memory"))
+            }
         }
+        result
     }
 }
 
@@ -517,7 +527,7 @@ impl Stack {
     }
 
     #[inline(always)]
-    fn step_back(&mut self) {
+    pub fn step_back(&mut self) {
         self.top -= 1;
     }
 

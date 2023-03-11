@@ -81,7 +81,6 @@ pub enum InstructionType {
     NamespaceBlock {
         functions: Vec<Instruction>,
     },
-    RawCall(i64),
     InlineBytecode {
         bytecode: Vec<BytecodeInstructions>,
     },

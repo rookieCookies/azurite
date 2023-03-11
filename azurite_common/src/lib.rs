@@ -3,6 +3,11 @@ use std::{env, fmt::Display, fs, process::ExitCode, vec::IntoIter};
 
 use colored::Colorize;
 
+
+pub mod environment {
+    pub const RELEASE_MODE : &str = "AZURITE_COMPILER_RELEASE_MODE";
+}
+
 macro_rules! opcode {
     ( $(#[$attr:meta])* $vis:vis enum $name:ident : $type:ty {
         $($variant:ident),* $(,)?

@@ -26,8 +26,12 @@ impl RuntimeError {
     /// linetable is unable to be read
     pub fn trigger(self, linetable_bytes: Vec<u8>) {
         let linetable = load_linetable(linetable_bytes);
-        let err_line = linetable[self.bytecode_index as usize];
-        println!("{} | {}: {}", err_line, "error".bold().red(), self.message);
+        if linetable.is_empty() {
+            println!("{}: {}", "error".bold().red(), self.message);
+        } else {
+            let err_line = linetable.get(self.bytecode_index as usize - 2).unwrap_or(&0);
+            println!("{} | {}: {}", err_line+1, "error".bold().red(), self.message);
+        }
     }
 }
 
@@ -35,20 +39,22 @@ fn load_linetable(linetable_bytes: Vec<u8>) -> Vec<u32> {
     let mut linetable = Vec::with_capacity(linetable_bytes.len() / 4);
     let mut iter = linetable_bytes.into_iter();
     while let Some(x) = iter.next() {
-        let line = u32::from_le_bytes([
+        let count = u32::from_le_bytes([
             x,
             iter.next().unwrap(),
             iter.next().unwrap(),
             iter.next().unwrap(),
         ]);
-        // let amount = u32::from_le_bytes([
-        //     iter.next().unwrap(),
-        //     iter.next().unwrap(),
-        //     iter.next().unwrap(),
-        //     iter.next().unwrap(),
-        // ]);
+        let line = u32::from_le_bytes([
+            iter.next().unwrap(),
+            iter.next().unwrap(),
+            iter.next().unwrap(),
+            iter.next().unwrap(),
+        ]);
 
-        linetable.push(line);
+        for _ in 0..count {
+            linetable.push(line);
+        }
     }
 
     linetable

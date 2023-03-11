@@ -1,5 +1,6 @@
 #![warn(clippy::pedantic)]
-use std::fs::OpenOptions;
+use std::env::Args;
+use std::fs::{OpenOptions, self};
 use std::io::BufWriter;
 use std::time::Instant;
 use std::{
@@ -12,7 +13,7 @@ use std::{
 };
 
 use azurite_archiver::Packed;
-use azurite_common::{consts, prepare};
+use azurite_common::{consts, prepare, environment};
 use colored::{Color, Colorize};
 
 use rustyline::{error::ReadlineError, validate::MatchingBracketValidator, Editor};
@@ -33,6 +34,7 @@ fn main() -> Result<(), ExitCode> {
 
     match argument.as_str() {
         "repl" => {
+            parse_environments(args);
             // Using Repl
             let h = InputValidator {
                 brackets: MatchingBracketValidator::new(),
@@ -111,7 +113,8 @@ fn main() -> Result<(), ExitCode> {
                 Some(v) => v,
                 None => invalid_usage(),
             };
-
+            parse_environments(args);
+            
             compile(&file)?;
         }
         "run" => {
@@ -119,6 +122,8 @@ fn main() -> Result<(), ExitCode> {
                 Some(v) => v,
                 None => invalid_usage(),
             };
+            parse_environments(args);
+
             let file_path = Path::new(&file);
             if file_path
                 .extension()
@@ -134,13 +139,42 @@ fn main() -> Result<(), ExitCode> {
                 let _ = azurite_runtime::run_file(&file);
             }
         }
+        "run-dir" => {
+            let file = match args.next() {
+                Some(v) => v,
+                None => invalid_usage(),
+            };
+
+            parse_environments(args);
+
+            let file_path = Path::new(&file);
+            let directory = fs::read_dir(file_path).unwrap();
+            for buffer in directory {
+                let path = buffer.unwrap().path();
+                let file = path.to_str().unwrap();
+
+                if path
+                .extension()
+                .map_or(false, |ext| ext.eq_ignore_ascii_case("az"))
+                {
+                    compile(file)?;
+                    let file = format!("{}urite", file);
+
+                    println!("{} {file}", "Running..".bright_green().bold());
+                    let _ = azurite_runtime::run_file(&file);
+                }
+            }
+        }
         "disassemble" => {
             let file = match args.next() {
                 Some(v) => v,
                 None => invalid_usage(),
             };
 
+            parse_environments(args);
+
             compile(&file)?;
+            
 
             let file = format!("{file}urite");
             println!("{} {file}", "Disassembling..".bright_green().bold());
@@ -157,6 +191,19 @@ fn main() -> Result<(), ExitCode> {
     Ok(())
 
     // Some(())
+}
+
+fn parse_environments(arguments: Args) {
+    for i in arguments {
+        match i.as_str() {
+            "--release" => env::set_var(environment::RELEASE_MODE, "1"),
+            "--" => (),
+            _ => {
+                println!("unexpected argument {i}");
+                std::process::exit(0)
+            }
+        }
+    }
 }
 
 fn invalid_usage() -> ! {

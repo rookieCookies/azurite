@@ -67,7 +67,6 @@ impl Parser {
                     TokenType::Return,
                     TokenType::Struct,
                     TokenType::Impl,
-                    TokenType::Raw,
                     TokenType::Using,
                     TokenType::Inline,
                     TokenType::Bytecode
@@ -302,7 +301,6 @@ impl Parser {
     // |> structure-declaration
     // |> assert-statement
     // |> impl-block
-    // |> raw-call
     // |> expression
     fn statement(&mut self) -> Option<Instruction> {
         let current_token = self.current_token()?;
@@ -314,7 +312,6 @@ impl Parser {
             TokenType::Struct => return self.structure_declaration(),
             TokenType::Impl => return self.impl_block(),
             TokenType::Namespace => return self.namespace_block(),
-            TokenType::Raw => return self.raw_call(),
             TokenType::Using => return self.using_statement(),
             TokenType::Bytecode => return self.bytecode_statement(),
             TokenType::Identifier(_) => {
@@ -621,25 +618,6 @@ impl Parser {
             instruction_type: InstructionType::NamespaceBlock {
                 functions,
             },
-            start: context.0,
-            end: self.context_of_current_token()?.1,
-            line: context.2,
-            pop_after: false,
-        })
-    }
-
-    // raw-call:
-    // |> 'raw' INTEGER
-    fn raw_call(&mut self) -> Option<Instruction> {
-        let context = self.context_of_current_token()?;
-        self.expect_and_advance(&TokenType::Raw)?;
-        self.expect(&TokenType::Integer(0))?;
-        let integer = match self.current_token().unwrap().token_type {
-            TokenType::Integer(v) => v,
-            _ => unreachable!(),
-        };
-        Some(Instruction {
-            instruction_type: InstructionType::RawCall(integer),
             start: context.0,
             end: self.context_of_current_token()?.1,
             line: context.2,
