@@ -1,19 +1,13 @@
-use std::{time::Instant, sync::atomic::AtomicUsize};
+use std::{sync::atomic::AtomicUsize};
 
 use rayon::prelude::{ParallelIterator, IntoParallelRefMutIterator, IndexedParallelIterator};
 
 use crate::{vm::VM, Object, VMData, object_map::ObjectMap, ObjectData};
 
 impl VM {
-    // TODO: Improve, just kind of slapped it here I mean cmon dude
     pub fn collect_garbage(&mut self) {
-        let current_usage = self.usage();
-        let time = Instant::now();
-        println!("running gc {current_usage}");
         self.mark();
         self.sweep();
-        let usage = self.usage();
-        println!("ran the gc in {}ms cleaned up {} bytes now at {usage} bytes", time.elapsed().as_millis(), current_usage - usage);
     }
 
     fn mark(&mut self) {
@@ -68,7 +62,7 @@ impl VM {
 }
 
 impl Object {
-    fn mark(&self, mark_as: bool, objects: &ObjectMap) {
+    pub(crate) fn mark(&self, mark_as: bool, objects: &ObjectMap) {
         self.live.set(mark_as);
         match &self.data {
             ObjectData::List(v) | ObjectData::Struct(v) => v.iter().for_each(|x| {

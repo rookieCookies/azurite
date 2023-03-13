@@ -1,6 +1,6 @@
 use crate::{Object, ObjectData};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ObjectMap {
     pub data: Vec<Object>,
     pub free: usize,
@@ -26,7 +26,7 @@ impl ObjectMap {
     /// This function will error if the `ObjectMap` is out of
     /// free objects or the `free` object the map has is not
     /// actually `ObjectData::Free`
-    pub fn push(&mut self, value: Object) -> Result<usize, Object> {
+    pub(crate) fn push(&mut self, value: Object) -> Result<usize, Object> {
         if self.free >= self.data.capacity() {
             return Err(value);
         }
@@ -41,28 +41,13 @@ impl ObjectMap {
         }
     }
 
-    pub fn remove(&mut self, index: usize) {
-        self.data[index] = Object::new(ObjectData::Free { next: self.free });
-        self.free = index;
-    }
-
     #[must_use]
-    pub fn get(&self, index: usize) -> Option<&Object> {
+    pub(crate) fn get(&self, index: usize) -> Option<&Object> {
         self.data.get(index)
     }
 
     #[must_use]
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut Object> {
+    pub(crate) fn get_mut(&mut self, index: usize) -> Option<&mut Object> {
         self.data.get_mut(index)
-    }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
     }
 }

@@ -9,11 +9,13 @@ pub struct RuntimeError {
 
 impl RuntimeError {
     #[must_use]
+    #[cfg(not(tarpaulin_include))]
     pub fn new(index: u64, message: &'static str) -> Self {
         Self::new_string(index, message.to_string())
     }
 
     #[must_use]
+    #[cfg(not(tarpaulin_include))]
     pub fn new_string(index: u64, message: String) -> Self {
         Self {
             bytecode_index: index,
@@ -24,6 +26,7 @@ impl RuntimeError {
     /// # Errors
     /// This function will return an error if the
     /// linetable is unable to be read
+    #[cfg(not(tarpaulin_include))]
     pub fn trigger(self, linetable_bytes: Vec<u8>) {
         let linetable = load_linetable(linetable_bytes);
         if linetable.is_empty() {
@@ -35,7 +38,7 @@ impl RuntimeError {
     }
 }
 
-fn load_linetable(linetable_bytes: Vec<u8>) -> Vec<u32> {
+pub(crate) fn load_linetable(linetable_bytes: Vec<u8>) -> Vec<u32> {
     let mut linetable = Vec::with_capacity(linetable_bytes.len() / 4);
     let mut iter = linetable_bytes.into_iter();
     while let Some(x) = iter.next() {

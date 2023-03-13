@@ -32,17 +32,16 @@ pub struct VM {
 
 #[must_use]
 #[inline(always)]
+#[cfg(not(tarpaulin_include))]
 pub fn corrupt_bytecode() -> RuntimeError {
-    #[cfg(debug_assertions)]
-    return RuntimeError::new(0, "corrupt bytecode");
-    #[cfg(not(debug_assertions))]
-    unsafe { std::hint::unreachable_unchecked() }
+    RuntimeError::new(0, "corrupt bytecode")
 }
 
 impl VM {
     /// # Errors
     /// This function will return an error if `get_vm_memory`
     /// returns an error
+    #[cfg(not(tarpaulin_include))]
     pub fn new() -> Result<Self, RuntimeError> {
         Ok(Self {
             constants: vec![],
@@ -78,7 +77,7 @@ impl VM {
 
             let value = current.next();
             match value {
-                &consts::EqualsTo => {
+                consts::EqualsTo => {
                     let popped = self.stack.pop_two();
                     let value = VMData::Bool(match (&popped.1, &popped.0) {
                         (VMData::Integer(v1), VMData::Integer(v2)) => v1 == v2,
@@ -92,7 +91,7 @@ impl VM {
                     });
                     self.stack.push(value)?;
                 }
-                &consts::NotEqualsTo => {
+                consts::NotEqualsTo => {
                     let popped = self.stack.pop_two();
                     let value = VMData::Bool(match (&popped.1, &popped.0) {
                         (VMData::Integer(v1), VMData::Integer(v2)) => v1 != v2,
@@ -106,7 +105,7 @@ impl VM {
                     });
                     self.stack.push(value)?;
                 }
-                &consts::GreaterThan => {
+                consts::GreaterThan => {
                     let popped = self.stack.pop_two();
                     let value = VMData::Bool(match (&popped.1, &popped.0) {
                         (VMData::Integer(v1), VMData::Integer(v2)) => v1 > v2,
@@ -115,7 +114,7 @@ impl VM {
                     });
                     self.stack.push(value)?;
                 }
-                &consts::LesserThan => {
+                consts::LesserThan => {
                     let popped = self.stack.pop_two();
                     let value = VMData::Bool(match (&popped.1, &popped.0) {
                         (VMData::Integer(v1), VMData::Integer(v2)) => v1 < v2,
@@ -124,7 +123,7 @@ impl VM {
                     });
                     self.stack.push(value)?;
                 }
-                &consts::GreaterEquals => {
+                consts::GreaterEquals => {
                     let popped = self.stack.pop_two();
                     let value = VMData::Bool(match (&popped.1, &popped.0) {
                         (VMData::Integer(v1), VMData::Integer(v2)) => v1 >= v2,
@@ -133,7 +132,7 @@ impl VM {
                     });
                     self.stack.push(value)?;
                 }
-                &consts::LesserEquals => {
+                consts::LesserEquals => {
                     let popped = self.stack.pop_two();
                     let value = VMData::Bool(match (&popped.1, &popped.0) {
                         (VMData::Integer(v1), VMData::Integer(v2)) => v1 <= v2,
@@ -142,46 +141,46 @@ impl VM {
                     });
                     self.stack.push(value)?;
                 }
-                &consts::Jump => {
-                    let i = *current.next() as usize;
+                consts::Jump => {
+                    let i = current.next() as usize;
                     current.skip(i);
                 }
-                &consts::JumpIfFalse => {
+                consts::JumpIfFalse => {
                     let condition = match self.stack.pop() {
                         VMData::Bool(v) => v,
                         _ => return Err(corrupt_bytecode()),
                     };
-                    let amount = *current.next() as usize;
+                    let amount = current.next() as usize;
                     if !condition {
                         current.skip(amount);
                     }
                 }
-                &consts::JumpBack => {
-                    let i = *current.next() as usize;
+                consts::JumpBack => {
+                    let i = current.next() as usize;
                     current.back_skip(i);
                 }
-                &consts::JumpLarge => {
-                    let amount = u16::from_le_bytes([*current.next(), *current.next()]) as usize;
+                consts::JumpLarge => {
+                    let amount = u16::from_le_bytes([current.next(), current.next()]) as usize;
                     current.skip(amount);
                 }
-                &consts::JumpIfFalseLarge => {
+                consts::JumpIfFalseLarge => {
                     let condition = match self.stack.pop() {
                         VMData::Bool(v) => v,
                         _ => return Err(corrupt_bytecode()),
                     };
-                    let amount = u16::from_le_bytes([*current.next(), *current.next()]) as usize;
+                    let amount = u16::from_le_bytes([current.next(), current.next()]) as usize;
                     if !condition {
                         current.skip(amount);
                     }
                 }
-                &consts::JumpBackLarge => {
-                    let amount = u16::from_le_bytes([*current.next(), *current.next()]) as usize;
+                consts::JumpBackLarge => {
+                    let amount = u16::from_le_bytes([current.next(), current.next()]) as usize;
                     current.back_skip(amount);
                 }
-                &consts::LoadFunction => {
-                    let arg_count = *current.next();
-                    let has_return = *current.next() == 1;
-                    let amount = *current.next() as usize;
+                consts::LoadFunction => {
+                    let arg_count = current.next();
+                    let has_return = current.next() == 1;
+                    let amount = current.next() as usize;
                     self.functions.push(Function {
                         start: current.index,
                         argument_count: arg_count,
@@ -190,12 +189,12 @@ impl VM {
                     });
                     current.skip(amount);
                 }
-                &consts::LoadConst => {
-                    let index = *current.next();
+                consts::LoadConst => {
+                    let index = current.next();
                     self.stack.push(self.constants[index as usize])?;
                 }
-                &consts::LoadConstStr => {
-                    let index = *current.next();
+                consts::LoadConstStr => {
+                    let index = current.next();
                     let string_index = match &self.constants[index as usize] {
                         VMData::Object(v) => *v,
                         _ => return Err(corrupt_bytecode())
@@ -209,52 +208,52 @@ impl VM {
                     let object_index = self.create_object(Object::new(ObjectData::String(string_dup.clone())))?;
                     self.stack.push(VMData::Object(object_index as u64))?;
                 }
-                &consts::Add => {
+                consts::Add => {
                     let values = self.stack.pop_two();
                     let result = static_add(values.1, values.0)?;
                     self.stack.push(result)?;
                 }
-                &consts::Subtract => {
+                consts::Subtract => {
                     let values = self.stack.pop_two();
                     let result = static_sub(values.1, values.0)?;
                     self.stack.push(result)?;
                 }
-                &consts::Multiply => {
+                consts::Multiply => {
                     let values = self.stack.pop_two();
                     let result = static_mul(values.1, values.0)?;
                     self.stack.push(result)?;
                 }
-                &consts::Divide => {
+                consts::Divide => {
                     let values = self.stack.pop_two();
                     let result = static_div(values.1, values.0)?;
                     self.stack.push(result)?;
                 }
-                &consts::GetVar => {
-                    let index = u16::from_le_bytes([*current.next(), *current.next()]);
+                consts::GetVar => {
+                    let index = u16::from_le_bytes([current.next(), current.next()]);
                     debug_assert!(self.stack.top > current.stack_offset + index as usize);
                     self.stack
                         .push(self.stack.data[current.stack_offset + index as usize])?;
                 }
-                &consts::GetVarFast => {
-                    let index = *current.next();
+                consts::GetVarFast => {
+                    let index = current.next();
                     debug_assert!(self.stack.top > current.stack_offset + index as usize, "get var out of bounds {} {index}", current.stack_offset);
                     self.stack
                         .push(self.stack.data[current.stack_offset + index as usize])?;
                 }
-                &consts::ReplaceVarFast => {
-                    let index = *current.next();
+                consts::ReplaceVarFast => {
+                    let index = current.next();
                     self.stack
                         .swap_top_with_while_stepping_back(index as usize + current.stack_offset);
                 }
-                &consts::ReplaceVar => {
-                    let index = u16::from_le_bytes([*current.next(), *current.next()]);
+                consts::ReplaceVar => {
+                    let index = u16::from_le_bytes([current.next(), current.next()]);
                     self.stack
                         .swap_top_with_while_stepping_back(index as usize + current.stack_offset);
                 }
-                &consts::ReplaceVarInObject => {
-                    let size = *current.next();
+                consts::ReplaceVarInObject => {
+                    let size = current.next();
                     let data = self.stack.pop();
-                    let mut object = self.stack.data.get_mut(*current.next() as usize).unwrap();
+                    let mut object = self.stack.data.get_mut(current.next() as usize).unwrap();
                     for _ in 0..(size - 1) {
                         object = match object {
                             VMData::Object(v) => match &mut unsafe {
@@ -263,7 +262,7 @@ impl VM {
                             .data
                             {
                                 ObjectData::Struct(v) => {
-                                    v.get_mut(*current.next() as usize).unwrap()
+                                    v.get_mut(current.next() as usize).unwrap()
                                 }
                                 _ => return Err(corrupt_bytecode()),
                             },
@@ -272,14 +271,14 @@ impl VM {
                     }
                     *object = data;
                 }
-                &consts::Not => {
+                consts::Not => {
                     let value = match self.stack.pop() {
                         VMData::Bool(v) => VMData::Bool(!v),
                         _ => return Err(corrupt_bytecode()),
                     };
                     self.stack.push(value)?;
                 }
-                &consts::Negative => {
+                consts::Negative => {
                     let value = match self.stack.pop() {
                         VMData::Integer(v) => VMData::Integer(-v),
                         VMData::Float(v) => VMData::Float(-v),
@@ -287,12 +286,12 @@ impl VM {
                     };
                     self.stack.push(value)?;
                 }
-                &consts::Pop => {
+                consts::Pop => {
                     self.stack.step_back();
                 }
-                &consts::PopMulti => self.stack.pop_multi_ignore(*current.next() as usize),
-                &consts::CreateStruct => {
-                    let amount_of_variables = *current.next() as usize;
+                consts::PopMulti => self.stack.pop_multi_ignore(current.next() as usize),
+                consts::CreateStruct => {
+                    let amount_of_variables = current.next() as usize;
                     let mut data = Vec::with_capacity(amount_of_variables);
                     for _ in 0..amount_of_variables {
                         data.push(self.stack.pop());
@@ -306,7 +305,7 @@ impl VM {
                         }
                     } as u64))?;
                 }
-                &consts::AccessData => {
+                consts::AccessData => {
                     let data = self.stack.pop();
                     let index = current.next();
                     let object = match data {
@@ -315,13 +314,13 @@ impl VM {
                     };
                     match &self.get_object(object as usize).data {
                         ObjectData::Struct(v) => {
-                            self.stack.push(v[*index as usize])?;
+                            self.stack.push(v[index as usize])?;
                         }
                         _ => return Err(corrupt_bytecode()),
                     }
                 }
-                &consts::CallFunction => {
-                    let index = *current.next() as usize;
+                consts::CallFunction => {
+                    let index = current.next() as usize;
                     let function = match self.functions.get(index) {
                         Some(v) => v,
                         None => {
@@ -346,7 +345,10 @@ impl VM {
                     callstack.push(current);
                     current = function_code;
                 }
-                &consts::ReturnFromFunction | &consts::Return => {
+                consts::ReturnFromFunction | consts::Return => {
+                    if callstack.is_empty() {
+                        return Ok(());
+                    }
                     if current.has_return {
                         let return_value = self.stack.top - 1;
 
@@ -358,58 +360,54 @@ impl VM {
                         self.stack
                             .pop_multi_ignore(self.stack.top - current.stack_offset);
                     }
-
-                    if callstack.is_empty() {
-                        return Ok(());
-                    }
                     current = callstack.pop().unwrap();
                 }
-                &consts::RawCall => {
-                    let index = *current.next() as usize;
+                consts::RawCall => {
+                    let index = current.next() as usize;
                     native_library::RAW_FUNCTIONS[index]((self, &mut current))?;
                     // debug_assert!(start == self.stack.top || start + 1 == self.stack.top, "native function ({index}) doesn't have a stack affect of 0");
                 }
-                &consts::ReturnWithoutCallStack => {
-                    let amount = *current.next();
+                consts::ReturnWithoutCallStack => {
+                    let amount = current.next();
 
                     let return_value = self.stack.top-1;
                     self.stack.pop_multi_ignore(amount as usize);
                     self.stack.data.swap(return_value, self.stack.top-1);
                 }
-                &consts::Rotate => {
+                consts::Rotate => {
                     self.stack.step_back();
                     self.stack.swap_top_with(self.stack.top-1);
                     self.stack.swap_top_with(self.stack.top-2);
                     self.stack.step();
                 }
-                &consts::Over => {
+                consts::Over => {
                     self.stack.push(self.stack.data[self.stack.top-2])?;
                 }
-                &consts::Swap => {
+                consts::Swap => {
                     self.stack.swap_top_with_while_stepping_back(self.stack.top-2);
                     self.stack.step();
                 }
-                &consts::Duplicate => {
+                consts::Duplicate => {
                     self.stack.push(self.stack.data[self.stack.top-1])?;
                 }
-                &consts::IndexSwap => {
-                    let v1 = *current.next();
-                    let v2 = *current.next();
+                consts::IndexSwap => {
+                    let v1 = current.next();
+                    let v2 = current.next();
                     self.stack.data.swap(v1 as usize, v2 as usize);
                 }
-                &consts::Increment => {
+                consts::Increment => {
                     match self.stack.data.get_mut(self.stack.top-1).unwrap() {
                         VMData::Integer(v) => *v += 1,
                         VMData::Float(v) => *v += 1.0,
                         _ => return Err(corrupt_bytecode())
                     }
                 }
-                _ => panic!(),
+                _ => return Err(corrupt_bytecode()),
             };
 
             #[cfg(feature = "stack")]
             {
-                // let value = &consts::from_u8(code.code[code.index]);
+                // let value = consts::from_u8(code.code[code.index]);
                 print!("        ");
                 (0..self.stack.top).for_each(|x| print!("[{:?}]", self.stack.data[x]));
                 println!()
@@ -417,7 +415,7 @@ impl VM {
 
             #[cfg(feature = "objects")]
             {
-                // let value = &consts::from_u8(code.code[code.index]);
+                // let value = consts::from_u8(code.code[code.index]);
                 print!("        ");
                 self.objects
                     .data
@@ -474,14 +472,10 @@ pub struct Code<'a> {
 impl Code<'_> {
     #[inline(always)]
     #[must_use]
-    fn next(&mut self) -> &u8 {
-        // unsafe {
-        //     self.index = self.index.unchecked_add(1);
-        // }
+    fn next(&mut self) -> u8 {
         self.index += 1;
-        // unsafe { self.bytecode.get_unchecked(index) }
 
-        self.bytecode.get(self.index - 1).unwrap()
+        *self.bytecode.get(self.index - 1).unwrap()
     }
 
     #[inline(always)]
@@ -502,7 +496,7 @@ pub struct Stack {
 }
 
 impl Stack {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             data: [VMData::Empty; 512],
             top: 0,
@@ -551,7 +545,7 @@ impl Stack {
     #[inline(always)]
     #[must_use]
     fn pop_two(&mut self) -> (&VMData, &VMData) {
-        self.top -= 2;
+        self.top = self.top.checked_sub(2).unwrap();
 
         (
             self.data.get(self.top + 1).unwrap(),

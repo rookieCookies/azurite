@@ -12,6 +12,7 @@ pub mod native_library;
 pub mod object_map;
 pub mod runtime_error;
 pub mod vm;
+mod unit_tests;
 
 /// # Panics
 /// # Errors
@@ -238,7 +239,7 @@ impl VMData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Object {
     live: Cell<bool>,
     data: ObjectData,

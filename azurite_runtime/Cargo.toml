@@ -19,10 +19,6 @@ rand = "*"
 rayon = "*"
 # zip = { version = "0.6.4", default-features = false }
 
-[dev-dependencies]
-criterion = {version = "*", features = ["html_reports"]}
-pprof = {version = "*", features = ["flamegraph"]}
-
 # [[bench]]
 # name = "benchmark"
 # harness = false

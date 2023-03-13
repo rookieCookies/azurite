@@ -114,10 +114,7 @@ pub struct Compilation {
     pub constants: Vec<Data>,
     pub line_table: Vec<u32>,
     pub bytecode: Vec<u8>,
-
-    #[cfg(feature = "readable")]
-    pub text: Vec<String>,
-
+    
     // Compiler state
     compiled_all_functions: bool,
     variable_offset: usize,

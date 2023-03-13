@@ -12,6 +12,3 @@ azurite_runtime = { path = "../azurite_runtime" }
 azurite_archiver = { path = "../crates/azurite_archiver" }
 # zip = { version = "0.6.4", default-features = false }
 colored = "*"
-
-rustyline = "11.0.0"
-rustyline-derive = "0.8.0"

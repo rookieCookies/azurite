@@ -1,12 +1,9 @@
 #![warn(clippy::pedantic)]
 use std::env::Args;
-use std::fs::{OpenOptions, self};
-use std::io::BufWriter;
+use std::fs;
 use std::time::Instant;
 use std::{
     env,
-    fs::File,
-    io::Write,
     path::Path,
     process::ExitCode,
     vec::IntoIter,
@@ -14,11 +11,7 @@ use std::{
 
 use azurite_archiver::Packed;
 use azurite_common::{consts, prepare, environment};
-use colored::{Color, Colorize};
-
-use rustyline::{error::ReadlineError, validate::MatchingBracketValidator, Editor};
-use rustyline::{Cmd, EventHandler, KeyCode, KeyEvent, Modifiers};
-use rustyline_derive::{Completer, Helper, Highlighter, Hinter, Validator};
+use colored::Colorize;
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), ExitCode> {
@@ -33,81 +26,6 @@ fn main() -> Result<(), ExitCode> {
     prepare();
 
     match argument.as_str() {
-        "repl" => {
-            parse_environments(args);
-            // Using Repl
-            let h = InputValidator {
-                brackets: MatchingBracketValidator::new(),
-            };
-            let mut rl = Editor::new().unwrap();
-            rl.set_helper(Some(h));
-            rl.bind_sequence(
-                KeyEvent(KeyCode::Enter, Modifiers::CTRL),
-                EventHandler::Simple(Cmd::Newline),
-            );
-            if rl.load_history("repl/history.txt").is_err() {
-                println!("No previous history.");
-            }
-
-            if !Path::new("repl").is_dir() {
-                std::fs::create_dir("repl").unwrap();
-            }
-
-            if Path::new("repl/repl.az").is_file() {
-                std::fs::remove_file("repl/repl.az").unwrap();
-            }
-
-            File::create("repl/repl.az").unwrap();
-            println!("repl.az created");
-
-            loop {
-                // Repl prompt
-                let readline = rl.readline(&"azurite $ ".color(Color::TrueColor {
-                    r: 80,
-                    g: 80,
-                    b: 80,
-                }));
-                match readline {
-                    Ok(line) => {
-                        // Rustlyline History support
-                        rl.add_history_entry(line.as_str()).unwrap();
-                        rl.save_history("repl/history.txt").unwrap();
-
-                        // Basic repl commands to check
-                        if line.to_lowercase() == "exit" {
-                            break;
-                        };
-                        if line.to_lowercase() == "reset" {
-                            if Path::new("repl/repl.az").is_file() {
-                                std::fs::remove_file("repl/repl.az").unwrap();
-                            }
-                            File::create("repl/repl.az").unwrap();
-                            continue;
-                        };
-                        let f = OpenOptions::new()
-                            .write(true)
-                            .append(true)
-                            .open("repl/repl.az")
-                            .expect("unable to open file");
-
-                        let mut f = BufWriter::new(f);
-                        writeln!(f, "{line}").expect("unable to open repl.az");
-                        drop(f);
-
-                        let file = "repl/repl.az";
-                        azurite_compiler::run_file(file)?;
-                        let file = format!("{file}urite");
-                        azurite_runtime::run_file(&file)?;
-                    }
-                    Err(ReadlineError::Eof | ReadlineError::Interrupted) => {
-                        break;
-                    }
-                    Err(err) => {
-                        println!("Error: {:?}", err);
-                    }
-                }
-            }
-        }
         "build" => {
             let file = match args.next() {
                 Some(v) => v,
@@ -330,10 +248,4 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
             _ => disassemble.push_str(&format!("UNKNOWN INDEX{{{}}}", i))
         };
     }
-}
-
-#[derive(Completer, Helper, Highlighter, Hinter, Validator)]
-struct InputValidator {
-    #[rustyline(Validator)]
-    brackets: MatchingBracketValidator,
 }

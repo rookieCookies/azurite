@@ -18,9 +18,6 @@ impl Packed {
     }
 
     pub fn as_bytes(mut self) -> Vec<u8> {
-        if self.data_table.is_empty() {
-            return vec![]
-        }
 
         let size_of_lookup_table = self.data_table.len() * 8;
 
@@ -98,6 +95,18 @@ impl Packed {
 impl From<Packed> for Vec<Data> {
     fn from(val: Packed) -> Self {
         val.data_table
+    }
+}
+
+impl From<Vec<Data>> for Packed {
+    fn from(val: Vec<Data>) -> Self {
+        let mut packed = Packed::new();
+
+        for data in val {
+            packed = packed.with(data)
+        }
+
+        packed
     }
 }
 
