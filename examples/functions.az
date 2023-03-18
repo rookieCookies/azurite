@@ -2,4 +2,9 @@ fn hi() {
     IO::writeln("Hello there!")
 }
 
+fn calculate() -> int {
+    12 * 8
+}
+
 hi()
+calculate()

@@ -5,9 +5,8 @@ members = [
     "azurite_compiler",
     "azurite_runtime",
     "azurite_common",
-    "crates/azurite_archiver"
+    "crates/azurite_archiver",
 ]
-
 
 [profile.release]
 # debug = true

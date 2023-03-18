@@ -234,6 +234,7 @@ impl Error {
                 message.push('\n');
                 continue;
             }
+
             message.push_str(
                 format!(
                     "{} {}\n",
@@ -250,15 +251,13 @@ impl Error {
                             "^".repeat(
                                 file_data
                                     .start_of_line(line_number + 1)
-                                    // .expect(format!("{}", line_number + 1).as_str())
                                     .unwrap_or(positions.1 as usize + 1)
-                                    .min(positions.1 as usize + 1)
+                                    .max(positions.0 as usize)
                                     - positions.0 as usize
                             )
                             .color(self.colour_scheme.arrow_to_error)
                         )
                     } else if line_number == end_line {
-                        dbg!(&positions, file_data.start_of_line(line_number).unwrap());
                         format!(
                             "{}",
                             "^".repeat(

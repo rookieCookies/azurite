@@ -1,0 +1,7 @@
+var value = if if if if if if if if true { true } else { false } { true } else { false } { true } else { false } { true } else { false } { true } else { false } { true } else { false } { true } else { false } {
+    true
+} else {
+    false
+}
+
+assert(value)

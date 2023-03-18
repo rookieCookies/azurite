@@ -1,4 +1,3 @@
-#![warn(clippy::pedantic)]
 use std::env::Args;
 use std::fs;
 use std::time::Instant;
@@ -48,9 +47,8 @@ fn main() -> Result<(), ExitCode> {
                 .map_or(false, |ext| ext.eq_ignore_ascii_case("az"))
             {
                 compile(&file)?;
-                let file = format!("{}urite", file);
+                let file = format!("{file}urite");
 
-                println!("{} {file}", "Running..".bright_green().bold());
                 let _ = azurite_runtime::run_file(&file);
             } else {
                 println!("{} {file}", "Running..".bright_green().bold());
@@ -76,7 +74,7 @@ fn main() -> Result<(), ExitCode> {
                 .map_or(false, |ext| ext.eq_ignore_ascii_case("az"))
                 {
                     compile(file)?;
-                    let file = format!("{}urite", file);
+                    let file = format!("{file}urite");
 
                     println!("{} {file}", "Running..".bright_green().bold());
                     let _ = azurite_runtime::run_file(&file);
@@ -245,7 +243,7 @@ fn disassemble(mut v: IntoIter<u8>) -> String {
             },
             consts::Duplicate => disassemble.push_str("duplicate"),
             consts::Increment => disassemble.push_str("increment"),
-            _ => disassemble.push_str(&format!("UNKNOWN INDEX{{{}}}", i))
+            _ => disassemble.push_str(&format!("UNKNOWN INDEX{{{i}}}"))
         };
     }
 }

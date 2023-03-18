@@ -50,6 +50,8 @@ pub struct Scope {
     function_map: HashMap<String, FunctionReference>,
     pub structure_map: HashMap<String, Vec<(String, DataType)>>,
     structure_linkage: HashMap<String, String>,
+
+    is_initialized: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +79,7 @@ impl Scope {
             function_map: native.function_map.clone(),
             structure_map: native.structure_map.clone(),
             structure_linkage: native.structure_linkage.clone(),
+            is_initialized: false,
         }
     }
 
@@ -89,6 +92,7 @@ impl Scope {
             function_map: HashMap::new(),
             structure_map: HashMap::new(),
             structure_linkage: HashMap::new(),
+            is_initialized: false,
         }
     }
 
@@ -105,7 +109,6 @@ impl Scope {
             Some(v) => DataType::from_string(v),
             None => {
                 if !self.structure_map.contains_key(id) {
-                    state.is_in_panic = false;
                     state.send_error(error_structure_doesnt_exist(self, (start, end), id, &self.structure_map.iter().map(|x| x.0.as_str()).collect::<Vec<_>>()));
                 }
                 DataType::from_string(id)
@@ -204,6 +207,7 @@ impl AnalysisState {
                 _ => continue,
             }
         }
+
         for instruction in &mut instructions {
             match &mut instruction.instruction_type {
                 InstructionType::FunctionDeclaration { .. } => {
@@ -222,19 +226,20 @@ impl AnalysisState {
         self.errors = errors;
         // Now these can
 
-        for instruction in &mut instructions {
-            return_type = self.analyze_with_type_hint(scope, instruction, hint.clone());
-            self.is_in_panic = false;
-        }
-
         if dont_pop_last {
             if let Some(v) = instructions.last_mut() {
                 v.pop_after = false;
             }
         };
+        
+        for instruction in &mut instructions {
+            self.is_in_panic = false;
+            return_type = self.analyze_with_type_hint(scope, instruction, hint.clone());
+        }
 
         debug_assert!(scope.instructions.is_empty());
         scope.instructions = std::mem::take(&mut instructions);
+        scope.is_initialized = true;
         (return_type, true)
     }
 
@@ -285,7 +290,17 @@ impl AnalysisState {
         let mut return_type = DataType::Empty;
         match &mut instruction.instruction_type {
             InstructionType::Using(file_name) => {
-                if let Some(loaded_file) = self.loaded_files.get(file_name) {
+                #[cfg(afl)]
+                return return_type;
+
+                if self.loaded_files.contains_key(file_name) && !self.loaded_files.get(file_name).unwrap().is_initialized {
+                    let mut temp = Scope::new_raw(FileData::default(), vec![]);
+                    std::mem::swap(self.loaded_files.get_mut(file_name).unwrap(), &mut temp);
+                    self.analyze_scope(&mut temp);
+                    std::mem::swap(self.loaded_files.get_mut(file_name).unwrap(), &mut temp);
+                }
+
+                if let Some(loaded_file) = self.loaded_files.get_mut(file_name) {
                     scope.function_map.extend(loaded_file.function_map.clone());
                     scope.variable_map.extend(loaded_file.variable_map.clone());
                     scope.structure_map.extend(loaded_file.structure_map.clone());
@@ -353,17 +368,14 @@ impl AnalysisState {
                                 v,
                                 &type_of_data,
                             ));
-                            scope.variable_map.insert(identifier.clone(), usize::MAX);
-                            return return_type;
                         }
                         v.clone()
                     }
                     None => type_of_data,
                 };
 
-                let is_overriding = scope.variable_map.insert(identifier.clone(), usize::MAX);
-                if let Some(index) = is_overriding {
-                    scope.variable_map.insert(identifier.clone(), index);
+                if let Some(index) = scope.variable_map.get(identifier) {
+                    scope.variable_map.insert(identifier.clone(), *index);
                 } else {
                     scope.stack_emulation.push(type_of_variable);
                     let index = scope.stack_emulation.len() - 1; // top
@@ -382,7 +394,7 @@ impl AnalysisState {
                             &scope.variable_map.keys().map(String::as_str).collect::<Vec<_>>()
                         ));
                         return return_type;
-                    };
+                };
                 return_type = scope.stack_emulation[variable_index].clone();
                 *index = variable_index as u16;
             }
@@ -433,8 +445,12 @@ impl AnalysisState {
 
                 let (rt, _) = self.analyze_scope_with_hint(&mut new_scope, &hint, true);
 
-                return_type = rt;
                 *pop = (new_scope.stack_emulation.len() - scope.stack_emulation.len()) as u16;
+
+                return_type = rt;
+                if return_type == DataType::Empty && instruction.pop_after {
+                    instruction.pop_after = false;
+                }
 
                 // .max(0) as u16;
                 scope.current_file = std::mem::take(&mut new_scope.current_file);
@@ -456,11 +472,13 @@ impl AnalysisState {
                 }
 
                 return_type = self.analyze(scope, body);
-                instruction.pop_after = return_type != DataType::Empty;
+                if instruction.pop_after {
+                    instruction.pop_after = return_type != DataType::Empty;
+                }
 
                 match else_part {
                     Some(else_part) => {
-                        let else_type = self.analyze(scope, else_part);
+                        let else_type = self.analyze_with_type_hint(scope, else_part, Some(return_type.clone()));
                         if return_type != else_type {
                             self.send_error(error_else_clause_isnt_of_type(
                                 scope,
@@ -470,7 +488,15 @@ impl AnalysisState {
                             ));
                         }
                     }
-                    None => (),
+                    None => {
+                        if return_type != DataType::Empty && !instruction.pop_after {
+                            self.send_error(error_expected_a_type_but_no_else(
+                                scope,
+                                (instruction.start, instruction.end),
+                                &return_type,
+                            ));
+                        }
+                    },
                 }
             }
             InstructionType::BinaryOperation {
@@ -480,6 +506,10 @@ impl AnalysisState {
             } => {
                 let left_type = self.analyze(scope, left);
                 let right_type = self.analyze(scope, right);
+
+                if left_type == DataType::Empty || right_type == DataType::Empty {
+                    self.send_error(error_binary_op_between_empty_types(scope, (left.start, right.end)));
+                }
 
                 if let Some(v) = type_check_binary_operation(
                     &left_type,
@@ -515,7 +545,7 @@ impl AnalysisState {
                     _ => {
                         let expected = match operator {
                             UnaryOperator::Minus => DataType::Integer,
-                            UnaryOperator::Not => todo!(),
+                            UnaryOperator::Not => DataType::Bool,
                         };
                         self.send_error(error_non_expected_type(
                             scope,
@@ -530,13 +560,14 @@ impl AnalysisState {
             InstructionType::Return(Some(v)) => return_type = self.analyze(scope, v),
             InstructionType::WhileStatement { condition, body } => {
                 let condition_type = self.analyze(scope, condition);
+                dbg!(&condition_type);
                 if condition_type != DataType::Bool {
-                    error_non_expected_type(
+                    self.send_error(error_non_expected_type(
                         scope,
                         (condition.start, condition.end),
                         &DataType::Bool,
                         &condition_type,
-                    );
+                    ));
                 }
 
                 let rt = self.analyze(scope, body);
@@ -639,7 +670,7 @@ impl AnalysisState {
                 .clone();
             
                 if function_meta.is_template {
-                    *identifier = format!("<{} {generics:?}>", identifier);
+                    *identifier = format!("<{identifier} {generics:?}>");
                 }
 
                 if function_meta.is_template && !scope.function_map.contains_key(identifier) {
@@ -943,6 +974,12 @@ impl AnalysisState {
     }
 }
 
+impl Default for AnalysisState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn error_unable_to_locate_file(
     scope: &Scope,
     (start, end): (u32, u32),
@@ -1027,8 +1064,21 @@ fn error_non_expected_type(
 ) -> Error {
     Error::new(
         vec![(start, end, Highlight::Red)],
-        "variable doesn't exist",
+        "unexpected type",
         format!("this expression expects a {expected} but it is provided a {found}",),
+        &FATAL,
+        scope.current_file.path.clone(),
+    )
+}
+
+fn error_binary_op_between_empty_types(
+    scope: &Scope,
+    (start, end): (u32, u32),
+) -> Error {
+    Error::new(
+        vec![(start, end, Highlight::Red)],
+        "binary operation with nothing",
+        "you can't perform a binary operation with one of the values being ()".to_string(),
         &FATAL,
         scope.current_file.path.clone(),
     )
@@ -1048,6 +1098,21 @@ fn error_else_clause_isnt_of_type(
         scope.current_file.path.clone(),
     )
 }
+
+fn error_expected_a_type_but_no_else(
+    scope: &Scope,
+    (start, end): (u32, u32),
+    expected: &DataType,
+) -> Error {
+    Error::new(
+        vec![(start, end, Highlight::Red)],
+        "this if condition returns something but there is no else branch",
+        format!("the if condition returns {expected} there is no else branch and thus it can't be guaranteed it will return something",),
+        &FATAL,
+        scope.current_file.path.clone(),
+    )
+}
+
 
 fn error_function_return_type_is_different(
     scope: &Scope,

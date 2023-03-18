@@ -3,10 +3,12 @@ name = "azurite_compiler"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+afl = []
+
 [dependencies]
 azurite_common = { path = "../azurite_common" }
 azurite_archiver = { path = "../crates/azurite_archiver" }
 colored = "*"
-# zip = { version = "0.6.4", default-features = false }
 unicode-segmentation = "*"
 slotmap = "*"

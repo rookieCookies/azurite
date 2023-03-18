@@ -26,20 +26,24 @@ pub fn generate_instructions(file_data: &FileData) -> Result<Vec<Instruction>, V
 }
 
 pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
-    let process = Instruction {
-        instruction_type: InstructionType::Using(file_data.path),
-        start: 0,
-        end: 0,
-        line: 0,
-        pop_after: false,
-    };
-
     let mut analyzer_state = AnalysisState::new();
 
-    let mut root_scope = Scope::new_raw(
-        FileData::new("root".to_string(), ""),
-        vec![process],
-    );
+    let instructions = match generate_instructions(&file_data) {
+        Ok(v) => v,
+        #[cfg(not(afl))]
+        Err(errs) => {            
+            analyzer_state.loaded_files.insert(file_data.path.clone(), Scope::new_raw(file_data, vec![]));
+            for error in errs {
+                error.trigger(&analyzer_state.loaded_files);
+            }
+            return Err(ExitCode::FAILURE)
+        },
+        #[cfg(afl)]
+        Err(_) => {            
+            return Err(ExitCode::FAILURE)
+        },
+    };
+
 
     {
         let native_file_data = FileData::new("::native".to_string(), NATIVE_LIBRARY);
@@ -62,19 +66,36 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
             .loaded_files
             .insert("::native".to_string(), new_scope);
     }
+    
+    let file_name = file_data.path.clone();
+    let mut root_scope = Scope::new(
+        &analyzer_state,
+        file_data,
+        instructions,
+    );
+    
 
     analyzer_state.analyze_scope(&mut root_scope);
+
+    analyzer_state.loaded_files.insert(file_name, root_scope);
+
+
     if !analyzer_state.errors.is_empty() {
-        for error in analyzer_state.errors {
-            error.trigger(&analyzer_state.loaded_files);
+        #[cfg(not(afl))]
+        {            
+            for error in analyzer_state.errors {
+                error.trigger(&analyzer_state.loaded_files);
+            }
         }
         return Err(ExitCode::FAILURE);
     }
 
+    #[cfg(not(afl))]
     let is_release_mode = env::var(environment::RELEASE_MODE).map(|v| v == "1").unwrap_or(false);
 
     let mut compiler = Compilation::new();
     for function in analyzer_state.function_stack {
+        #[cfg(not(afl))]
         if is_release_mode && !function.used {
             continue
         }
@@ -174,13 +195,27 @@ impl Compilation {
             }
             InstructionType::Data(v) => {
                 let type_rep = v.type_representation();
-                self.constants.push(v);
+                
+                let mut index = 0;
+                let mut is_initialized_index = false;
+                for (indx, value) in self.constants.iter().enumerate() {
+                    if value == &v {
+                        index = indx;
+                        is_initialized_index = true;
+                        break
+                    }
+                }
+
+                if !is_initialized_index {
+                    index = self.constants.len();
+                    self.constants.push(v);
+                }
 
                 match type_rep {
                     DataType::String => self.emit_byte(Bytecode::LoadConstStr as u8, instruction.line),
                     _ => self.emit_byte(Bytecode::LoadConst as u8, instruction.line),
                 }
-                self.emit_byte((self.constants.len() - 1) as u8, instruction.line);
+                self.emit_byte(index as u8, instruction.line);
             }
             InstructionType::LoadVariable(_, index) => {
                 let index = index + self.variable_offset as u16;

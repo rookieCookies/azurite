@@ -1,4 +1,3 @@
-#![warn(clippy::pedantic)]
 use std::{env, fmt::Display, fs, process::ExitCode, vec::IntoIter};
 
 use colored::Colorize;
@@ -130,7 +129,7 @@ impl FileData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Data {
     Integer(i64),
     Float(f64),

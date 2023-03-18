@@ -338,7 +338,7 @@ impl Lexer {
                     'n' => string.push('\n'),
                     't' => string.push('\t'),
                     _ => errors.push(Error::new(
-                        vec![(start as u32, self.index as u32, Highlight::Red)],
+                        vec![(self.index as u32 - 1, self.index as u32, Highlight::Red)],
                         "invalid escape sequence",
                         "".to_string(),
                         &FATAL,

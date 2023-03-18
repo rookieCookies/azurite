@@ -657,7 +657,6 @@ impl Parser {
 impl Parser {
     // expression:
     // |> comparison-expression
-    // // |> expression 'as' type
     fn expression(&mut self, expression_settings: &ExpressionSettings) -> Option<Instruction> {
         self.comparison_expression(expression_settings)
     }
@@ -737,12 +736,14 @@ impl Parser {
         &mut self,
         expression_settings: &ExpressionSettings,
     ) -> Option<Instruction> {
-        self.binary_operation(
-            Parser::unit,
-            Parser::factor_expression,
-            expression_settings,
-            &[TokenType::Carrot],
-        )
+        // self.binary_operation(
+        //     Parser::unit,
+        //     Parser::factor_expression,
+        //     expression_settings,
+        //     &[TokenType::Carrot],
+        // )
+
+        self.unit(expression_settings)
     }
 
     // unit:
@@ -836,6 +837,7 @@ impl Parser {
                             match &mut function.instruction_type {
                                 InstructionType::FunctionCall { identifier, .. } => {
                                     *identifier = format!("{v}::{identifier}");
+                                    function.start = context.0;
                                 }
                                 _ => unreachable!(),
                             };
@@ -896,7 +898,7 @@ impl Parser {
         let context = self.context_of_current_token()?;
         let identifier = self.expect_identifier()?.clone();
         Some(Instruction {
-            instruction_type: InstructionType::LoadVariable(identifier, 0),
+            instruction_type: InstructionType::LoadVariable(identifier, u16::MAX),
             start: context.0,
             end: self.context_of_current_token()?.1,
             line: context.2,

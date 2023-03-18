@@ -1,0 +1,7 @@
+namespace Hello {
+    fn say_hi() {
+        IO::writeln("Hi!")
+    }
+}
+
+Hello::say_hi()

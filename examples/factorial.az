@@ -1,0 +1,9 @@
+fn factorial(n: float) -> float {
+    if n == 1.0 {
+        return 1.0
+    }
+
+    n * factorial(n - 1.0)
+}
+
+assert_info(factorial(5.0) == 120.0, "factorial(5.0) == 120.0")

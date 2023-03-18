@@ -210,22 +210,46 @@ impl VM {
                 }
                 consts::Add => {
                     let values = self.stack.pop_two();
-                    let result = static_add(values.1, values.0)?;
+                    let result = match static_add(values.1, values.0) {
+                        Ok(v) => v,
+                        Err(mut err) => {
+                            err.bytecode_index = current.index as u64;
+                            return Err(err)
+                        },
+                    };
                     self.stack.push(result)?;
                 }
                 consts::Subtract => {
                     let values = self.stack.pop_two();
-                    let result = static_sub(values.1, values.0)?;
+                    let result = match static_sub(values.1, values.0){
+                        Ok(v) => v,
+                        Err(mut err) => {
+                            err.bytecode_index = current.index as u64;
+                            return Err(err)
+                        },
+                    };
                     self.stack.push(result)?;
                 }
                 consts::Multiply => {
                     let values = self.stack.pop_two();
-                    let result = static_mul(values.1, values.0)?;
+                    let result = match static_mul(values.1, values.0) {
+                        Ok(v) => v,
+                        Err(mut err) => {
+                            err.bytecode_index = current.index as u64;
+                            return Err(err)
+                        },
+                    };
                     self.stack.push(result)?;
                 }
                 consts::Divide => {
                     let values = self.stack.pop_two();
-                    let result = static_div(values.1, values.0)?;
+                    let result = match static_div(values.1, values.0) {
+                        Ok(v) => v,
+                        Err(mut err) => {
+                            err.bytecode_index = current.index as u64;
+                            return Err(err)
+                        },
+                    };
                     self.stack.push(result)?;
                 }
                 consts::GetVar => {
@@ -578,7 +602,10 @@ impl Stack {
 #[inline(always)]
 fn static_add(data1: &VMData, data2: &VMData) -> Result<VMData, RuntimeError> {
     Ok(match (data1, data2) {
-        (VMData::Integer(v1), VMData::Integer(v2)) => VMData::Integer(v1 + v2),
+        (VMData::Integer(v1), VMData::Integer(v2)) => VMData::Integer(match v1.checked_add(*v2) {
+            Some(v) => v,
+            None => return Err(RuntimeError::new(0, "attempted to add with overflow")),
+        }),
         (VMData::Float(v1), VMData::Float(v2)) => VMData::Float(v1 + v2),
         _ => return Err(corrupt_bytecode()),
     })
@@ -587,7 +614,10 @@ fn static_add(data1: &VMData, data2: &VMData) -> Result<VMData, RuntimeError> {
 #[inline(always)]
 fn static_sub(data1: &VMData, data2: &VMData) -> Result<VMData, RuntimeError> {
     Ok(match (data1, data2) {
-        (VMData::Integer(v1), VMData::Integer(v2)) => VMData::Integer(v1 - v2),
+        (VMData::Integer(v1), VMData::Integer(v2)) => VMData::Integer(match v1.checked_sub(*v2) {
+            Some(v) => v,
+            None => return Err(RuntimeError::new(0, "attempted to subtract with overflow")),
+        }),
         (VMData::Float(v1), VMData::Float(v2)) => VMData::Float(v1 - v2),
         _ => return Err(corrupt_bytecode()),
     })
@@ -596,7 +626,10 @@ fn static_sub(data1: &VMData, data2: &VMData) -> Result<VMData, RuntimeError> {
 #[inline(always)]
 fn static_mul(data1: &VMData, data2: &VMData) -> Result<VMData, RuntimeError> {
     Ok(match (data1, data2) {
-        (VMData::Integer(v1), VMData::Integer(v2)) => VMData::Integer(v1 * v2),
+        (VMData::Integer(v1), VMData::Integer(v2)) => VMData::Integer(match v1.checked_mul(*v2) {
+            Some(v) => v,
+            None => return Err(RuntimeError::new(0, "attempted to multiply with overflow")),
+        }),
         (VMData::Float(v1), VMData::Float(v2)) => VMData::Float(v1 * v2),
         _ => return Err(corrupt_bytecode()),
     })
@@ -605,7 +638,12 @@ fn static_mul(data1: &VMData, data2: &VMData) -> Result<VMData, RuntimeError> {
 #[inline(always)]
 fn static_div(data1: &VMData, data2: &VMData) -> Result<VMData, RuntimeError> {
     Ok(match (data1, data2) {
-        (VMData::Integer(v1), VMData::Integer(v2)) => VMData::Integer(v1 / v2),
+        (VMData::Integer(v1), VMData::Integer(v2)) => {
+            if *v2 == 0 {
+                return Err(RuntimeError::new(0, "division by zero"))
+            }
+            VMData::Integer(v1 / v2)
+        },
         (VMData::Float(v1), VMData::Float(v2)) => VMData::Float(v1 / v2),
         _ => return Err(corrupt_bytecode()),
     })

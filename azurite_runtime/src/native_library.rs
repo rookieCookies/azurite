@@ -65,6 +65,10 @@ fn read_io((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
         _ => return Err(corrupt_bytecode()),
     };
     v.clear();
+
+    #[cfg(afl)]
+    return Ok(());
+
     std::io::stdout().flush().unwrap();
     match std::io::stdin().read_line(v) {
         Ok(_) => {}
@@ -89,6 +93,8 @@ fn write_io((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
         crate::ObjectData::String(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
+
+    #[cfg(not(afl))]
     print!("{message}");
     Ok(())
 }
@@ -288,6 +294,8 @@ fn writeln_io((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
         crate::ObjectData::String(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
+
+    #[cfg(not(afl))]
     println!("{message}");
     Ok(())
 }

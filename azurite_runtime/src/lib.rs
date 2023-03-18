@@ -1,6 +1,5 @@
-#![warn(clippy::pedantic)]
 #![allow(clippy::cast_possible_truncation)]
-use std::{env, process::ExitCode, time::Instant, cell::Cell};
+use std::{cell::Cell, env};
 
 use azurite_archiver::Packed;
 use azurite_common::DataType;
@@ -16,8 +15,8 @@ mod unit_tests;
 
 /// # Panics
 /// # Errors
-pub fn run_file(path: &str) -> Result<(), ExitCode> {
-    let file = std::fs::read(&path).unwrap();
+pub fn run_file(path: &str) -> Result<(), String> {
+    let file = std::fs::read(path).unwrap();
 
     let packed = match Packed::from_bytes(file.iter()) {
         Some(v) => v,
@@ -25,6 +24,11 @@ pub fn run_file(path: &str) -> Result<(), ExitCode> {
             panic!("not a valid azurite file")
         },
     };
+
+    run_packed(packed)
+}
+
+pub fn run_packed(packed: Packed) -> Result<(), String> {
     let mut data : Vec<_> = packed.into();
 
     let bytecode = data.remove(0).0;
@@ -35,22 +39,22 @@ pub fn run_file(path: &str) -> Result<(), ExitCode> {
     let mut vm = match VM::new() {
         Ok(v) => v,
         Err(err) => {
+            let t = err.message.clone();
             err.trigger(linetable);
-            return Err(ExitCode::FAILURE);
+            return Err(t);
         },
     };
 
     vm.constants = match load_constants(constants, &mut vm) {
         Ok(v) => v,
         Err(err) => {
+            let t = err.message.clone();
             err.trigger(linetable);
-            return Err(ExitCode::FAILURE);
+            return Err(t);
         }
     };
-    // println!("{:?}", vm.constants);
-    let start = Instant::now();
+
     let runtime = vm.run(&bytecode);
-    println!("{}", start.elapsed().as_secs_f64());
 
     #[cfg(feature = "hotspot")]
     {
@@ -77,8 +81,9 @@ pub fn run_file(path: &str) -> Result<(), ExitCode> {
         println!("---------------------------------------------");
     }
     if let Err(runtime) = runtime {
+        let temp = runtime.message.clone();
         runtime.trigger(linetable);
-        return Err(ExitCode::FAILURE);
+        return Err(temp);
     }
 
     Ok(())
@@ -196,7 +201,10 @@ pub fn parse_data(
 /// This function will error if the environment value is
 /// not a valid parseable value
 pub fn get_vm_memory_in_bytes() -> Result<usize, RuntimeError> {
-    let binding = env::var("AZURITE_MEMORY").unwrap_or_else(|_| "MB128".to_string());
+    #[cfg(afl)]
+    return Ok(1280);
+    
+    let binding = env::var("AZURITE_MEMORY").unwrap_or_else(|_| "KB16".to_string());
     let v = binding.split_at(2);
     let mut base = match v.1.parse::<usize>() {
         Ok(v) => v,

@@ -1,0 +1,5 @@
+inline fn squared(i: int) -> int {
+    i * i
+}
+
+assert_info(squared(5) == 25, "squared(5) == 25")

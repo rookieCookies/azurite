@@ -1,0 +1,5 @@
+fn hi() {
+    
+}
+
+using "examples/using_b.az"

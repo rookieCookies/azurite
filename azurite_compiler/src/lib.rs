@@ -1,6 +1,5 @@
-#![warn(clippy::pedantic)]
 mod ast;
-mod compiler;
+pub mod compiler;
 mod error;
 mod lexer;
 mod lexer_tests;
@@ -21,7 +20,7 @@ use compiler::{compile, Compilation};
 
 /// # Errors
 pub fn run_file(file: &str) -> Result<(), ExitCode> {
-    let data = if let Ok(v) = fs::read_to_string(&file) {
+    let data = if let Ok(v) = fs::read_to_string(file) {
         v
     } else {
         eprintln!("{}", "unable to locate provided file".red().bold());
@@ -46,20 +45,21 @@ pub fn run_file(file: &str) -> Result<(), ExitCode> {
     };
     let name = name.to_string();
 
-    let file = if let Ok(v) = File::create(format!("{name}.azurite")) {
+    let mut file = if let Ok(v) = File::create(format!("{name}.azurite")) {
         v
     } else {
         eprintln!("unable to create {name}.azurite");
         return Err(ExitCode::FAILURE);
     };
 
-    if create_file(compilation, file).is_err() {
-        return Err(ExitCode::FAILURE);
-    };
+    if let Ok(v) = create_file(compilation) {
+        file.write_all(&v.as_bytes()).unwrap()
+    }
     Ok(())
 }
 
-fn create_file(compilation: Compilation, mut file: File) -> Result<(), ()> {
+#[allow(clippy::result_unit_err)]
+pub fn create_file(compilation: Compilation) -> Result<Packed, ()> {
     // Convert the constants from an enum
     // representation to a byte representation
     let mut data: Vec<u8> = vec![];
@@ -81,7 +81,10 @@ fn create_file(compilation: Compilation, mut file: File) -> Result<(), ()> {
         }
     }
 
+    #[cfg(not(afl))]
     let is_release_mode = env::var(environment::RELEASE_MODE).map(|v| v == "1").unwrap_or(false);
+    #[cfg(afl)]
+    let is_release_mode = false;
     let mut line_data: Vec<u8> = Vec::with_capacity(compilation.line_table.len());
 
     if !is_release_mode {
@@ -109,12 +112,7 @@ fn create_file(compilation: Compilation, mut file: File) -> Result<(), ()> {
         .with(ArchiverData(data))
         .with(ArchiverData(line_data));
 
-    if file.write_all(&packed.as_bytes()).is_err(){
-        eprintln!("unable to write to the file");
-        return Err(())
-    };
-
-    Ok(())
+    Ok(packed)
 }
 
 #[derive(Debug, Clone)]

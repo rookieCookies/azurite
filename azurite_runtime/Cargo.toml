@@ -9,6 +9,7 @@ hotspot = []
 bytecode = []
 stack = []
 objects = []
+afl = []
 
 [dependencies]
 azurite_common = { path = "../azurite_common" }

@@ -4,7 +4,7 @@ use colored::Colorize;
 #[derive(Debug)]
 pub struct RuntimeError {
     pub bytecode_index: u64,
-    message: String,
+    pub message: String,
 }
 
 impl RuntimeError {
@@ -32,7 +32,7 @@ impl RuntimeError {
         if linetable.is_empty() {
             println!("{}: {}", "error".bold().red(), self.message);
         } else {
-            let err_line = linetable.get(self.bytecode_index as usize - 2).unwrap_or(&0);
+            let err_line = linetable.get(self.bytecode_index as usize).unwrap_or(&0);
             println!("{} | {}: {}", err_line+1, "error".bold().red(), self.message);
         }
     }
