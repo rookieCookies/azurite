@@ -1,5 +1,5 @@
 #![allow(clippy::cast_possible_truncation)]
-use std::{cell::Cell, env};
+use std::{cell::{Cell, RefCell}, env};
 
 use azurite_archiver::Packed;
 use azurite_common::DataType;
@@ -18,7 +18,7 @@ mod unit_tests;
 pub fn run_file(path: &str) -> Result<(), String> {
     let file = std::fs::read(path).unwrap();
 
-    let packed = match Packed::from_bytes(file.iter()) {
+    let packed = match Packed::from_bytes(&file) {
         Some(v) => v,
         None => {
             panic!("not a valid azurite file")
@@ -34,55 +34,42 @@ pub fn run_packed(packed: Packed) -> Result<(), String> {
     let bytecode = data.remove(0).0;
     let constants = data.remove(0).0;
     let linetable = data.remove(0).0;
+    let function_table = data.remove(0).0;
 
 
     let mut vm = match VM::new() {
         Ok(v) => v,
         Err(err) => {
             let t = err.message.clone();
-            err.trigger(linetable);
+            err.trigger(linetable, function_table, vec![(0, 0)]);
             return Err(t);
         },
     };
 
-    vm.constants = match load_constants(constants, &mut vm) {
-        Ok(v) => v,
+    match load_constants(constants, &mut vm) {
+        Ok(_) => (),
         Err(err) => {
             let t = err.message.clone();
-            err.trigger(linetable);
+            err.trigger(linetable, function_table, vec![(0, 0)]);
             return Err(t);
         }
     };
 
-    let runtime = vm.run(&bytecode);
+    let callstack_tracker = RefCell::new(vec![]);
+    let runtime = vm.run(&callstack_tracker, &bytecode);
 
-    #[cfg(feature = "hotspot")]
+    let mut callstack_debug = callstack_tracker.into_inner();
+    
     {
-        use azurite_common::Bytecode;
-        use std::cmp::Ordering;
-        let mut x = vm
-            .hotspots
-            .into_iter()
-            .map(|x| (x.1 .0, x.0, x.1 .1))
-            .collect::<Vec<(usize, Bytecode, f64)>>();
-        x.sort_by(|x, y| {
-            if x.0 < y.0 {
-                Ordering::Greater
-            } else if x.0 > y.0 {
-                Ordering::Less
-            } else {
-                Ordering::Equal
-            }
-        });
-        println!("---------------------------------------------");
-        x.into_iter().for_each(|(x, y, time)| {
-            println!("| {:>15} -> {x:>10} - {time:>9.3} |", format!("{:?}", y))
-        });
-        println!("---------------------------------------------");
+        callstack_debug.reverse();
+
+        let last = callstack_debug.pop().unwrap();
+        callstack_debug.insert(0, last);
     }
+
     if let Err(runtime) = runtime {
         let temp = runtime.message.clone();
-        runtime.trigger(linetable);
+        runtime.trigger(linetable, function_table, callstack_debug);
         return Err(temp);
     }
 
@@ -95,14 +82,13 @@ pub fn run_packed(packed: Packed) -> Result<(), String> {
 pub fn load_constants(
     mut constant_bytes: Vec<u8>,
     vm: &mut VM,
-) -> Result<Vec<VMData>, RuntimeError> {
+) -> Result<(), RuntimeError> {
     // Buffer required or else the last
     // constant won't be parsed
     //
     // The value of this doesn't matter
     constant_bytes.push(0);
 
-    let mut constants = Vec::with_capacity(32);
     let mut constant_byte_iterator = constant_bytes.into_iter();
 
     let mut size_lookout = None;
@@ -115,7 +101,7 @@ pub fn load_constants(
                 continue
             }
             let data = parse_data(current_type.as_ref().unwrap(), &values, vm)?;
-            constants.push(data);
+            vm.constants.push(data);
             current_type = None;
         }
 
@@ -134,7 +120,7 @@ pub fn load_constants(
             });
         }
     }
-    Ok(constants)
+    Ok(())
 }
 
 /// # Errors
@@ -219,6 +205,7 @@ pub fn get_vm_memory_in_bytes() -> Result<usize, RuntimeError> {
         _ => return Err(RuntimeError::new(0, "failed to parse AZURITE_MEMORY")),
     };
     base /= 8;
+
     Ok(base)
 }
 

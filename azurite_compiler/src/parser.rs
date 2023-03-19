@@ -101,7 +101,7 @@ impl Parser {
         Some(DataType::from_string(identifier))
     }
 
-    fn parse_generic_declaration(&mut self) -> Option<Generic> {
+    fn _parse_generic_declaration(&mut self) -> Option<Generic> {
         self.expect_and_advance(&TokenType::LeftAngle)?;
         let mut identifiers = vec![];
         loop {
@@ -415,15 +415,15 @@ impl Parser {
             .expect_without_error_and_advance(&TokenType::Inline)
             .is_some();
         self.expect_and_advance(&TokenType::Fn)?;
-        let generics = if self.expect_without_error(&TokenType::LeftAngle).is_some() {
-            let temp = self.parse_generic_declaration()?;
-            self.advance();
-            temp
-        } else {
-            Generic {
-                identifiers: vec![],
-            }
-        };
+        // let generics = if self.expect_without_error(&TokenType::LeftAngle).is_some() {
+        //     let temp = self.parse_generic_declaration()?;
+        //     self.advance();
+        //     temp
+        // } else {
+        //     Generic {
+        //         identifiers: vec![],
+        //     }
+        // };
         let identifier = self.expect_identifier_and_advance()?;
         self.expect_and_advance(&TokenType::LeftParenthesis)?;
         let mut arguments = vec![];
@@ -478,7 +478,7 @@ impl Parser {
                 arguments,
                 return_type,
                 inlined,
-                generics,
+                generics: Generic { identifiers: vec![] },
             },
             start: context.0,
             end: self.context_of_current_token()?.1,

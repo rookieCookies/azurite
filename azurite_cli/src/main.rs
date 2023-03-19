@@ -49,6 +49,7 @@ fn main() -> Result<(), ExitCode> {
                 compile(&file)?;
                 let file = format!("{file}urite");
 
+                println!("{} {file}", "Running..".bright_green().bold());
                 let _ = azurite_runtime::run_file(&file);
             } else {
                 println!("{} {file}", "Running..".bright_green().bold());
@@ -97,7 +98,7 @@ fn main() -> Result<(), ExitCode> {
 
             let file_data = std::fs::read(&file).unwrap();
 
-            let packed = Packed::from_bytes(file_data.iter()).unwrap();
+            let packed = Packed::from_bytes(&file_data).unwrap();
             let mut data : Vec<_> = packed.into();
             
             println!("{}", disassemble(std::mem::take(&mut data[0].0).into_iter()));

@@ -243,10 +243,13 @@ macro_rules! generate_equality_bytecode_test {
     ($variant: ident, $expected: expr) => {
         #[allow(non_snake_case)]
         mod $variant {
+
             #[test]
             fn $variant() {
                 use azurite_common::Bytecode;
                 use crate::{vm::VM, VMData};
+
+                use std::cell::RefCell;
     
                 let mut vm = VM::new().unwrap();
     
@@ -254,7 +257,7 @@ macro_rules! generate_equality_bytecode_test {
                 vm.stack.push(VMData::Integer(0)).unwrap();
                 vm.stack.push(VMData::Integer(0)).unwrap();
     
-                assert!(vm.run(&[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
+                assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
                 assert!(vm.stack.pop() == VMData::Bool($expected));
     
     
@@ -262,7 +265,7 @@ macro_rules! generate_equality_bytecode_test {
                 vm.stack.push(VMData::Float(0.0)).unwrap();
                 vm.stack.push(VMData::Float(0.0)).unwrap();
     
-                assert!(vm.run(&[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
+                assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
                 assert!(vm.stack.pop() == VMData::Bool($expected));
     
     
@@ -270,7 +273,7 @@ macro_rules! generate_equality_bytecode_test {
                 vm.stack.push(VMData::Bool(false)).unwrap();
                 vm.stack.push(VMData::Bool(false)).unwrap();
     
-                assert!(vm.run(&[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
+                assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
                 assert!(vm.stack.pop() == VMData::Bool($expected));
             }
             
@@ -279,6 +282,8 @@ macro_rules! generate_equality_bytecode_test {
             fn object() {
                 use azurite_common::Bytecode;
                 use crate::{vm::VM, Object, ObjectData, VMData};
+
+                use std::cell::RefCell;
                 
                 let mut vm = VM::new().unwrap();
     
@@ -288,7 +293,7 @@ macro_rules! generate_equality_bytecode_test {
                 vm.stack.push(VMData::Object(0)).unwrap();
                 vm.stack.push(VMData::Object(1)).unwrap();
     
-                assert!(vm.run(&[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
+                assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
                 assert!(vm.stack.pop() == VMData::Bool($expected));
             }
     
@@ -299,12 +304,14 @@ macro_rules! generate_equality_bytecode_test {
                 use azurite_common::Bytecode;
                 use crate::{vm::VM, VMData};
                 
+                use std::cell::RefCell;
+                
                 let mut vm = VM::new().unwrap();
     
                 vm.stack.push(VMData::Bool(false)).unwrap();
     
                 // Should panic
-                vm.run(&[Bytecode::$variant as u8, Bytecode::Return as u8]).unwrap();
+                vm.run(&RefCell::new(vec![]), &[Bytecode::$variant as u8, Bytecode::Return as u8]).unwrap();
             }
     
             
@@ -313,12 +320,14 @@ macro_rules! generate_equality_bytecode_test {
                 use azurite_common::Bytecode;
                 use crate::{vm::VM, VMData};
                 
+                use std::cell::RefCell;
+                
                 let mut vm = VM::new().unwrap();
     
                 vm.stack.push(VMData::Bool(false)).unwrap();
                 vm.stack.push(VMData::Integer(1)).unwrap();
     
-                assert!(vm.run(&[Bytecode::$variant as u8, Bytecode::Return as u8]).is_err());
+                assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::$variant as u8, Bytecode::Return as u8]).is_err());
             }
         }
     }
@@ -332,6 +341,8 @@ macro_rules! generate_order_bytecode_test {
             fn $variant() {
                 use azurite_common::Bytecode;
                 use crate::{vm::VM, VMData};
+                
+                use std::cell::RefCell;
 
                 let mut vm = VM::new().unwrap();
 
@@ -339,14 +350,14 @@ macro_rules! generate_order_bytecode_test {
                 vm.stack.push(VMData::Integer(1)).unwrap();
                 vm.stack.push(VMData::Integer(0)).unwrap();
 
-                assert!(vm.run(&[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
+                assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
                 assert!(vm.stack.pop() == VMData::Bool($expected));
 
                 // Float
                 vm.stack.push(VMData::Float(1.0)).unwrap();
                 vm.stack.push(VMData::Float(0.0)).unwrap();
 
-                assert!(vm.run(&[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
+                assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::$variant as u8, Bytecode::Return as u8]).is_ok());
                 assert!(vm.stack.pop() == VMData::Bool($expected));
             }
 
@@ -356,12 +367,14 @@ macro_rules! generate_order_bytecode_test {
                 use azurite_common::Bytecode;
                 use crate::{vm::VM, VMData};
                 
+                use std::cell::RefCell;
+                
                 let mut vm = VM::new().unwrap();
 
                 vm.stack.push(VMData::Integer(0)).unwrap();
 
                 // Should panic
-                vm.run(&[Bytecode::$variant as u8, Bytecode::Return as u8]).unwrap();
+                vm.run(&RefCell::new(vec![]), &[Bytecode::$variant as u8, Bytecode::Return as u8]).unwrap();
             }
 
             #[test]
@@ -369,12 +382,14 @@ macro_rules! generate_order_bytecode_test {
                 use azurite_common::Bytecode;
                 use crate::{vm::VM, VMData};
                 
+                use std::cell::RefCell;
+                
                 let mut vm = VM::new().unwrap();
 
                 vm.stack.push(VMData::Bool(false)).unwrap();
                 vm.stack.push(VMData::Integer(1)).unwrap();
 
-                assert!(vm.run(&[Bytecode::$variant as u8, Bytecode::Return as u8]).is_err());
+                assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::$variant as u8, Bytecode::Return as u8]).is_err());
             }
         }
     };
@@ -392,6 +407,7 @@ mod vm_runtime {
     
     #[allow(unused_imports)]
     mod jumps {
+        use std::cell::RefCell;
         use azurite_common::Bytecode;
         use crate::{vm::VM, VMData};
 
@@ -399,7 +415,7 @@ mod vm_runtime {
         fn jump() {
             let mut vm = VM::new().unwrap();
             
-            assert!(vm.run(&[Bytecode::Jump as u8, 3, 255, 255, 255, Bytecode::Return as u8]).is_ok());
+            assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::Jump as u8, 3, 255, 255, 255, Bytecode::Return as u8]).is_ok());
         }
 
         
@@ -409,7 +425,7 @@ mod vm_runtime {
             
             vm.stack.push(VMData::Bool(false)).unwrap();
 
-            assert!(vm.run(&[Bytecode::JumpIfFalse as u8, 3, 255, 255, 255, Bytecode::Return as u8]).is_ok());
+            assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::JumpIfFalse as u8, 3, 255, 255, 255, Bytecode::Return as u8]).is_ok());
             assert_eq!(vm.stack.top, 0);
         }
         
@@ -420,7 +436,7 @@ mod vm_runtime {
             
             vm.stack.push(VMData::Integer(0)).unwrap();
 
-            assert!(vm.run(&[Bytecode::JumpIfFalse as u8, 3, 255, 255, 255, Bytecode::Return as u8]).is_err());
+            assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::JumpIfFalse as u8, 3, 255, 255, 255, Bytecode::Return as u8]).is_err());
         }
         
         
@@ -428,7 +444,7 @@ mod vm_runtime {
         fn jump_back() {
             let mut vm = VM::new().unwrap();
             
-            assert!(vm.run(&[Bytecode::Jump as u8, 3, Bytecode::Return as u8, 255, 255, Bytecode::JumpBack as u8, 5]).is_ok());
+            assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::Jump as u8, 3, Bytecode::Return as u8, 255, 255, Bytecode::JumpBack as u8, 5]).is_ok());
         }
 
         
@@ -437,7 +453,7 @@ mod vm_runtime {
             let mut vm = VM::new().unwrap();
 
             let value = 3u16.to_le_bytes();
-            assert!(vm.run(&[Bytecode::JumpLarge as u8, value[0], value[1], 255, 255, 255, Bytecode::Return as u8]).is_ok());
+            assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::JumpLarge as u8, value[0], value[1], 255, 255, 255, Bytecode::Return as u8]).is_ok());
         }
 
         
@@ -448,7 +464,7 @@ mod vm_runtime {
             vm.stack.push(VMData::Bool(false)).unwrap();
 
             let value = 3u16.to_le_bytes();
-            assert!(vm.run(&[Bytecode::JumpIfFalseLarge as u8, value[0], value[1], 255, 255, 255, Bytecode::Return as u8]).is_ok());
+            assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::JumpIfFalseLarge as u8, value[0], value[1], 255, 255, 255, Bytecode::Return as u8]).is_ok());
             assert_eq!(vm.stack.top, 0);
         }
         
@@ -460,7 +476,7 @@ mod vm_runtime {
             vm.stack.push(VMData::Integer(0)).unwrap();
 
             let value = 3u16.to_le_bytes();
-            assert!(vm.run(&[Bytecode::JumpIfFalseLarge as u8, value[0], value[1], 255, 255, 255, Bytecode::Return as u8]).is_err());
+            assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::JumpIfFalseLarge as u8, value[0], value[1], 255, 255, 255, Bytecode::Return as u8]).is_err());
         }
         
         
@@ -469,7 +485,7 @@ mod vm_runtime {
             let mut vm = VM::new().unwrap();
 
             let value = 6u16.to_le_bytes();
-            assert!(vm.run(&[Bytecode::Jump as u8, 3, Bytecode::Return as u8, 255, 255, Bytecode::JumpBackLarge as u8, value[0], value[1]]).is_ok());
+            assert!(vm.run(&RefCell::new(vec![]), &[Bytecode::Jump as u8, 3, Bytecode::Return as u8, 255, 255, Bytecode::JumpBackLarge as u8, value[0], value[1]]).is_ok());
         }
     }
 }

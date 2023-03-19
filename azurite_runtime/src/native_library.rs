@@ -43,7 +43,7 @@ fn error((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
         crate::ObjectData::String(v) => v,
         _ => return Err(corrupt_bytecode()),
     };
-    Err(RuntimeError::new_string(code.index as u64, message.clone()))
+    Err(RuntimeError::new_string(code.true_index() as u64, message.clone()))
 }
 
 fn collect_garbage((vm, _code): NativeFunctionInput) -> NativeFunctionReturn {
@@ -72,7 +72,7 @@ fn read_io((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
     std::io::stdout().flush().unwrap();
     match std::io::stdin().read_line(v) {
         Ok(_) => {}
-        Err(_) => return Err(RuntimeError::new(code.index as u64, "failed io read")),
+        Err(_) => return Err(RuntimeError::new(code.true_index() as u64, "failed io read")),
     };
     if let Some('\n') = v.chars().next_back() {
         v.pop();
@@ -202,7 +202,7 @@ fn parse<T: FromStr>(vm: &mut VM, code: &Code) -> Result<T, RuntimeError> {
     match string.parse::<T>() {
         Ok(v) => Ok(v),
         Err(_) => Err(RuntimeError::new(
-            code.index as u64,
+            code.true_index() as u64,
             "failed to parse value",
         )),
     }
@@ -225,7 +225,7 @@ fn env_var((vm, code): NativeFunctionInput) -> NativeFunctionReturn {
             Ok(())
         }
         Err(_) => Err(RuntimeError::new(
-            code.index as u64,
+            code.true_index() as u64,
             "environment variable {identifier} doesn't exist",
         )),
     }

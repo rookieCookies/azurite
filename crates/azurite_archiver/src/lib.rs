@@ -1,4 +1,6 @@
-use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher, slice::Iter};
+use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher, slice::Iter, io::{Write, Read}};
+
+use flate2::{write::ZlibEncoder, Compression, read::ZlibDecoder};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Packed {
@@ -59,10 +61,18 @@ impl Packed {
             }
         }
 
-        bytes
+        let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+        e.write_all(&bytes).unwrap();
+        e.finish().unwrap()
     }
 
-    pub fn from_bytes(mut iterator: Iter<u8>) -> Option<Packed> {
+    pub fn from_bytes(data: &[u8]) -> Option<Packed> {
+        let mut dec = ZlibDecoder::new(data);
+        let mut data : Vec<u8> = Vec::new();
+        dec.read_to_end(&mut data).unwrap();
+
+        let mut iterator = data.iter();
+
         let _version_hash = take_u64(&mut iterator)?;               // Just there if I ever need it
 
         let mut lookup_table : Vec<_>;

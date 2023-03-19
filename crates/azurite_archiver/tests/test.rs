@@ -8,7 +8,7 @@ fn basic_test() {
     let bytes = packed.clone().as_bytes();
     dbg!(&bytes);
 
-    assert_eq!(Some(packed), Packed::from_bytes(bytes.iter()));
+    assert_eq!(Some(packed), Packed::from_bytes(&bytes));
 }
 
 #[test]
@@ -16,7 +16,7 @@ fn empty_archive() {
     let packed = Packed::new();
 
     let bytes = packed.clone().as_bytes();
-    assert_eq!(Some(packed), Packed::from_bytes(bytes.iter()));
+    assert_eq!(Some(packed), Packed::from_bytes(&bytes));
 }
 
 #[test]

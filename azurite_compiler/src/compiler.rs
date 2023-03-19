@@ -1,6 +1,6 @@
-use std::{process::ExitCode, env};
+use std::process::ExitCode;
 
-use azurite_common::{Bytecode, Data, DataType, FileData, environment};
+use azurite_common::{Bytecode, Data, DataType, FileData};
 use slotmap::{SlotMap, DefaultKey};
 
 use crate::{
@@ -90,19 +90,17 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
         return Err(ExitCode::FAILURE);
     }
 
-    #[cfg(not(afl))]
-    let is_release_mode = env::var(environment::RELEASE_MODE).map(|v| v == "1").unwrap_or(false);
-
     let mut compiler = Compilation::new();
+
+    let mut function_debug_table = vec![];
     for function in analyzer_state.function_stack {
-        #[cfg(not(afl))]
-        if is_release_mode && !function.used {
-            continue
-        }
         let mut instruction = Instruction {
             instruction_type: InstructionType::Data(Data::Bool(false)),
             ..*function.instructions
         };
+
+        
+        function_debug_table.push(function.identifier.clone());
 
         instruction.instruction_type = InstructionType::FunctionDeclaration {
             identifier: function.identifier,
@@ -119,6 +117,7 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
     }
 
     compiler.compiled_all_functions = true;
+    compiler.function_debug_table = function_debug_table;
     for i in analyzer_state.loaded_files {
         for instruction in i.1.instructions {
             compiler.compile_to_bytes(instruction);
@@ -127,30 +126,47 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
     compiler.emit_byte(Bytecode::Return as u8, 0);
 
     assert!(compiler.jump_map.is_empty(), "not all jumps are finished {:#?}", compiler.jump_map);
+    assert_eq!(compiler.bytecode.len(), compiler.instruction_debug_table.len(), "not all instructions have a line number");
     Ok(compiler)
 }
 
 #[derive(Debug)]
 pub struct Compilation {
     pub constants: Vec<Data>,
-    pub line_table: Vec<u32>,
     pub bytecode: Vec<u8>,
     
     // Compiler state
     compiled_all_functions: bool,
     variable_offset: usize,
+    // is_release_mode: bool,
     jump_map: SlotMap<DefaultKey, (JumpType, usize)>,
+
+    // Debug
+    pub instruction_debug_table: Vec<InstructionDebugInfo>,
+    pub function_debug_table: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InstructionDebugInfo {
+    pub line: u32,
 }
 
 impl Compilation {
     fn new() -> Self {
+        // #[cfg(not(afl))]
+        // let is_release_mode = env::var(environment::RELEASE_MODE).map(|v| v == "1").unwrap_or(false);
+        // #[cfg(afl)]
+        // let is_release_mode = false;
+
         Self {
             constants: Vec::with_capacity(256),
             bytecode: Vec::with_capacity(256),
-            line_table: Vec::new(),
             compiled_all_functions: false,
+            // is_release_mode,
             variable_offset: 0,
             jump_map: SlotMap::new(),
+            instruction_debug_table: Vec::new(),
+            function_debug_table: Vec::new(),
         }
     }
 
@@ -483,7 +499,9 @@ impl Compilation {
     }
 
     fn emit_byte(&mut self, byte: u8, line: u32) {
-        self.line_table.push(line);
+        self.instruction_debug_table.push(InstructionDebugInfo {
+            line,
+        });
         self.bytecode.push(byte);
     }
 
@@ -509,6 +527,10 @@ impl Compilation {
             };
             self.bytecode[index] = byte as u8;
             self.bytecode.insert(index+1, amount);
+
+            let line = self.instruction_debug_table[index as usize].clone();
+            self.instruction_debug_table.insert(index+1, line);
+
             change = 1;
         } else if let Ok(amount) = u16::try_from(amount) {
             let byte = match jump_type {
@@ -520,6 +542,11 @@ impl Compilation {
             let bytes = amount.to_le_bytes();
             self.bytecode.insert(index+1, bytes[0]);
             self.bytecode.insert(index+2, bytes[1]);
+
+            let line = self.instruction_debug_table[index as usize].clone();
+            self.instruction_debug_table.insert(index+1, line.clone());
+            self.instruction_debug_table.insert(index+2, line);
+
             change = 2;
         } else {
             panic!("too big of a jump")

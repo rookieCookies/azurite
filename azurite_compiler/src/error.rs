@@ -95,6 +95,7 @@ impl Error {
         colour_scheme: &'static ErrorColourScheme,
         file_name: String,
     ) -> Self {
+        // panic!();
         Self {
             positions,
             name,

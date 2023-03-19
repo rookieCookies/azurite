@@ -81,36 +81,48 @@ pub fn create_file(compilation: Compilation) -> Result<Packed, ()> {
         }
     }
 
+
+    let mut packed = Packed::new()
+        .with(ArchiverData(compilation.bytecode))
+        .with(ArchiverData(data));
+
     #[cfg(not(afl))]
     let is_release_mode = env::var(environment::RELEASE_MODE).map(|v| v == "1").unwrap_or(false);
     #[cfg(afl)]
     let is_release_mode = false;
-    let mut line_data: Vec<u8> = Vec::with_capacity(compilation.line_table.len());
 
     if !is_release_mode {
-        let mut counter : u32 = 0;
-        let mut number : u32 = 0;
-        for i in compilation.line_table {
-            if i != number {
-                line_data.append(&mut counter.to_le_bytes().into());
-                line_data.append(&mut number.to_le_bytes().into());
 
-                counter = 0;
-                number = i;
+        // Line table mapping each instruction to a line number
+        {
+            let mut line_data: Vec<u8> = Vec::with_capacity(compilation.instruction_debug_table.len());
+            line_data.push(0);
+            line_data.push(0);
+            line_data.push(0);
+            line_data.push(0);
+
+            for i in compilation.instruction_debug_table {
+                line_data.append(&mut i.line.to_le_bytes().into());
             }
 
-            counter += 1;
+            packed = packed.with(ArchiverData(line_data));
         }
 
-        line_data.append(&mut counter.to_le_bytes().into());
-        line_data.append(&mut number.to_le_bytes().into());
 
+        // Function table
+        {
+            let mut function_data: Vec<u8> = vec![];
+            for i in compilation.function_debug_table {
+                let size = i.len() as u8;
+                let data = i.as_bytes();
+
+                function_data.push(size);
+                function_data.append(&mut data.into());
+            }
+
+            packed = packed.with(ArchiverData(function_data));
+        }
     }
-
-    let packed = Packed::new()
-        .with(ArchiverData(compilation.bytecode))
-        .with(ArchiverData(data))
-        .with(ArchiverData(line_data));
 
     Ok(packed)
 }

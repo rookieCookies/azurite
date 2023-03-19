@@ -153,8 +153,29 @@ impl AnalysisState {
                     true
                 }
             },
-            arguments: arguments.iter().map(|x| (x.0.clone(), scope.struct_id(&x.1.to_string(), self, (function_declaration.start, function_declaration.end)))).collect(),
-            return_type: scope.struct_id(&return_type.to_string(), self, (function_declaration.start, function_declaration.end)),
+            arguments: arguments.iter().map(|x| {
+                (
+                    x.0.clone(),
+                    if generics.identifiers.contains(&x.1.to_string()) {
+                        x.1.clone()
+                    } else {
+                        scope.struct_id(
+                            &x.1.to_string(), 
+                            self, 
+                            (function_declaration.start, function_declaration.end)
+                        )
+                    }
+                )
+            }).collect(),
+            return_type: if generics.identifiers.contains(&return_type.to_string()) {
+                return_type.clone()
+            } else {
+                scope.struct_id(
+                    &return_type.to_string(), 
+                    self, 
+                    (function_declaration.start, function_declaration.end)
+                )
+            },
             generics: generics.identifiers.clone(),
             start: function_declaration.start,
             end: function_declaration.end,
@@ -583,10 +604,13 @@ impl AnalysisState {
                 body,
                 arguments,
                 return_type: function_return_type,
+                generics,
                 ..
             } => {
                 let function_return_type = match function_return_type {
-                    DataType::Struct(v) => scope.struct_id(v, self, (instruction.start, instruction.end)),
+                    DataType::Struct(v) => if generics.identifiers.contains(v) {
+                        DataType::Struct(v.clone())
+                    } else { scope.struct_id(v, self, (instruction.start, instruction.end)) },
                     _ => function_return_type.clone(),
                 };
                 return_type = function_return_type.clone();
@@ -596,6 +620,7 @@ impl AnalysisState {
                     vec![*body.clone()],
                 );
 
+
                 function_scope.variable_map = arguments
                     .iter()
                     .enumerate()
@@ -604,11 +629,13 @@ impl AnalysisState {
                 function_scope.function_map = scope.function_map.clone();
                 function_scope.structure_linkage = scope.structure_linkage.clone();
                 function_scope.structure_map = scope.structure_map.clone();
+                function_scope.structure_map.extend(generics.identifiers.iter().map(|x| (x.clone(), vec![])));
                 function_scope.stack_emulation = arguments
                     .iter()
                     .enumerate()
                     .map(|x| x.1 .1.clone())
                     .collect();
+
 
                 let body_return_type = self
                     .analyze_scope_with_hint(&mut function_scope, &Some(return_type.clone()), true)
