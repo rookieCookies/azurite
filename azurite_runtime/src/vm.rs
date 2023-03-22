@@ -595,7 +595,7 @@ impl Code<'_> {
     fn next(&mut self) -> u8 {
         self.index += 1;
 
-        *self.bytecode.get(self.index - 1).unwrap()
+        self.bytecode[self.index - 1]
     }
 
     #[inline(always)]
@@ -614,16 +614,18 @@ impl Code<'_> {
     }
 }
 
+const STACK_SIZE : usize = 512;
+
 #[derive(Debug)]
 pub struct Stack {
-    pub data: [VMData; 512],
+    pub data: [VMData; STACK_SIZE],
     pub top: usize,
 }
 
 impl Stack {
     pub(crate) fn new() -> Self {
         Self {
-            data: [VMData::Empty; 512],
+            data: [VMData::Empty; STACK_SIZE],
             top: 0,
         }
     }
@@ -632,10 +634,12 @@ impl Stack {
     /// This function will error if the VM is out of memory
     #[inline(always)]
     pub fn push(&mut self, value: VMData) -> Result<(), RuntimeError> {
-        *match self.data.get_mut(self.top) {
-            Some(v) => v,
-            None => return Err(RuntimeError::new(0, "stack overflow")),
-        } = value;
+        if self.top >= STACK_SIZE {
+            return Err(RuntimeError::new(0, "stack overflow"))
+        }
+        
+        self.data[self.top] = value;
+        
         self.step();
         Ok(())
     }
@@ -681,9 +685,6 @@ impl Stack {
     #[inline(always)]
     fn pop_multi_ignore(&mut self, amount: usize) {
         debug_assert!(self.top.checked_sub(amount).is_some());
-        // unsafe {
-        //     self.top = self.top.unchecked_sub(amount);
-        // }
         self.top -= amount;
     }
 

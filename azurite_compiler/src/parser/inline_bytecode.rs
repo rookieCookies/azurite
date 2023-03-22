@@ -54,7 +54,7 @@ impl Parser {
                 "swap"   => BytecodeInstructions::Swap,
                 "iswap"  => BytecodeInstructions::IndexSwap(continue_if_none!(self.inline_bytecode_index_value()), continue_if_none!(self.inline_bytecode_index_value())),
                 "dup"    => BytecodeInstructions::Duplicate,
-                "inc"    => BytecodeInstructions::AddOne,
+                "inc"    => BytecodeInstructions::Increment,
                 _        => {
                     self.errors.push(Error::new(
                         vec![(context.0, context.1, Highlight::Red)],
@@ -150,5 +150,5 @@ pub enum BytecodeInstructions {
     Swap,
     IndexSwap(u8, u8),
     Duplicate,
-    AddOne,
+    Increment,
 }

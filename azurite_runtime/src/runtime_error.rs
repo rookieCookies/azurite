@@ -36,21 +36,15 @@ impl RuntimeError {
         if linetable.is_empty() {
             println!("{}: {}", "error".bold().red(), self.message);
         } else {
-            let padding_size = callstack.iter().map(|x| linetable[x.1]).max().unwrap().to_string().len();
+            let padding_size = callstack.len().to_string().len();
 
             let err_line = linetable.get(self.bytecode_index as usize).unwrap_or(&0);
             println!("{:<width$} | {}: {}", err_line+1, "error".bold().red(), self.message, width=padding_size);
 
-            let mut iter = callstack.into_iter();
-
-            let initial = iter.next().unwrap();
-
             println!("\nstack trace:");
 
-            println!("    {:<width$} | in   : {}", linetable[initial.1], function_table[initial.0].to_string().color(Color::TrueColor { r: 130, g: 130, b: 130 }).bold(), width=padding_size);
-
-            for i in iter {
-                println!("    {:<width$} | from : {}", linetable[i.1], function_table[i.0].to_string().color(Color::TrueColor { r: 130, g: 130, b: 130 }).bold(), width=padding_size);
+            for (enumaration, index) in callstack.into_iter().enumerate() {
+                println!("    {:<width$} | {}", enumaration, function_table[index.0].to_string().color(Color::TrueColor { r: 130, g: 130, b: 130 }).bold(), width=padding_size);
             }
         }
     }
@@ -74,7 +68,7 @@ pub(crate) fn load_linetable(linetable_bytes: Vec<u8>) -> Vec<u32> {
 }
 
 pub(crate) fn load_function_table(bytes: Vec<u8>) -> Vec<String> {
-    let mut function_table = vec!["root".to_string()];
+    let mut function_table = vec!["::root".to_string()];
 
     let mut iter = bytes.into_iter();
     while let Some(x) = iter.next() {

@@ -85,7 +85,7 @@ impl int {
         bytecode { raw 11 }
     }
     
-    inline fn square(value: int) -> int {
+    inline fn square(self) -> int {
         bytecode {
             dup
             mul

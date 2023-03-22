@@ -1,4 +1,5 @@
 use std::process::ExitCode;
+use std::fmt::Write as _;
 
 use azurite_common::{Bytecode, Data, DataType, FileData};
 use slotmap::{SlotMap, DefaultKey};
@@ -52,6 +53,9 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
         let generated_instructions = match generated_instructions {
             Ok(v) => v,
             Err(errs) => {
+                analyzer_state
+                    .loaded_files
+                    .insert("::native".to_string(), Scope::new_raw(native_file_data, vec![]));
                 errs.into_iter()
                     .for_each(|x| x.trigger(&analyzer_state.loaded_files));
                 return Err(ExitCode::FAILURE);
@@ -99,8 +103,30 @@ pub fn compile(file_data: FileData) -> Result<Compilation, ExitCode> {
             ..*function.instructions
         };
 
-        
-        function_debug_table.push(function.identifier.clone());
+
+
+        function_debug_table.push(format!("{}:{} | fn {}({}){}", function.file, function.line+1, function.identifier, {
+            let mut first = true;
+
+            let mut string = String::new();
+            for (identifier, datatype) in &function.arguments {
+                if !first {
+                    string.push_str(", ");
+                }
+
+                first = false;
+                let _ = write!(string, "{}: {}", identifier, datatype);
+            }
+            string
+        }, {
+            if function.return_type != DataType::Empty {
+                format!(" -> {}", function.return_type)
+            } else {
+                "".to_string()
+            }
+        }));
+
+
 
         instruction.instruction_type = InstructionType::FunctionDeclaration {
             identifier: function.identifier,
@@ -389,7 +415,16 @@ impl Compilation {
                         variable_offset,
                         has_return,
                     } => {
+                        let debug_info_start = self.instruction_debug_table.len();
+                        let debug_info_value = self.instruction_debug_table[debug_info_start-1].clone();
+
                         self.compile_to_bytes_with_variable_offset(*instructions, variable_offset);
+
+                        let current = self.instruction_debug_table.len();
+                        for i in self.instruction_debug_table.get_mut(debug_info_start..current).unwrap() {
+                            *i = debug_info_value.clone()
+                        }
+
                         if has_return {
                             self.emit_byte(
                                 Bytecode::ReturnWithoutCallStack as u8,
@@ -483,7 +518,7 @@ impl Compilation {
                             self.emit_byte(v1, instruction.line);
                             self.emit_byte(v2, instruction.line);
                         },
-                        BytecodeInstructions::AddOne => self.emit_byte(Bytecode::Increment as u8, instruction.line),
+                        BytecodeInstructions::Increment => self.emit_byte(Bytecode::Increment as u8, instruction.line),
                     }
                 }
             },

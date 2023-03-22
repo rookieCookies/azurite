@@ -9,11 +9,11 @@ members = [
 ]
 
 [profile.release]
-# debug = true
-panic = "abort"
-lto = true
-codegen-units = 1
-strip = true
+debug = true
+# panic = "abort"
+# lto = true
+# codegen-units = 1
+# strip = true
 
 
 [profile.test]

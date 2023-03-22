@@ -1,5 +1,5 @@
 #![allow(clippy::cast_possible_truncation)]
-use std::{cell::{Cell, RefCell}, env};
+use std::{cell::{Cell, RefCell}, env, time::Instant};
 
 use azurite_archiver::Packed;
 use azurite_common::DataType;
@@ -56,7 +56,10 @@ pub fn run_packed(packed: Packed) -> Result<(), String> {
     };
 
     let callstack_tracker = RefCell::new(vec![]);
+
+    let timer = Instant::now();
     let runtime = vm.run(&callstack_tracker, &bytecode);
+    println!("it took {}ms", timer.elapsed().as_millis());
 
     let mut callstack_debug = callstack_tracker.into_inner();
     

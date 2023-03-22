@@ -35,7 +35,9 @@ pub struct Function {
 
     start: u32,
     end: u32,
-    line: u32,
+    pub line: u32,
+    pub file: String,
+    
     pub used: bool,
 }
 
@@ -181,6 +183,7 @@ impl AnalysisState {
             end: function_declaration.end,
             line: function_declaration.line,
             used: false,
+            file: scope.current_file.path.clone(),
         };
 
         let mut function_reference = FunctionReference {
@@ -581,7 +584,6 @@ impl AnalysisState {
             InstructionType::Return(Some(v)) => return_type = self.analyze(scope, v),
             InstructionType::WhileStatement { condition, body } => {
                 let condition_type = self.analyze(scope, condition);
-                dbg!(&condition_type);
                 if condition_type != DataType::Bool {
                     self.send_error(error_non_expected_type(
                         scope,
