@@ -178,7 +178,7 @@ mod runtime_error_test {
 
         let data = runtime_error::load_linetable(bytes);
 
-        assert_eq!(data, vec![5, 5, 16, 16, 16, 16]);
+        assert_eq!(data, vec![2, 5, 4, 16]);
     }
 
     
