@@ -3,17 +3,23 @@
 members = [
     "azurite_cli",
     "azurite_compiler",
+    "azurite_compiler/common",
+    "azurite_compiler/azurite_lexer",
+    "azurite_compiler/azurite_parser",
+    "azurite_compiler/azurite_semantic_analysis",
+    "azurite_compiler/azurite_ast_to_ir",
+    "azurite_compiler/azurite_errors",
+    "azurite_compiler/azurite_codegen",
     "azurite_runtime",
     "azurite_common",
     "crates/azurite_archiver",
 ]
 
 [profile.release]
-debug = true
-# panic = "abort"
-# lto = true
-# codegen-units = 1
-# strip = true
+panic = "abort"
+lto = true
+codegen-units = 1
+strip = true
 
 
 [profile.test]

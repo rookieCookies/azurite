@@ -1,0 +1,13 @@
+[package]
+name = "azurite_ast_to_ir"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+azurite_parser = { path = "../azurite_parser" }
+azurite_errors = { path = "../azurite_errors" }
+common = { path = "../common" }
+
+rayon = "*"

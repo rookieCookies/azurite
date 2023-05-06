@@ -1,53 +1,56 @@
-use crate::{Object, ObjectData};
+use crate::VMData;
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug)]
 pub struct ObjectMap {
-    pub data: Vec<Object>,
-    pub free: usize,
+    map: Vec<Object>,
+    free: usize,
+}
+
+#[derive(Debug, Clone)]
+pub enum Object {
+    Struct(Vec<VMData>),
+    String(String),
+
+    Free { next: usize },
 }
 
 impl ObjectMap {
-    #[must_use]
     pub fn new() -> Self {
-        Self::with_capacity(0)
-    }
-
-    #[must_use]
-    pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            data: (0..capacity)
-                .map(|index| Object::new(ObjectData::Free { next: index + 1 }))
-                .collect(),
             free: 0,
+            map: (0..128).map(|x| Object::Free { next: (x + 1) % 128 }).collect(),
         }
     }
 
-    /// # Errors
-    /// This function will error if the `ObjectMap` is out of
-    /// free objects or the `free` object the map has is not
-    /// actually `ObjectData::Free`
-    pub(crate) fn push(&mut self, value: Object) -> Result<usize, Object> {
-        if self.free >= self.data.capacity() {
-            return Err(value);
-        }
-        match self.data[self.free].data {
-            crate::ObjectData::Free { next } => {
-                self.data[self.free] = value;
-                let replaced_index = self.free;
+
+    pub fn put(&mut self, object: Object) -> Result<usize, String> {
+        let index = self.free;
+        let v = self.map.get_mut(self.free).unwrap();
+        let repl = std::mem::replace(v, object);
+
+        match repl {
+            Object::Free { next } => {
                 self.free = next;
-                Ok(replaced_index)
-            }
-            _ => Err(value),
+                Ok(index)
+            },
+
+            _ => Err(String::from("out of memory"))
         }
     }
 
-    #[must_use]
-    pub(crate) fn get(&self, index: usize) -> Option<&Object> {
-        self.data.get(index)
+    
+    pub fn get(&self, index: usize) -> &Object {
+        &self.map[index]
     }
 
-    #[must_use]
-    pub(crate) fn get_mut(&mut self, index: usize) -> Option<&mut Object> {
-        self.data.get_mut(index)
+    
+    pub fn get_mut(&mut self, index: usize) -> &mut Object {
+        &mut self.map[index]
+    }
+}
+
+impl Default for ObjectMap {
+    fn default() -> Self {
+        Self::new()
     }
 }

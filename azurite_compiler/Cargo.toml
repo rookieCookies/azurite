@@ -9,6 +9,15 @@ afl = []
 [dependencies]
 azurite_common = { path = "../azurite_common" }
 azurite_archiver = { path = "../crates/azurite_archiver" }
+azurite_lexer = { path = "./azurite_lexer" }
+azurite_parser = { path = "./azurite_parser" }
+azurite_semantic_analysis = { path = "./azurite_semantic_analysis" }
+azurite_ast_to_ir = { path = "./azurite_ast_to_ir" }
+azurite_codegen = { path = "./azurite_codegen" }
+azurite_errors = { path = "./azurite_errors" }
+common = { path = "common" }
+
 colored = "*"
 unicode-segmentation = "*"
 slotmap = "*"
+uuid = { version = "*", features=["fast-rng", "v4"]}

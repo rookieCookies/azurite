@@ -5,6 +5,9 @@ use colored::Colorize;
 
 pub mod environment {
     pub const RELEASE_MODE : &str = "AZURITE_COMPILER_RELEASE_MODE";
+    
+    pub const DUMP_IR      : &str = "AZURITE_COMPILER_DUMP_IR";
+    pub const DUMP_IR_FILE : &str = "AZURITE_COMPILER_DUMP_IR_FILE";
 }
 
 macro_rules! opcode {
@@ -250,45 +253,34 @@ opcode! {
 #[derive(Hash, PartialEq, Eq, Debug)]
 pub enum Bytecode : u8 {
     Return,
-    ReturnFromFunction,
-    ReturnWithoutCallStack,
-    LoadConst,
-    LoadConstStr,
+    Copy,
+    Swap,
+
+    Call,
+    Push,
+    Pop,
+    
+    Struct,
+    AccStruct,
+    SetField,
+    
     Add,
     Subtract,
     Multiply,
     Divide,
-    EqualsTo,
-    NotEqualsTo,
+
+    Equals,
+    NotEquals,
     GreaterThan,
     LesserThan,
     GreaterEquals,
     LesserEquals,
-    GetVar,
-    GetVarFast,
-    ReplaceVar,
-    ReplaceVarFast,
-    ReplaceVarInObject,
-    Not,
-    Negative,
-    Pop,
-    PopMulti,
+    
+    LoadConst,
+    Unit,
+
     Jump,
-    JumpIfFalse,
-    JumpBack,
-    JumpLarge,
-    JumpIfFalseLarge,
-    JumpBackLarge,
-    LoadFunction,
-    CallFunction,
-    CreateStruct,
-    AccessData,
-    RawCall,
-    Rotate,
-    Over,
-    Swap,
-    IndexSwap,
-    Duplicate,
-    Increment,
+    JumpCond,
 }
+
 }

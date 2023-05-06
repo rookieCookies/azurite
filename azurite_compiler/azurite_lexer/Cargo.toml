@@ -1,10 +1,11 @@
 [package]
-name = "azurite_runtime"
+name = "azurite_lexer"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-azurite_common = { path = "../azurite_common" }
-azurite_archiver = { path = "../crates/azurite_archiver" }
+azurite_errors = { path = "../azurite_errors" }
+common = { path = "../common" }
+colored = "*"

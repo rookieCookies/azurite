@@ -1,278 +1,431 @@
-#![allow(clippy::cast_possible_truncation)]
-use std::{cell::{Cell, RefCell}, env, time::Instant};
+#![feature(iter_next_chunk)]
+mod object_map;
 
-use azurite_archiver::Packed;
-use azurite_common::DataType;
-use runtime_error::RuntimeError;
-use vm::VM;
+use azurite_archiver::{Packed, Data};
+use azurite_common::consts;
+use object_map::{ObjectMap, Object};
+use std::{ops::{Add, Sub, Mul, Div}, time::Instant};
 
-pub mod garbage_collector;
-pub mod native_library;
-pub mod object_map;
-pub mod runtime_error;
-pub mod vm;
-mod unit_tests;
-
-/// # Panics
-/// # Errors
-pub fn run_file(path: &str) -> Result<(), String> {
-    let file = std::fs::read(path).unwrap();
-
-    let packed = match Packed::from_bytes(&file) {
-        Some(v) => v,
-        None => {
-            panic!("not a valid azurite file")
-        },
-    };
-
-    run_packed(packed)
-}
-
-pub fn run_packed(packed: Packed) -> Result<(), String> {
-    let mut data : Vec<_> = packed.into();
-
-    let bytecode = data.remove(0).0;
-    let constants = data.remove(0).0;
-    let linetable = data.remove(0).0;
-    let function_table = data.remove(0).0;
-
-
-    let mut vm = match VM::new() {
-        Ok(v) => v,
-        Err(err) => {
-            let t = err.message.clone();
-            err.trigger(linetable, function_table, vec![(0, 0)]);
-            return Err(t);
-        },
-    };
-
-    match load_constants(constants, &mut vm) {
-        Ok(_) => (),
-        Err(err) => {
-            let t = err.message.clone();
-            err.trigger(linetable, function_table, vec![(0, 0)]);
-            return Err(t);
-        }
-    };
-
-    let callstack_tracker = RefCell::new(vec![]);
-
-    let timer = Instant::now();
-    let runtime = vm.run(&callstack_tracker, &bytecode);
-    println!("it took {}ms", timer.elapsed().as_millis());
-
-    let mut callstack_debug = callstack_tracker.into_inner();
+pub fn run_file(packed: Packed) {
+    let mut files : Vec<Data> = packed.into();
     
-    {
-        callstack_debug.reverse();
+    let bytecode = files.remove(0);
+    let constants = files.remove(0);
 
-        let last = callstack_debug.pop().unwrap();
-        callstack_debug.insert(0, last);
-    }
+    let mut vm = VM {
+        constants: Vec::new(),
+        stack: Stack::new(),
+        objects: ObjectMap::new(),
+    };
 
-    if let Err(runtime) = runtime {
-        let temp = runtime.message.clone();
-        runtime.trigger(linetable, function_table, callstack_debug);
-        return Err(temp);
-    }
+    bytes_to_constants(constants.0, &mut vm);
+    
+    let start = Instant::now();
 
-    Ok(())
+    vm.run(Code::new(&bytecode.0, 0, 0));
+    
+    let end = start.elapsed();
+    println!("it took {}ms {}ns", end.as_millis(), end.as_nanos());
+
 }
 
-/// # Panics
-/// # Errors
-/// - Not enough memory in the VM to be able to allocate strings
-pub fn load_constants(
-    mut constant_bytes: Vec<u8>,
-    vm: &mut VM,
-) -> Result<(), RuntimeError> {
-    // Buffer required or else the last
-    // constant won't be parsed
-    //
-    // The value of this doesn't matter
-    constant_bytes.push(0);
+pub fn bytes_to_constants(data: Vec<u8>, vm: &mut VM) {
+    let mut constants_iter = data.into_iter();
 
-    let mut constant_byte_iterator = constant_bytes.into_iter();
+    while let Some(datatype) = constants_iter.next() {
+        let constant = match datatype {
+            0 => VMData::Integer(i64::from_le_bytes(constants_iter.next_chunk::<8>().unwrap())),
+            
+            1 => VMData::Float(f64::from_le_bytes(constants_iter.next_chunk::<8>().unwrap())),
 
-    let mut size_lookout = None;
-    let mut current_type = None;
-    let mut values: Vec<u8> = Vec::with_capacity(32);
-    while let Some(current_byte) = constant_byte_iterator.next() {
-        if let Some(size) = size_lookout {
-            if values.len() < size {
-                values.push(current_byte);
-                continue
+            2 => VMData::Bool(constants_iter.next().unwrap() == 1),
+
+            3 => {
+                let mut string = Vec::new();
+                for data in constants_iter.by_ref() {
+                    if data == 0 {
+                        break
+                    }
+
+                    string.push(data);
+                }
+
+                let object = Object::String(String::from_utf8_lossy(&string).into_owned());
+                
+                let index = vm.objects.put(object).unwrap();
+
+                vm.constants.pop();
+                
+                VMData::Object(index as u64)
             }
-            let data = parse_data(current_type.as_ref().unwrap(), &values, vm)?;
-            vm.constants.push(data);
-            current_type = None;
-        }
 
-        if current_type.is_none() {
-            values.clear();
+            _ => unreachable!()
+        };
 
-            current_type = Some(DataType::from_byte_representation(current_byte).unwrap());
-            size_lookout = Some(match current_type.as_ref().unwrap() {
-                DataType::String => u32::from_le_bytes([
-                    constant_byte_iterator.next().unwrap(),
-                    constant_byte_iterator.next().unwrap(),
-                    constant_byte_iterator.next().unwrap(),
-                    constant_byte_iterator.next().unwrap(),
-                ]) as usize,
-                _ => current_type.as_ref().unwrap().size(),
-            });
-        }
-    }
-    Ok(())
-}
-
-/// # Errors
-/// - Not enough memory in the VM to be able to allocate strings
-pub fn parse_data(
-    current_type: &DataType,
-    values: &[u8],
-    vm: &mut VM,
-) -> Result<VMData, RuntimeError> {
-    Ok(match current_type {
-        DataType::Integer => VMData::Integer(i64::from_le_bytes(
-            match values[0..DataType::Integer.size()].try_into() {
-                Ok(v) => v,
-                Err(_) => {
-                    return Err(RuntimeError::new(
-                        0,
-                        "constants file is corrupt, failed to parse integer",
-                    ))
-                }
-            },
-        )),
-        DataType::Float => VMData::Float(f64::from_le_bytes(
-            match values[0..DataType::Float.size()].try_into() {
-                Ok(v) => v,
-                Err(_) => {
-                    return Err(RuntimeError::new(
-                        0,
-                        "constants file is corrupt, failed to parse float",
-                    ))
-                }
-            },
-        )),
-        DataType::String => {
-            // We can be sure that it is UTF-8 since the compiler won't
-            // output anything that is not valid UTF-8
-            let string = match String::from_utf8(values.to_owned()) {
-                Ok(v) => v,
-                Err(_) => {
-                    return Err(RuntimeError::new(
-                        0,
-                        "constants file is corrupt, string is not valid utf-8",
-                    ))
-                }
-            };
-
-            let object = Object::new(ObjectData::String(string));
-            let index = match vm.create_object(object) {
-                Ok(v) => v,
-                Err(err) => return Err(err),
-            };
-            VMData::Object(index as u64)
-        }
-        DataType::Bool => VMData::Bool(values[0] > 0),
-        _ => {
-            return Err(RuntimeError::new(
-                0,
-                "constants file is corrupt, invalid type",
-            ))
-        }
-    })
-}
-
-/// # Errors
-/// This function will error if the environment value is
-/// not a valid parseable value
-pub fn get_vm_memory_in_bytes() -> Result<usize, RuntimeError> {
-    #[cfg(afl)]
-    return Ok(1280);
-    
-    let binding = env::var("AZURITE_MEMORY").unwrap_or_else(|_| "KB16".to_string());
-    let v = binding.split_at(2);
-    let mut base = match v.1.parse::<usize>() {
-        Ok(v) => v,
-        Err(_) => return Err(RuntimeError::new(0, "failed to parse AZURITE_MEMORY")),
+        vm.constants.push(constant);
     };
-    base *= match v.0 {
-        "BT" => 1,
-        "BY" => 8,
-        "KB" => 8 * 1000,
-        "MB" => 8 * 1000 * 1000,
-        "GB" => 8 * 1000 * 1000 * 1000,
-        _ => return Err(RuntimeError::new(0, "failed to parse AZURITE_MEMORY")),
-    };
-    base /= 8;
-
-    Ok(base)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+
+#[derive(Clone, Copy, Debug)]
 pub enum VMData {
     Integer(i64),
     Float(f64),
-    Object(u64), // stores index // TODO: change to a pointer
     Bool(bool),
+    Object(u64),
     Empty,
 }
 
-impl VMData {
-    fn to_string(self, vm: &VM) -> String {
-        let text = match self {
-            VMData::Integer(v) => v.to_string(),
-            VMData::Float(v) => v.to_string(),
-            VMData::Bool(v) => v.to_string(),
-            VMData::Object(object) => {
-                let obj = vm.get_object(object as usize);
-                obj.data.to_string(vm)
-            }
-            VMData::Empty => todo!(),
-        };
-        text
-    }
+
+#[derive(Debug)]
+pub struct VM {
+    pub constants: Vec<VMData>,
+    pub stack: Stack,
+    pub objects: ObjectMap,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Object {
-    live: Cell<bool>,
-    data: ObjectData,
-}
 
-impl ObjectData {
-    fn to_string(&self, vm: &VM) -> String {
-        match self {
-            ObjectData::List(list) | ObjectData::Struct(list) => {
-                let datas = list.iter().enumerate();
-                let mut stringified = String::new();
-                for (index, data) in datas {
-                    stringified.push_str(data.to_string(vm).as_str());
-                    if index < list.len() - 1 {
-                        stringified.push_str(", ");
+impl VM {
+    pub fn run(&mut self, mut current: Code) {
+        let mut callstack = Vec::with_capacity(64);
+
+        loop {
+            let value = current.next();
+
+            match value {
+                consts::Copy => {
+                    let src = current.next();
+                    let dst = current.next();
+
+                    let data = self.stack.reg(src);
+                    self.stack.set_reg(dst, data);
+                },
+
+                
+                consts::Swap => {
+                    let v1 = current.next();
+                    let v2 = current.next();
+
+                    self.stack.values.swap(v1 as usize, v2 as usize);
+                }
+
+                
+                consts::Add => self.binary_operation(&mut current, VM::arithmetic_operation, i64::checked_add, f64::add),
+                consts::Subtract => self.binary_operation(&mut current, VM::arithmetic_operation, i64::checked_sub, f64::sub),
+                consts::Multiply => self.binary_operation(&mut current, VM::arithmetic_operation, i64::checked_mul, f64::mul),
+                consts::Divide => self.binary_operation(&mut current, VM::arithmetic_operation, i64::checked_div, f64::div),
+                
+                consts::Equals => self.binary_operation(&mut current, VM::comparisson_operation, i64::eq, f64::eq),
+                consts::NotEquals => self.binary_operation(&mut current, VM::comparisson_operation, i64::ne, f64::ne),
+                consts::GreaterThan => self.binary_operation(&mut current, VM::comparisson_operation, i64::gt, f64::gt),
+                consts::LesserThan => self.binary_operation(&mut current, VM::comparisson_operation, i64::lt, f64::lt),
+                consts::GreaterEquals => self.binary_operation(&mut current, VM::comparisson_operation, i64::ge, f64::ge),
+                consts::LesserEquals => self.binary_operation(&mut current, VM::comparisson_operation, i64::le, f64::le),
+
+                
+                consts::LoadConst => {
+                    let dst = current.next();
+                    let data_index = current.next();
+
+                    let data = self.constants[data_index as usize];
+                    self.stack.set_reg(dst, data);
+                }
+
+
+                consts::Jump => {
+                    let jump_at = current.u32();
+
+                    current.goto(jump_at as usize);
+                }
+
+
+                consts::JumpCond => {
+                    current.check(1 + 4 + 4);
+                    
+                    let condition = current.next();
+                    let if_true = current.u32();
+                    let if_false = current.u32();
+
+                    let val = match self.stack.reg(condition) {
+                        VMData::Bool(v) => v,
+                        _ => unreachable!()
+                    };
+
+                    if val {
+                        current.goto(if_true as usize)
+                    } else {
+                        current.goto(if_false as usize)
                     }
                 }
-                stringified
-            }
-            ObjectData::String(v) => v.clone(),
-            ObjectData::Free { .. } => panic!("can't display free"),
+
+
+                consts::Return => {
+                    if callstack.is_empty() {
+                        break
+                    }
+
+                    let ret_val = self.stack.reg(0);
+                    let ret_reg = current.return_to;
+                    
+                    current = callstack.pop().unwrap();
+                    self.stack.set_stack_offset(current.offset);
+
+                    self.stack.set_reg(ret_reg, ret_val);
+                    self.stack.pop(1);
+                },
+                
+
+                consts::Call => {
+                    let goto = current.u32();
+                    let dst = current.next();
+                    let arg_count = current.next() as usize;
+
+                    self.stack.push(arg_count + 1);
+                    
+                    let temp = self.stack.top - arg_count - self.stack.stack_offset;
+                    for v in 0..arg_count {
+                        let reg = self.stack.reg(current.next());
+                        self.stack.set_reg((temp + v) as u8, reg)
+                    }
+
+                    let mut code = Code::new(current.code, self.stack.top - arg_count - 1, dst );
+                    code.pointer = goto as usize;
+                    
+                    callstack.push(current);
+                    current = code;
+                    
+                    self.stack.set_stack_offset(current.offset);
+                }
+
+
+                consts::Push => {
+                    let amount = current.next();
+                    self.stack.push(amount as usize)
+                }
+
+
+                consts::Pop => {
+                    let amount = current.next();
+                    self.stack.pop(amount as usize)
+                }
+
+
+                consts::Unit => {
+                    let reg = current.next();
+
+                    #[cfg(debug_assertions)]
+                    self.stack.set_reg(reg, VMData::Empty)
+                }
+
+
+                consts::Struct => {
+                    let dst = current.next();
+                    let r1 = current.next();
+                    let r2 = current.next();
+
+                    let vec = self.stack.values[(self.stack.stack_offset + r1 as usize)..=(self.stack.stack_offset + r2 as usize)].to_vec();
+                    
+                    let index = self.objects.put(Object::Struct(vec)).unwrap();
+                    self.stack.set_reg(dst, VMData::Object(index as u64))
+                }
+
+
+                consts::AccStruct => {
+                    let dst = current.next();
+                    let struct_at = current.next();
+                    let index = current.next();
+
+                    let val = self.stack.reg(struct_at);
+                    let obj = match val {
+                        VMData::Object(v) => self.objects.get(v as usize),
+
+                        _ => unreachable!()
+                    };
+
+                    let accval = match obj {
+                        Object::Struct(v) => v[index as usize],
+                        
+                        _ => unreachable!()
+                    };
+
+                    self.stack.set_reg(dst, accval);
+                }
+
+
+                consts::SetField => {
+                    let struct_at = current.next();
+                    let data = current.next();
+                    let index = current.next();
+
+                    let data = self.stack.reg(data);
+
+                    let val = self.stack.reg(struct_at);
+                    let obj = match val {
+                        VMData::Object(v) => self.objects.get_mut(v as usize),
+
+                        _ => unreachable!()
+                    };
+
+                    match obj {
+                        Object::Struct(v) => v[index as usize] = data,
+                        
+                        _ => unreachable!()
+                    };
+                }
+                
+                _ => panic!("unreachable {value}"),
+            };
+
+        };
+    }
+
+
+    #[inline(always)]
+    fn binary_operation<T, V>(
+        &mut self,
+        code: &mut Code,
+
+        operation_func: fn(&mut VM, (u8, u8, u8), T, V),
+        int_func: T,
+        float_func: V,
+    ) {
+        let dst = code.next();
+        let v1 = code.next();
+        let v2 = code.next();
+        
+        operation_func(self, (dst, v1, v2), int_func, float_func)
+        
+    }
+
+
+    #[inline(always)]
+    fn arithmetic_operation(
+        &mut self,
+        (dst, v1, v2): (u8, u8, u8),
+        int_func: fn(i64, i64) -> Option<i64>,
+        float_func: fn(f64, f64) -> f64
+    ) {
+        let val = match (self.stack.reg(v1), self.stack.reg(v2)) {
+            (VMData::Integer(v1), VMData::Integer(v2)) => VMData::Integer(int_func(v1, v2).unwrap()),
+            (VMData::Float(v1), VMData::Float(v2))     => VMData::Float(float_func(v1, v2)),
+
+            _ => panic!("{} {} {}", self.stack.stack_offset, v1, v2)
+        };
+
+        self.stack.set_reg(dst, val);
+    }
+
+
+    #[inline(always)]
+    fn comparisson_operation(
+        &mut self,
+        (dst, v1, v2): (u8, u8, u8),
+        int_func: fn(&i64, &i64) -> bool,
+        float_func: fn(&f64, &f64) -> bool,
+    ) {
+        let val = match (self.stack.reg(v1), self.stack.reg(v2)) {
+            (VMData::Integer(v1), VMData::Integer(v2)) => VMData::Bool(int_func(&v1, &v2)),
+            (VMData::Float(v1), VMData::Float(v2))     => VMData::Bool(float_func(&v1, &v2)),
+
+            _ => unreachable!()
+            
+        };
+
+        self.stack.set_reg(dst, val)
+    }
+}
+
+#[derive(Debug)]
+pub struct Code<'a> {
+    pointer: usize,
+    code: &'a [u8],
+
+    offset: usize,
+    return_to: u8,
+}
+
+impl<'a> Code<'a> {
+    pub fn new(code: &[u8], offset: usize, return_to: u8) -> Code { Code { pointer: 0, code, offset, return_to } }
+
+    #[inline(always)]
+    fn check(&self, amount: usize) {
+        assert!(self.pointer + amount < self.code.len())
+    }
+
+    #[inline(always)]
+    fn next(&mut self) -> u8 {
+        let result = self.code[self.pointer];
+        self.pointer += 1;
+        
+        result
+    }
+    
+
+    #[inline(always)]
+    fn u32(&mut self) -> u32 {
+        let slice = &self.code[self.pointer..][..4];
+        let arr : &[u8; 4] = slice.try_into().expect("invalid length");
+
+        self.pointer += 4;
+        
+        u32::from_le_bytes(*arr)
+    }
+
+
+    #[inline(always)]
+    fn goto(&mut self, at: usize) {
+        self.pointer = at;
+    }
+}
+
+
+#[derive(Debug)]
+pub struct Stack {
+    values: [VMData; 512],
+    stack_offset: usize,
+    top: usize,
+}
+
+impl Stack {
+    pub fn new() -> Self {
+        Self {
+            values: [VMData::Empty; 512],
+            stack_offset: 0,
+            top: 0,
         }
     }
-}
 
-impl Object {
-    fn new(data: ObjectData) -> Self {
-        Self { live: Cell::new(false), data }
+    #[inline(always)]
+    pub fn reg(&self, reg: u8) -> VMData {
+        debug_assert!((reg as usize + self.stack_offset) < self.top, "{reg} {} {}", self.stack_offset, self.top);
+        self.values[reg as usize + self.stack_offset]
+    }
+
+    #[inline(always)]
+    fn set_reg(&mut self, reg: u8, data: VMData) {
+        debug_assert!((reg as usize + self.stack_offset) < self.top, "{reg} {} {} {data:?}", self.stack_offset, self.top);
+        self.values[reg as usize + self.stack_offset] = data
+    }
+
+    #[inline(always)]
+    fn set_stack_offset(&mut self, amount: usize) {
+        debug_assert!(amount < self.top);
+        self.stack_offset = amount;
+    }
+
+    #[inline(always)]
+    fn push(&mut self, amount: usize) {
+        self.top += amount;
+    }
+
+    #[inline(always)]
+    fn pop(&mut self, amount: usize) {
+        self.top -= amount;
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ObjectData {
-    String(String),
-    List(Vec<VMData>),
-    Struct(Vec<VMData>),
-    Free { next: usize },
+impl Default for Stack {
+    fn default() -> Self {
+        Self::new()
+    }
 }
