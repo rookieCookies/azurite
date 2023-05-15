@@ -10,12 +10,16 @@ use rayon::prelude::{ParallelIterator, IntoParallelRefMutIterator};
 pub struct ConversionState<'a> {
     pub constants: Vec<Data>,
     pub functions: Vec<Function>,
+    pub externs: Vec<ExternFunction>,
 
-    function_lookup: HashMap<SymbolIndex, FunctionIndex>,
+    function_lookup: HashMap<SymbolIndex, FunctionLookup>,
     function_counter: u32,
+    extern_counter: u32,
+
     
     symbol_table: &'a SymbolTable,
 }
+
 
 #[derive(Debug)]
 pub struct Function {
@@ -36,6 +40,14 @@ pub struct Function {
     
 }
 
+
+#[derive(Debug)]
+pub struct ExternFunction {
+    pub path: SymbolIndex,
+    pub functions: Vec<SymbolIndex>,
+}
+
+
 #[derive(Debug)]
 pub struct Block {
     pub block_index: BlockIndex,
@@ -44,9 +56,26 @@ pub struct Block {
 }
 
 
+#[derive(Debug)]
+pub enum FunctionLookup {
+    Normal(FunctionIndex),
+    Extern(u32),
+}
+
+impl FunctionLookup {
+    pub fn without_type(&self) -> u32 {
+        match self {
+            FunctionLookup::Normal(v) => v.0,
+            FunctionLookup::Extern(v) => *v,
+        }
+    }
+}
+
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)] pub struct FunctionIndex(pub u32);
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)] pub struct BlockIndex(pub u32);
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)] pub struct Variable(pub u32);
+
 
 impl Display for FunctionIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -95,6 +124,8 @@ pub enum IR {
     LesserEquals  { dst: Variable, left: Variable, right: Variable },
 
     Call          { dst: Variable, id: FunctionIndex,  args: Vec<Variable> },
+    ExtCall       { dst: Variable, index: u32,         args: Vec<Variable> },
+    
     Struct        { dst: Variable, r1: Variable, r2: Variable },
     AccStruct     { dst: Variable, val: Variable, index: u8 },
     SetField      { dst: Variable, data: Variable, index: u8},
@@ -114,6 +145,8 @@ impl<'a> ConversionState<'a> {
             symbol_table,
             function_counter: 0,
             function_lookup: HashMap::new(),
+            externs: vec![],
+            extern_counter: 0,
         }
     }
 
@@ -148,6 +181,7 @@ impl<'a> ConversionState<'a> {
                         IR::GreaterEquals { dst, left, right } => writeln!(lock, "ge {dst} {left} {right}"),
                         IR::LesserEquals { dst, left, right }  => writeln!(lock, "le {dst} {left} {right}"),
                         IR::Call { id, dst, args }             => writeln!(lock, "call {id} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
+                        IR::ExtCall { index: id, dst, args }          => writeln!(lock, "ecall {id} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
                         IR::Unit { dst }                       => writeln!(lock, "unit {dst}"),
                         IR::Struct { dst, r1, r2 }             => writeln!(lock, "struct {dst} {r1} {r2}"),
                         IR::AccStruct { dst, val, index }      => writeln!(lock, "accstruct, {dst} {val} {index}"),
@@ -179,6 +213,11 @@ impl ConversionState<'_> {
     fn function(&mut self) -> FunctionIndex {
         self.function_counter += 1;
         FunctionIndex(self.function_counter - 1)
+    }
+
+    fn extern_function(&mut self) -> u32 {
+        self.extern_counter += 1;
+        self.extern_counter - 1
     }
 }
 
@@ -232,11 +271,18 @@ impl Function {
                 InstructionKind::Declaration(d) => match d {
                     Declaration::FunctionDeclaration { name, arguments, .. } => {
                         let function = Function::new(state.function(), arguments.len());
-                        state.function_lookup.insert(*name, function.function_index);
+                        state.function_lookup.insert(*name, FunctionLookup::Normal(function.function_index));
 
                         state.functions.push(function);
                     },
                     Declaration::StructDeclaration { .. } => (),
+                    Declaration::Namespace { body, .. } => (),
+                    Declaration::Extern { functions, .. } => {
+                        for f in functions {
+                            let t = state.extern_function();
+                            state.function_lookup.insert(f.0, FunctionLookup::Extern(t));
+                        }
+                    },
                 },
                 _ => continue,
             }
@@ -308,7 +354,12 @@ impl Function {
     fn declaration(&mut self, state: &mut ConversionState, declaration: Declaration) {
         match declaration {
              Declaration::FunctionDeclaration { arguments, body, name, .. } => {
-                let function_index = *state.function_lookup.get(&name).unwrap();
+                let function_index = *match state.function_lookup.get(&name).unwrap() {
+                    FunctionLookup::Normal(v) => v,
+                    FunctionLookup::Extern(_) => unreachable!(),
+                };
+
+                
                 let mut function = Function::new(function_index, arguments.len());
 
                 let return_addrs = function.variable();
@@ -329,7 +380,17 @@ impl Function {
             },
 
             
+            Declaration::Namespace { body, .. } => {
+                self.convert_block(state, body);
+            },
+
+            
             Declaration::StructDeclaration { .. } => (),
+            
+            
+            Declaration::Extern { file, functions } => {
+                state.externs.push(ExternFunction { path: file, functions: functions.into_iter().map(|x| x.0).collect() })
+            },
         }
     }
 
@@ -490,19 +551,21 @@ impl Function {
 
             
             Expression::FunctionCall { identifier, arguments } => {
-                let function_index = *state.function_lookup.get(&identifier).unwrap();
 
                 let dst = self.variable();
-                let variables = (0..arguments.len()).map(|_| self.variable()).collect::<Vec<_>>();
+                let mut variables = Vec::with_capacity(arguments.len());
 
-                for (index, argument) in arguments.into_iter().enumerate() {
+                for argument in arguments.into_iter() {
                     let argument_reg = self.convert(state, block, argument);
-
-                    block.ir(IR::Copy { src: argument_reg, dst: variables[index] });
+                    variables.push(argument_reg);
                 }
 
+                let function_lookup = state.function_lookup.get(&identifier).unwrap();
                 
-                block.ir(IR::Call { id: function_index, dst, args: variables });
+                match function_lookup {
+                    FunctionLookup::Normal(v) => block.ir(IR::Call    { dst, id: *v, args: variables }),
+                    FunctionLookup::Extern(v) => block.ir(IR::ExtCall { dst, index: *v, args: variables }),
+                }
 
 
                 dst
@@ -540,6 +603,11 @@ impl Function {
                 block.ir(IR::AccStruct { dst, val: struct_at, index: index_to as u8 });
 
                 dst
+            },
+
+            
+            Expression::WithinNamespace { do_within, .. } => {
+                self.convert(state, block, *do_within)
             },
         }
     }

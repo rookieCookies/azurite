@@ -1,12 +1,13 @@
 [package]
-name = "azurite_runtime"
+name = "standard_library"
 version = "0.1.0"
 edition = "2021"
+
+
+[lib]
+crate-type = ["cdylib"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-azurite_common = { path = "../azurite_common" }
-azurite_archiver = { path = "../crates/azurite_archiver" }
-
-libloading = "*"
+azurite_runtime = { path = "../azurite_runtime" }

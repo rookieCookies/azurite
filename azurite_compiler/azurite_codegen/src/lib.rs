@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use azurite_ast_to_ir::{IR, BlockTerminator, FunctionIndex, Function};
+use azurite_ast_to_ir::{IR, BlockTerminator, FunctionIndex, Function, ExternFunction};
 use azurite_common::Bytecode;
+use common::SymbolTable;
 
 #[derive(Debug)]
 pub struct CodeGen {
@@ -12,7 +13,21 @@ pub struct CodeGen {
 }
 
 impl CodeGen {
-    pub fn codegen(&mut self, functions: Vec<Function>) {
+    pub fn codegen(&mut self, symbol_table: &SymbolTable, externs: Vec<ExternFunction>, functions: Vec<Function>) {
+        for e in externs {
+            self.emit_bytecode(Bytecode::ExternFile);
+            self.bytecode.append(&mut symbol_table.get(e.path).as_bytes().to_vec());
+            self.emit_byte(0);
+            
+            self.emit_byte(e.functions.len().try_into().unwrap());
+
+            for func in e.functions {
+                self.bytecode.append(&mut symbol_table.get(func).as_bytes().to_vec());
+                self.emit_byte(0);
+            }
+        }
+
+        
         for function in functions {
             self.codegen_blocks(function);
         }
@@ -145,6 +160,19 @@ impl CodeGen {
                 
                 self.emit_bytecode(Bytecode::Call);
                 self.emit_u32(u32::MAX);
+                self.emit_byte(dst.0 as u8);
+                self.emit_byte(args.len() as u8);
+
+                for i in args {
+                    self.emit_byte(i.0 as u8);
+                }
+                
+            },
+
+            
+            IR::ExtCall { index, dst, args } => {
+                self.emit_bytecode(Bytecode::ExtCall);
+                self.emit_u32(index);
                 self.emit_byte(dst.0 as u8);
                 self.emit_byte(args.len() as u8);
 

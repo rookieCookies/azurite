@@ -1,7 +1,7 @@
 #![feature(iter_intersperse)]
 pub mod variable_stack;
 
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 use azurite_errors::{SourceRange, Error, CompilerError, ErrorBuilder, CombineIntoError};
 use azurite_parser::ast::{Instruction, InstructionKind, Statement, Expression, BinaryOperator, Declaration};
@@ -10,7 +10,6 @@ use variable_stack::VariableStack;
 
 pub struct GlobalState<'a> {
     symbol_table: &'a SymbolTable,
-
 }
 
 #[derive(Debug)]
@@ -19,19 +18,12 @@ pub struct AnalysisState {
     loop_depth: usize,
 
     functions: HashMap<SymbolIndex, (Function, usize)>,
-    stuctures: HashMap<SymbolIndex, (Structure, usize)>,
-
+    structures: HashMap<SymbolIndex, (Structure, usize)>,
+    
     explicit_return: Option<SourcedDataType>,
 
     depth: usize,
 }
-
-
-// pub struct Namespace {
-//     namespaces: Vec<(SymbolIndex, Namespace)>,
-//     functions: HashMap<SymbolIndex, (Function, usize)>,
-//     stuctures: HashMap<SymbolIndex, (Structure, usize)>,
-// }
 
 
 #[derive(Debug)]
@@ -57,24 +49,18 @@ impl AnalysisState {
         Self {
             variable_stack: VariableStack::new(),
             loop_depth: 0,
-            functions: HashMap::new(),
-            stuctures: HashMap::new(),
             depth: 0,
             explicit_return: None,
+            functions: HashMap::new(),
+            structures: HashMap::new(),
+
         }
     }
 
     pub fn start_analysis(&mut self, global: &mut GlobalState, instructions: &mut [Instruction]) -> Result<(), Error> {
-        self.analyze_block(global, instructions)?;
+        self.analyze_block(global, instructions, true)?;
 
         Ok(())
-    }
-}
-
-
-impl Default for AnalysisState {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -99,10 +85,13 @@ impl AnalysisState {
     }
     
 
-    fn analyze_block(&mut self, global: &mut GlobalState, instructions: &mut [Instruction]) -> Result<SourcedDataType, Error> {
+    fn analyze_block(&mut self, global: &mut GlobalState, instructions: &mut [Instruction], reset: bool) -> Result<SourcedDataType, Error> {
         let top = self.variable_stack.len();
 
-        self.depth += 1;
+        if reset {
+            self.depth += 1;
+            
+        }
         // Declarations
         {
             instructions.iter().for_each(|x| {
@@ -111,6 +100,9 @@ impl AnalysisState {
                 }
             })
         }
+        
+        // dbg!(&self, &global.symbol_table);
+
         
         let mut errors = vec![];
         let return_val = instructions.iter_mut().map(|x| match self.analyze(global, x) {
@@ -123,11 +115,12 @@ impl AnalysisState {
 
         self.variable_stack.pop(self.variable_stack.len() - top);
 
+        if reset {
+            self.functions.retain(|_, y| self.depth > y.1);
+            self.structures.retain(|_, y| self.depth > y.1);
+            self.depth -= 1;
+        }
         
-        self.functions.retain(|_, y| self.depth > y.1);
-        self.stuctures.retain(|_, y| self.depth > y.1);
-        
-        self.depth -= 1;
 
         if errors.is_empty() {
             Ok(return_val)
@@ -152,17 +145,40 @@ impl AnalysisState {
                     fields: fields.clone(),
                 })
             },
+
+            
+            Declaration::Namespace { body, .. } => {
+                for i in body.iter() {
+                    if let InstructionKind::Declaration(d) = &i.instruction_kind {
+                        self.declaration_early_process(d)
+                    }
+                }
+
+            },
+
+            
+            Declaration::Extern { functions, .. } => {
+                for f in functions {
+                    self.declare_function(f.0, Function {
+                        return_type: f.1,
+                        arguments: f.2.clone(),
+                    })
+                }
+            },
         }
     }
     
 
     fn analyze_declaration(&mut self, global: &mut GlobalState, declaration: &mut Declaration, source_range: &SourceRange) -> Result<(), Error> {
         match declaration {
-            Declaration::FunctionDeclaration { arguments, return_type, body, source_range_declaration, .. } => {
+            Declaration::FunctionDeclaration { arguments, return_type, body, source_range_declaration, name } => {
+                println!("MHM {}", global.symbol_table.get(*name));
+                
                 let mut analysis_state = AnalysisState::new();
 
                 analysis_state.functions = std::mem::take(&mut self.functions);
-                analysis_state.stuctures = std::mem::take(&mut self.stuctures);
+                analysis_state.structures = std::mem::take(&mut self.structures);
+                
                 analysis_state.depth = self.depth;
                 analysis_state.explicit_return = Some(*return_type);
 
@@ -179,18 +195,19 @@ impl AnalysisState {
                     }
 
                     if !errors.is_empty() {
-                        self.functions = analysis_state.functions;
-                        self.stuctures = analysis_state.stuctures;
+                        self.functions = std::mem::take(&mut analysis_state.functions);
+                        self.structures = std::mem::take(&mut analysis_state.structures);
+
                         return Err(errors.combine_into_error())
                     }
 
                 }
 
 
-                let body_return_type = analysis_state.analyze_block(global, body)?;
+                let body_return_type = analysis_state.analyze_block(global, body, true)?;
 
-                self.functions = analysis_state.functions;
-                self.stuctures = analysis_state.stuctures;
+                self.functions = std::mem::take(&mut analysis_state.functions);
+                self.structures = std::mem::take(&mut analysis_state.structures);
 
                 if !self.is_of_type(global, *return_type, body_return_type)? {
                     return Err(CompilerError::new(211, "function body returns a different type")
@@ -209,7 +226,8 @@ impl AnalysisState {
             },
 
 
-            Declaration::StructDeclaration { fields, .. } => {
+            Declaration::StructDeclaration { fields, name } => {
+                println!("HEY {}{:?}", global.symbol_table.get(*name), name);
                 let errs = fields
                     .iter()
                     .map(|x| self.is_valid_type(global, x.1))
@@ -218,6 +236,26 @@ impl AnalysisState {
 
                 if !errs.is_empty() {
                     return Err(errs.combine_into_error())
+                }
+
+                Ok(())
+            },
+
+            
+            Declaration::Namespace { body, .. } => {
+                self.analyze_block(global, body, false)?;
+                Ok(())
+                
+            },
+
+            
+            Declaration::Extern { functions, .. } => {
+                for f in functions {
+                    self.is_valid_type(global, f.1)?;
+
+                    for argument in &f.2 {
+                        self.is_valid_type(global, *argument)?;
+                    }
                 }
 
                 Ok(())
@@ -284,7 +322,7 @@ impl AnalysisState {
 
             
             Expression::Block { body } => {
-                self.analyze_block(global, body)
+                self.analyze_block(global, body, true)
             },
 
 
@@ -299,7 +337,7 @@ impl AnalysisState {
                 }
 
 
-                let body_type = self.analyze_block(global, body)?;
+                let body_type = self.analyze_block(global, body, true)?;
 
                 if let Some(else_part) = else_part {
                     let else_type = self.analyze(global, else_part)?;
@@ -338,6 +376,7 @@ impl AnalysisState {
                 let function = match self.get_function(identifier) {
                     Some(v) => v,
                     None => {
+                        // dbg!(&identifier, &global.symbol_table, &self);
                         return Err(CompilerError::new(212, "function isn't declared")
                             .highlight(*source_range)
                                 .note(format!("there's no function named {}", global.symbol_table.get(*identifier)))
@@ -444,7 +483,7 @@ impl AnalysisState {
                     if !invalid.is_empty() {
                         field_errors.push(CompilerError::new(218, "invalid fields")
                             .highlight(*source_range)
-                                .note(format!("invalid: {}", invalid.into_iter().map(|x| global.symbol_table.get(x)).intersperse(", ").collect::<String>()))
+                                .note(format!("invalid: {}", invalid.into_iter().map(|x| global.symbol_table.get(x)).intersperse(", ".to_string()).collect::<String>()))
                             .build())
                     }
 
@@ -452,7 +491,7 @@ impl AnalysisState {
                     if !hashmap.is_empty() {
                         field_errors.push(CompilerError::new(219, "missing fields")
                             .highlight(*source_range)
-                                .note(format!("missing: {}", hashmap.into_iter().map(|x| global.symbol_table.get(x.0)).intersperse(", ").collect::<String>()))
+                                .note(format!("missing: {}", hashmap.into_iter().map(|x| global.symbol_table.get(x.0)).intersperse(", ".to_string()).collect::<String>()))
                             .build())
                         
                     }
@@ -491,6 +530,11 @@ impl AnalysisState {
                             .note(format!("is of type {} which doesn't have a field named {}", global.to_string(structure_type.data_type), global.symbol_table.get(*identifier)))
                         .build()
                 )
+            },
+
+            
+            Expression::WithinNamespace { namespace, do_within } => {
+                self.analyze(global, do_within)
             },
         }
     }
@@ -552,7 +596,7 @@ impl AnalysisState {
             Statement::Loop { body } => {
                 self.loop_depth += 1;
 
-                self.analyze_block(global, body)?;
+                self.analyze_block(global, body, true)?;
 
                 self.loop_depth -= 1;
 
@@ -689,12 +733,13 @@ impl AnalysisState {
     
     fn declare_struct(&mut self, symbol: SymbolIndex, mut structure: Structure) {
         structure.fields.sort_by_key(|x| x.0);
-        self.stuctures.insert(symbol, (structure, self.depth));
+        self.structures.insert(symbol, (structure, self.depth));
     }
 
     
     fn get_struct(&self, global: &GlobalState, range: &SourceRange, symbol: &SymbolIndex) -> Result<&Structure, Error> {
-        match self.stuctures.get(symbol).map(|x| &x.0) {
+        dbg!(&symbol);
+        match self.structures.get(symbol).map(|x| &x.0) {
             Some(v) => Ok(v),
             None => Err(CompilerError::new(215, "structure isn't declared")
             .highlight(*range)

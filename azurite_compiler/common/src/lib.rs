@@ -45,15 +45,15 @@ impl DataType {
 }
 
 impl DataType {
-    pub fn to_string(self, symbol_table: &SymbolTable) -> &str {
+    pub fn to_string(self, symbol_table: &SymbolTable) -> String {
         match self {
-            DataType::Integer   => "integer",
-            DataType::Float     => "float",
-            DataType::String    => "string",
-            DataType::Bool      => "bool",
-            DataType::Empty     => "()",
-            DataType::Any       => "any",
-            DataType::Struct(v) => symbol_table.get(v) 
+            DataType::Integer   => "integer".to_string(),
+            DataType::Float     => "float".to_string(),
+            DataType::String    => "string".to_string(),
+            DataType::Bool      => "bool".to_string(),
+            DataType::Empty     => "()".to_string(),
+            DataType::Any       => "any".to_string(),
+            DataType::Struct(v) => symbol_table.get(v)
         }
     }
 }
@@ -85,7 +85,7 @@ impl Data {
         match self {
             Data::Int(v)    => v.to_string(),
             Data::Float(v)  => v.to_string(),
-            Data::String(v) => symbol_table.get(*v).to_string(),
+            Data::String(v) => symbol_table.get(*v),
             Data::Bool(v)   => v.to_string(),
             Data::Empty     => "()".to_string(),
         }
@@ -95,17 +95,20 @@ impl Data {
 
 #[derive(Debug)]
 pub struct SymbolTable {
-    vec: Vec<String>,
+    vec: Vec<SymbolTableValue>,
 }
 
 impl SymbolTable {
     pub fn new() -> Self { Self { vec: vec![] } }
 
     pub fn add(&mut self, string: String) -> SymbolIndex {
-        match self.vec.iter().enumerate().find(|x| x.1 == &string) {
+        match self.vec.iter().enumerate().find(|x| match x.1 {
+            SymbolTableValue::String(v) => v == &string,
+            SymbolTableValue::Combo(_, _) => false,
+        }) {
             Some(v) => SymbolIndex(v.0),
             None => {
-                self.vec.push(string);
+                self.vec.push(SymbolTableValue::String(string));
         
                 SymbolIndex(self.vec.len()-1)
             },
@@ -113,8 +116,26 @@ impl SymbolTable {
     }
 
 
-    pub fn get(&self, index: SymbolIndex) -> &str {
-        self.vec[index.0].as_str()
+    pub fn add_combo(&mut self, one: SymbolIndex, two: SymbolIndex) -> SymbolIndex {
+        match self.vec.iter().enumerate().find(|x| match x.1 {
+            SymbolTableValue::String(_) => false,
+            SymbolTableValue::Combo(v1, v2) => v1 == &one && v2 == &two,
+        }) {
+            Some(v) => SymbolIndex(v.0),
+            None => {
+                self.vec.push(SymbolTableValue::Combo(one, two));
+        
+                SymbolIndex(self.vec.len()-1)
+            },
+        }
+    }
+
+
+    pub fn get(&self, index: SymbolIndex) -> String {
+        match &self.vec[index.0] {
+            SymbolTableValue::String(v) => v.to_owned(),
+            SymbolTableValue::Combo(v1, v2) => format!("[{}<|::({}, {v2:?})]", self.get(*v1), self.get(*v2)),
+        }
     }
 }
 
@@ -127,3 +148,14 @@ impl Default for SymbolTable {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SymbolIndex(usize);
+
+impl SymbolIndex {
+    pub const DECOY : SymbolIndex = SymbolIndex(usize::MAX);
+}
+
+
+#[derive(Debug)]
+enum SymbolTableValue {
+    String(String),
+    Combo(SymbolIndex, SymbolIndex)
+}

@@ -9,3 +9,5 @@ edition = "2021"
 azurite_parser = { path = "../azurite_parser" }
 azurite_errors = { path = "../azurite_errors" }
 common = { path = "../common" }
+
+hashbrown = "*"

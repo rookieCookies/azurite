@@ -282,6 +282,13 @@ fn disassemble(v: Vec<u8>) {
                 (0..arg_count).for_each(|_| { let _ = write!(lock, " {}", d.next()); });
                 writeln!(lock, " )")
             },
+            Bytecode::ExtCall => {
+                let _ = write!(lock, "ecall {} {} ", d.u32(), d.next());
+                let arg_count = d.next();
+                let _ = write!(lock, "{} (", arg_count);
+                (0..arg_count).for_each(|_| { let _ = write!(lock, " {}", d.next()); });
+                writeln!(lock, " )")
+            },
             Bytecode::Push => writeln!(lock, "push {}", d.next()),
             Bytecode::Pop => writeln!(lock, "pop {}", d.next()),
             Bytecode::Add => writeln!(lock, "add {} {} {}", d.next(), d.next(), d.next()),
@@ -301,6 +308,16 @@ fn disassemble(v: Vec<u8>) {
             Bytecode::Unit => writeln!(lock, "unit {}", d.next()),
             Bytecode::AccStruct => writeln!(lock, "accstruct {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::SetField => writeln!(lock, "setfield {} {} {}", d.next(), d.next(), d.next()),
+            Bytecode::ExternFile => {
+                let _ = write!(lock, "extern \"{}\" ( ", d.string());
+
+                let amount = d.next();
+                for _ in 0..amount {
+                    let _ = write!(lock, "\"{}\" ", d.string());
+                }
+
+                writeln!(lock, ")")
+            },
         
         };
     }
@@ -329,5 +346,20 @@ impl Disassembler {
         self.top += 1;
 
         self.code[self.top-1]
+    }
+
+    fn string(&mut self) -> String {
+        let mut bytes = vec![];
+
+        loop {
+            let val = self.next();
+            if val == 0 {
+                break
+            }
+
+            bytes.push(val)
+        }
+
+        String::from_utf8(bytes).unwrap()
     }
 }

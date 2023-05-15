@@ -257,8 +257,11 @@ pub enum Bytecode : u8 {
     Swap,
 
     Call,
+    ExtCall,
     Push,
     Pop,
+
+    ExternFile,
     
     Struct,
     AccStruct,

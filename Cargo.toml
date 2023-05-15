@@ -13,6 +13,8 @@ members = [
     "azurite_runtime",
     "azurite_common",
     "crates/azurite_archiver",
+
+    "standard_library",
 ]
 
 [profile.release]

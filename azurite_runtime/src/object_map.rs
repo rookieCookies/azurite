@@ -1,12 +1,14 @@
 use crate::VMData;
 
 #[derive(Debug)]
+#[repr(C)]
 pub struct ObjectMap {
     map: Vec<Object>,
     free: usize,
 }
 
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub enum Object {
     Struct(Vec<VMData>),
     String(String),
@@ -15,7 +17,7 @@ pub enum Object {
 }
 
 impl ObjectMap {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             free: 0,
             map: (0..128).map(|x| Object::Free { next: (x + 1) % 128 }).collect(),

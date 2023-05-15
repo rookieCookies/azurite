@@ -18,10 +18,9 @@ pub fn compile(data: &str) -> Result<(Vec<u8>, Vec<Data>, SymbolTable), Error> {
     
     let tokens = lex(data, &mut symbol_table)?;
 
+    let mut instructions = parse(tokens.into_iter(), &mut symbol_table)?;
+
     let symbol_table = symbol_table;
-
-    let mut instructions = parse(tokens.into_iter(), &symbol_table)?;
-
     
     let mut global_state = GlobalState::new(&symbol_table);
     
@@ -49,7 +48,7 @@ pub fn compile(data: &str) -> Result<(Vec<u8>, Vec<Data>, SymbolTable), Error> {
     
 
     let mut codegen = CodeGen::new();
-    codegen.codegen(ir.functions);
+    codegen.codegen(&symbol_table, ir.externs, ir.functions);
 
     Ok((codegen.bytecode, ir.constants, symbol_table))
 }

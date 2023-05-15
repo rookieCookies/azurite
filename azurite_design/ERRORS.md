@@ -39,6 +39,14 @@
 104) Invalid data type token
 - This error occurs when parsing a data type but encounters a non-datatype token w
 
+105) Invalid statement in a namespace
+- This error occurs when there is a statement that is not allowed inside a namespace
+
+106) Invalid namespaced expression
+- This error occurs when trying to do something inside a namespace
+
+107) Invalid extern block
+- This error occurs when the value after the `extern` keyword isn't a string
 
 # Analysis Errors
 201) Invalid Type Arithmetic Operation

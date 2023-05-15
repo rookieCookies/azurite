@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 azurite_ast_to_ir = { path = "../azurite_ast_to_ir" }
 azurite_common = { path = "../../azurite_common"}
+common = { path = "../common" }

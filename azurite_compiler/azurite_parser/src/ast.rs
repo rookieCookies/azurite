@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use azurite_errors::SourceRange;
 use azurite_lexer::TokenKind;
-use common::{SymbolIndex, SourcedDataType, SourcedData};
+use common::{SymbolIndex, SourcedDataType, SourcedData, DataType};
 
 #[derive(Debug)]
 pub struct Instruction {
@@ -84,6 +84,11 @@ pub enum Expression {
         structure: Box<Instruction>,
         identifier: SymbolIndex,
         index_to: usize,
+    },
+
+    WithinNamespace {
+        namespace: SymbolIndex,
+        do_within: Box<Instruction>,
     }
     
 }
@@ -103,6 +108,16 @@ pub enum Declaration {
     StructDeclaration {
         name: SymbolIndex,
         fields: Vec<(SymbolIndex, SourcedDataType)>,
+    },
+
+    Namespace {
+        body: Vec<Instruction>,
+        identifier: SymbolIndex,
+    },
+
+    Extern {
+        file: SymbolIndex,
+        functions: Vec<(SymbolIndex, SourcedDataType, Vec<SourcedDataType>)>,
     }
 }
 
