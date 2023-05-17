@@ -45,7 +45,8 @@ pub fn bytes_to_constants(data: Vec<u8>, vm: &mut VM) {
 
             3 => {
                 let mut string = Vec::new();
-                for data in constants_iter.by_ref() {
+                loop {
+                    let data = constants_iter.next().unwrap();
                     if data == 0 {
                         break
                     }
@@ -57,8 +58,6 @@ pub fn bytes_to_constants(data: Vec<u8>, vm: &mut VM) {
                 
                 let index = vm.objects.put(object).unwrap();
 
-                vm.constants.pop();
-                
                 VMData::Object(index as u64)
             }
 
@@ -71,13 +70,46 @@ pub fn bytes_to_constants(data: Vec<u8>, vm: &mut VM) {
 
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum VMData {
     Integer(i64),
     Float(f64),
     Bool(bool),
     Object(u64),
     Empty,
+}
+
+impl VMData {
+    pub fn integer(self) -> i64 {
+        match self {
+            VMData::Integer(v) => v,
+            _ => unreachable!()
+        }
+    }
+
+    
+    pub fn float(self) -> f64 {
+        match self {
+            VMData::Float(v) => v,
+            _ => unreachable!()
+        }
+    }
+    
+    
+    pub fn bool(self) -> bool {
+        match self {
+            VMData::Bool(v) => v,
+            _ => unreachable!()
+        }
+    }
+
+    
+    pub fn object(self) -> u64 {
+        match self {
+            VMData::Object(v) => v,
+            _ => unreachable!()
+        }
+    }
 }
 
 
@@ -101,12 +133,6 @@ pub(crate) struct Code<'a> {
 
 impl<'a> Code<'a> {
     pub fn new(code: &[u8], offset: usize, return_to: u8) -> Code { Code { pointer: 0, code, offset, return_to } }
-
-    #[inline(always)]
-    fn check(&self, amount: usize) {
-        assert!(self.pointer + amount < self.code.len())
-    }
-
 
     #[inline(always)]
     fn next(&mut self) -> u8 {

@@ -1,6 +1,13 @@
-extern "target/debug/standard_library.dll" {
+extern "target/release/standard_library.dll" {
     fn print(str)
     fn println(str)
+
+    fn to_string_int(int): str
+    fn to_string_float(float): str
+    fn to_string_bool(bool): str
+
+    fn fib_rec(float) : float
+    
 }
 
-println("hello world!")
+print("Hi!")

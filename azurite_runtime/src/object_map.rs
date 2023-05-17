@@ -16,6 +16,24 @@ pub enum Object {
     Free { next: usize },
 }
 
+
+impl Object {
+    pub fn string(&self) -> &String {
+        match self {
+            Object::String(v) => &v,
+            _ => unreachable!()
+        }
+    }
+
+    
+    pub fn structure(&self) -> &Vec<VMData> {
+        match self {
+            Object::Struct(v) => &v,
+            _ => unreachable!()
+        }
+    }
+}
+
 impl ObjectMap {
     pub(crate) fn new() -> Self {
         Self {

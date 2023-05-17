@@ -172,7 +172,7 @@ impl AnalysisState {
     fn analyze_declaration(&mut self, global: &mut GlobalState, declaration: &mut Declaration, source_range: &SourceRange) -> Result<(), Error> {
         match declaration {
             Declaration::FunctionDeclaration { arguments, return_type, body, source_range_declaration, name } => {
-                println!("MHM {}", global.symbol_table.get(*name));
+                // println!("MHM {}", global.symbol_table.get(*name));
                 
                 let mut analysis_state = AnalysisState::new();
 
@@ -289,7 +289,7 @@ impl AnalysisState {
 
                             (DataType::Any, DataType::Any) => DataType::Any,
                             
-                             _ => {
+                            _ => {
                                 return Err(CompilerError::new(201, "invalid type arithmetic operation")
                                     .highlight(SourceRange::combine(left.source_range, right.source_range))
                                         .note(format!("left side is of type {} while the right side is of type {}", global.to_string(left_type.data_type), global.to_string(right_type.data_type)))
