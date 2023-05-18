@@ -190,7 +190,7 @@ impl Stack {
         Self {
             values: [VMData::Empty; 512],
             stack_offset: 0,
-            top: 0,
+            top: 1,
         }
     }
 
@@ -202,7 +202,7 @@ impl Stack {
 
     #[inline(always)]
     pub fn set_reg(&mut self, reg: u8, data: VMData) {
-        debug_assert!((reg as usize + self.stack_offset) < self.top, "{reg} {} {} {data:?}", self.stack_offset, self.top);
+        debug_assert!((reg as usize + self.stack_offset) < self.top, "reg: {reg} offset: {} top: {} {data:?}", self.stack_offset, self.top);
         self.values[reg as usize + self.stack_offset] = data
     }
 

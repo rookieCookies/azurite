@@ -1,4 +1,4 @@
-use azurite_common::consts;
+use azurite_common::{consts, Bytecode};
 use libloading::{Library, Symbol};
 
 use crate::{VMData, object_map::Object, VM, Code};
@@ -32,7 +32,7 @@ impl VM {
                             let name = current.string();
                             let func : ExternFunction<'_> = match lib.get(name.as_bytes()) {
                                 Ok(v) => v,
-                                Err(_) => panic!("can't find {name} in {path}"),
+                                Err(_) => panic!("can't find {name:?} in {path}"),
                             };
                             
                             external_funcs.push(func.into_raw());
@@ -48,8 +48,8 @@ impl VM {
                 },
                 
                 consts::Copy => {
-                    let src = current.next();
                     let dst = current.next();
+                    let src = current.next();
 
                     let data = self.stack.reg(src);
                     self.stack.set_reg(dst, data);
@@ -268,7 +268,7 @@ impl VM {
             };
 
 
-            // println!("{:?}", self.stack.values.iter().take(self.stack.top).collect::<Vec<_>>())
+            // println!("{} {:?}\n\t{:?}", current.pointer, Bytecode::from_u8(value).unwrap(), self.stack.values.iter().take(self.stack.top).collect::<Vec<_>>())
 
         };
 

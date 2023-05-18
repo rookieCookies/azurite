@@ -1,0 +1,165 @@
+// -------------------------------
+//
+// LIBRARY CODE
+//
+// -------------------------------
+
+extern "azurite_raylib.dll" {
+	fn initialise_raylib(int, int, str)
+	fn is_key_just_pressed(int): bool
+	
+	fn begin_drawing()
+	fn end_drawing()
+	fn clear_background(Color)
+	
+	fn window_should_close(): bool
+	fn draw_rectangle(int, int, int, int, Color)
+	fn draw_fps(int, int)
+
+	fn delta() : float
+
+	fn randf(): float
+	fn float_to_int(float) : int
+}
+
+struct Color {
+	r: int,
+	g: int,
+	b: int,
+	a: int,
+}
+
+fn init() {
+	initialise_raylib(1000, 800, "azurite raylib")  
+}
+
+
+// -------------------------------
+//
+// ACTUAL CODE
+//
+// -------------------------------
+var key_space = 32
+var gravity = 200.0
+var jump = 300.0 * (1.0-2.0)
+
+initialise_raylib(600, 900, "flappy birb")
+
+var bg_color = Color { r: 255, g: 255, b: 255, a: 255 }
+var bird_color = Color { r: 30, g: 60, b: 80, a: 255 }
+var pipe_color = Color { r: 130, g: 30, b: 30, a: 255 }
+
+
+var bird = Bird {
+	position: Vector2 { x: 200.0, y: 400.0 },
+	velocity: Vector2 { x: 0.0, y: 0.0 },
+	body: Vector2 { x: 30.0, y: 30.0 },
+}
+
+var pipe = Pipe {
+	position: Vector2 { x: 500.0, y: 300.0 },
+	body: Vector2 { x: 80.0, y: 600.0 },
+}
+
+var pipe2 = Pipe {
+	position: Vector2 { x: 500.0, y: 100.0 },
+	body: Vector2 { x: 80.0, y: 600.0 },
+}
+
+refresh_pipes(pipe, pipe2)
+
+while window_should_close() == false {
+	var delta = delta()
+
+	{
+		bird.velocity.y = bird.velocity.y + gravity * delta * if bird.velocity.y < 0.0 { 2.0 } else { 1.0 }
+	
+		if is_key_just_pressed(key_space) {
+			bird.velocity.y = jump
+		}
+
+		bird.position.x = bird.position.x + bird.velocity.x * delta
+		bird.position.y = bird.position.y + bird.velocity.y * delta
+	}
+
+	{
+        var cache = pipe.position.x - 100.0 * delta
+		pipe.position.x = cache
+		pipe2.position.x = cache
+		
+		if pipe.position.x + 80.0 < 0.0 {
+			refresh_pipes(pipe, pipe2)
+		}
+	}
+
+	{
+		if aabb(bird, pipe) {
+			break
+		}
+		
+		if aabb(bird, pipe2) {
+			break
+		}
+	}
+
+
+	// Rendering
+	begin_drawing()
+
+	clear_background(bg_color)
+
+	draw(bird.position, bird.body, bird_color)
+	draw(pipe.position, pipe.body, pipe_color)
+	draw(pipe2.position, pipe2.body, pipe_color)
+	
+	draw_fps(0, 0)
+	
+	end_drawing()
+}
+
+fn refresh_pipes(pipe1: Pipe, pipe2: Pipe) {
+	var point = randf() * 500.0 - 200.0
+	pipe1.position.x = 600.0
+	pipe2.position.x = 600.0
+	pipe1.position.y = point + 400.0
+	pipe2.position.y = point - 400.0
+}
+
+fn aabb(bird: Bird, pipe: Pipe): bool {
+	if bird.position.x < pipe.position.x + pipe.body.x {
+		if bird.position.x + bird.body.x > pipe.position.x {
+		    if bird.position.y < pipe.position.y + pipe.body.y {
+				bird.position.y + bird.body.y > pipe.position.y
+			} else { false }
+		} else { false }
+	} else {
+		false
+	}
+}
+
+fn draw(position: Vector2, body: Vector2, color: Color) {
+	draw_rectangle(
+		float_to_int(position.x),
+		float_to_int(position.y),
+		float_to_int(body.x),
+		float_to_int(body.y),
+		color
+	)
+}
+
+struct Bird {
+	position: Vector2, 
+	velocity: Vector2,
+	body: Vector2,
+}
+
+
+struct Pipe {
+	position: Vector2, 
+	body: Vector2,
+}
+
+struct Vector2 {
+	x: float,
+	y: float,
+}

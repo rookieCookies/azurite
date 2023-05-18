@@ -61,7 +61,7 @@ impl CodeGen {
                 BlockTerminator::SwitchBool { .. } => vec![255; 10],
                 BlockTerminator::Return => {
                     self.emit_bytecode(Bytecode::Pop);
-                    self.emit_byte((function.stack_size + function.argument_count as u32 - 1) as u8);
+                    self.emit_byte(function.stack_size as u8);
                     vec![255]
                 },
             };
@@ -136,8 +136,8 @@ impl CodeGen {
         match ir {
             IR::Copy { src, dst } => {
                 self.emit_bytecode(Bytecode::Copy);
-                self.emit_byte(src.0 as u8);
                 self.emit_byte(dst.0 as u8);
+                self.emit_byte(src.0 as u8);
             },
 
             

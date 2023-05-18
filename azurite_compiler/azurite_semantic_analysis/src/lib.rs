@@ -227,7 +227,6 @@ impl AnalysisState {
 
 
             Declaration::StructDeclaration { fields, name } => {
-                println!("HEY {}{:?}", global.symbol_table.get(*name), name);
                 let errs = fields
                     .iter()
                     .map(|x| self.is_valid_type(global, x.1))
@@ -738,7 +737,6 @@ impl AnalysisState {
 
     
     fn get_struct(&self, global: &GlobalState, range: &SourceRange, symbol: &SymbolIndex) -> Result<&Structure, Error> {
-        dbg!(&symbol);
         match self.structures.get(symbol).map(|x| &x.0) {
             Some(v) => Ok(v),
             None => Err(CompilerError::new(215, "structure isn't declared")

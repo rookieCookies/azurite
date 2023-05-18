@@ -106,7 +106,7 @@ pub enum BlockTerminator {
 
 #[derive(Debug, Clone)]
 pub enum IR {
-    Copy     { src: Variable, dst: Variable },
+    Copy     { dst: Variable, src: Variable },
     Swap     { v1: Variable, v2: Variable },
     
     Load     { dst: Variable, data: u32 },
