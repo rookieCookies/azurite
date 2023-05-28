@@ -126,9 +126,11 @@ pub enum IR {
     Call          { dst: Variable, id: FunctionIndex,  args: Vec<Variable> },
     ExtCall       { dst: Variable, index: u32,         args: Vec<Variable> },
     
-    Struct        { dst: Variable, r1: Variable, r2: Variable },
+    Struct        { dst: Variable, fields: Vec<Variable> },
     AccStruct     { dst: Variable, val: Variable, index: u8 },
     SetField      { dst: Variable, data: Variable, index: u8},
+
+    Noop,
 }
 
 
@@ -181,11 +183,12 @@ impl<'a> ConversionState<'a> {
                         IR::GreaterEquals { dst, left, right } => writeln!(lock, "ge {dst} {left} {right}"),
                         IR::LesserEquals { dst, left, right }  => writeln!(lock, "le {dst} {left} {right}"),
                         IR::Call { id, dst, args }             => writeln!(lock, "call {id} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
-                        IR::ExtCall { index: id, dst, args }          => writeln!(lock, "ecall {id} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
+                        IR::ExtCall { index, dst, args }       => writeln!(lock, "ecall {index} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
                         IR::Unit { dst }                       => writeln!(lock, "unit {dst}"),
-                        IR::Struct { dst, r1, r2 }             => writeln!(lock, "struct {dst} {r1} {r2}"),
+                        IR::Struct { dst, fields }             => writeln!(lock, "struct {dst} ({} )", fields.iter().map(|x| format!(" {x}")).collect::<String>()),
                         IR::AccStruct { dst, val, index }      => writeln!(lock, "accstruct, {dst} {val} {index}"),
                         IR::SetField { dst, data, index }      => writeln!(lock, "setfield {dst} {data} {index}"),
+                        IR::Noop                               => writeln!(lock, "noop"),
                     };
                 }
             
@@ -276,7 +279,7 @@ impl Function {
                         state.functions.push(function);
                     },
                     Declaration::StructDeclaration { .. } => (),
-                    Declaration::Namespace { body, .. } => (),
+                    Declaration::Namespace { .. } => (),
                     Declaration::Extern { functions, .. } => {
                         for f in functions {
                             let t = state.extern_function();
@@ -398,8 +401,9 @@ impl Function {
     fn statement(&mut self, state: &mut ConversionState, block: &mut Block, statement: Statement) {
         match statement {
             Statement::DeclareVar { identifier, data, ..} => {
-                let variable = self.convert(state, block, Instruction { source_range: data.source_range, instruction_kind: InstructionKind::Expression(Expression::Block { body: vec![*data] }) });
-                self.variable_lookup.push((identifier, variable))
+                let variable = self.convert(state, block, Instruction { source_range: data.source_range, instruction_kind: InstructionKind::Expression(Expression::Block { body: vec![*data] }) } );
+                self.variable_lookup.push((identifier, variable));
+                block.ir(IR::Noop);
             },
 
             
@@ -407,7 +411,8 @@ impl Function {
                 let left_variable = self.convert(state, block, *left);
                 let right_variable = self.convert(state, block, *right);
 
-                block.ir(IR::Copy { src: right_variable, dst: left_variable })
+                block.ir(IR::Copy { src: right_variable, dst: left_variable });
+                block.ir(IR::Noop);
             },
 
 
@@ -579,17 +584,15 @@ impl Function {
                     block.ir(IR::Unit { dst });
                     return dst;
                 }
-                
-                let variables = (0..fields.len()).map(|_| self.variable()).collect::<Vec<_>>();
-                
-                for (index, argument) in fields.into_iter().enumerate() {
-                    let argument_reg = self.convert(state, block, argument.1);
 
-                    block.ir(IR::Copy { src: argument_reg, dst: variables[index] });
+                let mut variables = Vec::with_capacity(fields.len());
+                for argument in fields.into_iter() {
+                    let argument_reg = self.convert(state, block, argument.1);
+                    variables.push(argument_reg);
                 }
 
 
-                block.ir(IR::Struct { dst, r1: *variables.first().unwrap(), r2: *variables.last().unwrap()});
+                block.ir(IR::Struct { dst, fields: variables });
 
                 
                 dst

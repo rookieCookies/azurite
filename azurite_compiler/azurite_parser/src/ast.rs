@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use azurite_errors::SourceRange;
 use azurite_lexer::TokenKind;
-use common::{SymbolIndex, SourcedDataType, SourcedData, DataType};
+use common::{SymbolIndex, SourcedDataType, SourcedData};
 
 #[derive(Debug)]
 pub struct Instruction {

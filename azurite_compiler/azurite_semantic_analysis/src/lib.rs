@@ -204,7 +204,16 @@ impl AnalysisState {
                 }
 
 
-                let body_return_type = analysis_state.analyze_block(global, body, true)?;
+                let body_return_type = match analysis_state.analyze_block(global, body, true) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        self.functions = std::mem::take(&mut analysis_state.functions);
+                        self.structures = std::mem::take(&mut analysis_state.structures);
+
+                        return Err(e)
+                        
+                    },
+                };
 
                 self.functions = std::mem::take(&mut analysis_state.functions);
                 self.structures = std::mem::take(&mut analysis_state.structures);

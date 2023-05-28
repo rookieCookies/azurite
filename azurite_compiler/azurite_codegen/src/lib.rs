@@ -269,11 +269,15 @@ impl CodeGen {
             },
 
             
-            IR::Struct { dst, r1, r2 } => {
+            IR::Struct { dst, fields } => {
                 self.emit_bytecode(Bytecode::Struct);
                 self.emit_byte(dst.0 as u8);
-                self.emit_byte(r1.0 as u8);
-                self.emit_byte(r2.0 as u8);
+                self.emit_byte(fields.len() as u8);
+                
+                for i in fields {
+                    self.emit_byte(i.0 as u8);
+                }
+                
             },
 
             
@@ -291,6 +295,8 @@ impl CodeGen {
                 self.emit_byte(data.0 as u8);
                 self.emit_byte(index);
             },
+
+            IR::Noop => (),
 
             
         }

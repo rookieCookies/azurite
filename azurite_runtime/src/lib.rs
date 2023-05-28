@@ -1,38 +1,124 @@
+#![deny(clippy::pedantic)]
 #![feature(iter_next_chunk)]
 mod object_map;
 mod runtime;
 
 use azurite_archiver::{Packed, Data};
-use libloading::Symbol;
 use object_map::ObjectMap;
-use std::{ops::{Add, Sub, Mul, Div}, time::Instant};
+use std::time::Instant;
 
 pub use object_map::Object;
 
-pub fn run_file(packed: Packed) {
+/// Runs a 'Packed' file assuming it is
+/// correctly structured
+///
+/// # Panics
+/// - If the 'Packed' value is not correct
+pub fn run_packed(packed: Packed) {
     let mut files : Vec<Data> = packed.into();
-    
-    let bytecode = files.remove(0);
-    let constants = files.remove(0);
 
+    let constants = files.pop().unwrap();
+    let bytecode = files.pop().unwrap();
+
+    assert!(files.is_empty());
+
+    run(&bytecode.0, constants.0);
+}
+
+
+/// The runtime union of stack values
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum VMData {
+    Integer(i64),
+    Float(f64),
+    Bool(bool),
+    Object(u64),
+    Empty,
+}
+
+
+#[allow(clippy::inline_always)]
+impl VMData {
+    /// Consumes the union value and returns an i64
+    ///
+    /// # Panics
+    /// - If the union type is not an integer
+    #[inline(always)]
+    #[must_use]
+    pub fn integer(self) -> i64 {
+        match self {
+            VMData::Integer(v) => v,
+            _ => unreachable!()
+        }
+    }
+
+    
+    /// Consumes the union value and returns an f64
+    ///
+    /// # Panics
+    /// - If the union type is not an float
+    #[inline(always)]
+    #[must_use]
+    pub fn float(self) -> f64 {
+        match self {
+            VMData::Float(v) => v,
+            _ => unreachable!()
+        }
+    }
+    
+    
+    /// Consumes the union value and returns a bool
+    ///
+    /// # Panics
+    /// - If the union type is not a boolean
+    #[inline(always)]
+    #[must_use]
+    pub fn bool(self) -> bool {
+        match self {
+            VMData::Bool(v) => v,
+            _ => unreachable!()
+        }
+    }
+
+    
+    /// Consumes the union value and returns the object index
+    /// This object index can be used to index into the objectmap
+    /// provided by the VM
+    ///
+    /// # Panics
+    /// - If the union type is not an object
+    #[inline(always)]
+    #[must_use]
+    pub fn object(self) -> u64 {
+        match self {
+            VMData::Object(v) => v,
+            _ => unreachable!()
+        }
+    }
+}
+
+
+
+fn run(bytecode: &[u8], constants: Vec<u8>) {
     let mut vm = VM {
         constants: Vec::new(),
         stack: Stack::new(),
-        objects: ObjectMap::new(),
+        objects: ObjectMap::new(128),
     };
 
-    bytes_to_constants(constants.0, &mut vm);
+    bytes_to_constants(&mut vm, constants);
     
     let start = Instant::now();
 
-    vm.run(Code::new(&bytecode.0, 0, 0));
+    vm.run(Code::new(bytecode, 0, 0));
     
     let end = start.elapsed();
     println!("it took {}ms {}ns, result {:?}", end.as_millis(), end.as_nanos(), vm.stack.reg(0));
 
 }
 
-pub fn bytes_to_constants(data: Vec<u8>, vm: &mut VM) {
+fn bytes_to_constants(vm: &mut VM, data: Vec<u8>) {
     let mut constants_iter = data.into_iter();
 
     while let Some(datatype) = constants_iter.next() {
@@ -69,50 +155,8 @@ pub fn bytes_to_constants(data: Vec<u8>, vm: &mut VM) {
 }
 
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum VMData {
-    Integer(i64),
-    Float(f64),
-    Bool(bool),
-    Object(u64),
-    Empty,
-}
 
-impl VMData {
-    pub fn integer(self) -> i64 {
-        match self {
-            VMData::Integer(v) => v,
-            _ => unreachable!()
-        }
-    }
-
-    
-    pub fn float(self) -> f64 {
-        match self {
-            VMData::Float(v) => v,
-            _ => unreachable!()
-        }
-    }
-    
-    
-    pub fn bool(self) -> bool {
-        match self {
-            VMData::Bool(v) => v,
-            _ => unreachable!()
-        }
-    }
-
-    
-    pub fn object(self) -> u64 {
-        match self {
-            VMData::Object(v) => v,
-            _ => unreachable!()
-        }
-    }
-}
-
-
+/// The main VM object
 #[derive(Debug)]
 pub struct VM {
     pub(crate) constants: Vec<VMData>,
@@ -131,10 +175,12 @@ pub(crate) struct Code<'a> {
 }
 
 
+#[allow(clippy::inline_always)]
 impl<'a> Code<'a> {
-    pub fn new(code: &[u8], offset: usize, return_to: u8) -> Code { Code { pointer: 0, code, offset, return_to } }
+    fn new(code: &[u8], offset: usize, return_to: u8) -> Code { Code { pointer: 0, code, offset, return_to } }
 
     #[inline(always)]
+    #[must_use]
     fn next(&mut self) -> u8 {
         let result = self.code[self.pointer];
         self.pointer += 1;
@@ -152,7 +198,7 @@ impl<'a> Code<'a> {
                 break
             }
 
-            bytes.push(val)
+            bytes.push(val);
         }
 
         String::from_utf8(bytes).unwrap()
@@ -160,6 +206,7 @@ impl<'a> Code<'a> {
     
 
     #[inline(always)]
+    #[must_use]
     fn u32(&mut self) -> u32 {
         let slice = &self.code[self.pointer..][..4];
         let arr : &[u8; 4] = slice.try_into().expect("invalid length");
@@ -180,30 +227,47 @@ impl<'a> Code<'a> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct Stack {
-    values: [VMData; 512],
+    values: [VMData; 1024],
     stack_offset: usize,
     top: usize,
 }
 
+
+#[allow(clippy::inline_always)]
 impl Stack {
     fn new() -> Self {
         Self {
-            values: [VMData::Empty; 512],
+            values: [VMData::Empty; 1024],
             stack_offset: 0,
             top: 1,
         }
     }
 
+    /// Returns the value at `stack_offset + reg`
+    ///
+    /// This method panics in debug mode if the resulting value is
+    /// beyond the "top" of the stack. 
+    ///
+    /// In release mode accessing a register above the "top" of the
+    /// stack is unspecified behaviour and could lead to crashes
     #[inline(always)]
+    #[must_use]
     pub fn reg(&self, reg: u8) -> VMData {
         debug_assert!((reg as usize + self.stack_offset) < self.top, "{reg} {} {}", self.stack_offset, self.top);
         self.values[reg as usize + self.stack_offset]
     }
 
+    /// Sets the value at `stack_offset + reg` to the given data
+    ///
+    /// This method panics in debug mode if the resulting value is
+    /// beyond the "top" of the stack. 
+    ///
+    /// In release mode accessing a register above the "top" of the
+    /// stack is unspecified behaviour and could lead to crashes
     #[inline(always)]
     pub fn set_reg(&mut self, reg: u8, data: VMData) {
         debug_assert!((reg as usize + self.stack_offset) < self.top, "reg: {reg} offset: {} top: {} {data:?}", self.stack_offset, self.top);
-        self.values[reg as usize + self.stack_offset] = data
+        self.values[reg as usize + self.stack_offset] = data;
     }
 
     #[inline(always)]
@@ -220,11 +284,5 @@ impl Stack {
     #[inline(always)]
     fn pop(&mut self, amount: usize) {
         self.top -= amount;
-    }
-}
-
-impl Default for Stack {
-    fn default() -> Self {
-        Self::new()
     }
 }

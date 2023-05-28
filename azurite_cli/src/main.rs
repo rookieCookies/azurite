@@ -1,4 +1,5 @@
-#![recursion_limit = "1000000000000000000" ]
+// #![recursion_limit = "1000000000000000000"]
+#![deny(clippy::pedantic)]
 use std::env::Args;
 use std::fs;
 use std::io::Write;
@@ -14,109 +15,24 @@ use colored::Colorize;
 fn main() -> Result<(), ExitCode> {
     let mut args = env::args();
     args.next();
-    let argument = match args.next() {
-        Some(v) => v,
-        None => invalid_usage(),
-    };
+    let Some(argument) = args.next() else { invalid_usage() };
 
     env::set_var("RUST_BACKTRACE", "1");
     prepare();
 
     match argument.as_str() {
-        "repl" => {
-            // let mut input = String::new();
-
-            // let mut symbol_table = SymbolTable::new();
-            // let mut conversion_state = ConversionState::new(&mut symbol_table);
-            // let mut analysis_state = AnalysisState::new();
-            // let mut vm = VM {
-            //     constants: vec![],
-            //     stack: Stack::new(),
-            // };
-
-            // if let Some(v) = args.next() {
-            //     input = fs::read_to_string(v).unwrap()
-            // }
-            
-            // loop {
-            //     let tokens = match azurite_compiler::lex(&input) {
-            //         Ok(tokens) => tokens,
-            //         Err(errs) => {
-            //             println!("{}", errs.build(("repl", &input)));
-            //             input.clear();
-            //             continue
-            //         }
-            //     };
-
-            //     let mut instructions = match azurite_compiler::parse(tokens.into_iter()) {
-            //         Ok(instructions) => instructions,
-            //         Err(errs) => {
-            //             println!("{}", errs.build(("repl", &input)));
-            //             input.clear();
-            //             continue
-            //         },
-            //     };
-                
-            //     if let Err(e) = analysis_state.start_analysis(&mut instructions) {
-            //         println!("{}", e.build(("repl", &input)));
-            //         input.clear();
-            //         continue
-            //     }
-
-            //     let return_reg = conversion_state.generate(instructions);
-
-            //     let mut codegen = CodeGen::new();
-            //     codegen.codegen(std::mem::take(&mut conversion_state.blocks));
-
-            //     vm.constants = conversion_state.constants
-            //         .iter()
-            //         .map(|x| match x {
-            //             Data::Int(v) => VMData::Integer(*v),
-            //             Data::Float(v) => VMData::Float(*v),
-            //             Data::String(_) => todo!(),
-            //             Data::Bool(b) => VMData::Bool(*b),
-            //             Data::Empty => todo!(),
-            //         })
-            //         .collect();
-
-                
-            //     vm.run(Code::new(&codegen.bytecode));
-
-            //     println!("{:?}", vm.stack.reg(return_reg.0 as u8));
-                
-
-            //     input.clear();
-                
-            //     print!(" > ");
-                
-            //     if std::io::Write::flush(&mut std::io::stdout()).is_err() {
-            //         println!("failed to flush stdout");
-            //         continue;
-            //     }
-
-            //     if std::io::stdin().read_line(&mut input).is_err() {
-            //         println!("failed to read stdin");
-            //         continue;
-            //     }
-
-            // }
-        }
         "build" => {
-            let file = match args.next() {
-                Some(v) => v,
-                None => invalid_usage(),
-            };
+            let Some(file) = args.next() else { invalid_usage() };
             parse_environments(args);
 
             let data = compile(&file)?;
 
             fs::write(format!("{file}urite"), data.as_bytes()).unwrap();
         }
+
+        
         "run" => {
-            let file = match args.next() {
-                Some(v) => v,
-                None => invalid_usage(),
-            };
+            let Some(file) = args.next() else { invalid_usage() };
             parse_environments(args);
 
             let compiled = if file.ends_with(".azurite") {
@@ -125,14 +41,12 @@ fn main() -> Result<(), ExitCode> {
             } else { compile(&file)? };
 
             println!("{} {file}", "Running..".bright_green().bold());
-            azurite_runtime::run_file(compiled);
+            azurite_runtime::run_packed(compiled);
         }
-        "run-dir" => {
-            let file = match args.next() {
-                Some(v) => v,
-                None => invalid_usage(),
-            };
 
+        
+        "run-dir" => {
+            let Some(file) = args.next() else { invalid_usage() };
             parse_environments(args);
 
             let file_path = Path::new(&file);
@@ -149,16 +63,13 @@ fn main() -> Result<(), ExitCode> {
                     let file = format!("{file}urite");
 
                     println!("{} {file}", "Running..".bright_green().bold());
-                    // let _ = azurite_runtime::run_file(&file);
                 }
             }
         }
-        "disassemble" => {
-            let file = match args.next() {
-                Some(v) => v,
-                None => invalid_usage(),
-            };
 
+        
+        "disassemble" => {
+            let Some(file) = args.next() else { invalid_usage() };
             parse_environments(args);
 
             let packed = compile(&file)?;
@@ -167,13 +78,12 @@ fn main() -> Result<(), ExitCode> {
 
             let mut data: Vec<_> = packed.into();
 
-            disassemble(std::mem::take(&mut data[0].0))
+            disassemble(std::mem::take(&mut data[0].0));
         }
         _ => invalid_usage(),
     }
-    Ok(())
 
-    // Some(())
+    Ok(())
 }
 
 fn parse_environments(mut arguments: Args) {
@@ -232,7 +142,7 @@ fn compile(file: &str) -> Result<Packed, ExitCode> {
             
             Data::Bool(v) => {
                 constants_bytes.push(2);
-                constants_bytes.push(v as u8);
+                constants_bytes.push(v.try_into().unwrap());
             },
             
             Data::String(v) => {
@@ -278,14 +188,21 @@ fn disassemble(v: Vec<u8>) {
             Bytecode::Call => {
                 let _ = write!(lock, "call {} {} ", d.u32(), d.next());
                 let arg_count = d.next();
-                let _ = write!(lock, "{} (", arg_count);
+                let _ = write!(lock, "{arg_count} (");
                 (0..arg_count).for_each(|_| { let _ = write!(lock, " {}", d.next()); });
                 writeln!(lock, " )")
             },
             Bytecode::ExtCall => {
                 let _ = write!(lock, "ecall {} {} ", d.u32(), d.next());
                 let arg_count = d.next();
-                let _ = write!(lock, "{} (", arg_count);
+                let _ = write!(lock, "{arg_count} (");
+                (0..arg_count).for_each(|_| { let _ = write!(lock, " {}", d.next()); });
+                writeln!(lock, " )")
+            },
+            Bytecode::Struct => {
+                let _ = write!(lock, "struct {}", d.next());
+                let arg_count = d.next();
+                let _ = write!(lock, "{arg_count} (");
                 (0..arg_count).for_each(|_| { let _ = write!(lock, " {}", d.next()); });
                 writeln!(lock, " )")
             },
@@ -300,11 +217,10 @@ fn disassemble(v: Vec<u8>) {
             Bytecode::GreaterThan => writeln!(lock, "gt {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::LesserThan => writeln!(lock, "lt {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::GreaterEquals => writeln!(lock, "ge {} {} {}", d.next(), d.next(), d.next()),
-            Bytecode::LesserEquals => writeln!(lock, "lt {} {} {}", d.next(), d.next(), d.next()),
+            Bytecode::LesserEquals => writeln!(lock, "le {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::LoadConst => writeln!(lock, "load {} {}", d.next(), d.next()),
             Bytecode::Jump => writeln!(lock, "jmp {}", d.u32()),
             Bytecode::JumpCond => writeln!(lock, "cond-jump {} {} {}", d.next(), d.u32(), d.u32()),
-            Bytecode::Struct => writeln!(lock, "struct {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::Unit => writeln!(lock, "unit {}", d.next()),
             Bytecode::AccStruct => writeln!(lock, "accstruct {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::SetField => writeln!(lock, "setfield {} {} {}", d.next(), d.next(), d.next()),
@@ -357,7 +273,7 @@ impl Disassembler {
                 break
             }
 
-            bytes.push(val)
+            bytes.push(val);
         }
 
         String::from_utf8(bytes).unwrap()
