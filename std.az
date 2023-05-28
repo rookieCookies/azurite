@@ -1,0 +1,10 @@
+extern "target/release/standard_library.dll" {
+	fn exit(int)
+	
+	fn println(str)
+	fn print(str)
+
+	fn to_string_int(int): str
+	fn to_string_float(float): str
+	fn to_string_bool(bool): str
+}

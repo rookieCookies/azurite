@@ -1,24 +1,28 @@
 #![feature(iter_intersperse)]
 pub mod variable_stack;
 
-use hashbrown::HashMap;
+use std::{collections::HashMap, fs};
 
 use azurite_errors::{SourceRange, Error, CompilerError, ErrorBuilder, CombineIntoError};
 use azurite_parser::ast::{Instruction, InstructionKind, Statement, Expression, BinaryOperator, Declaration};
 use common::{DataType, SymbolTable, SymbolIndex, SourcedDataType};
 use variable_stack::VariableStack;
 
+#[derive(Debug, PartialEq)]
 pub struct GlobalState<'a> {
-    symbol_table: &'a SymbolTable,
+    symbol_table: &'a mut SymbolTable,
+    pub files: HashMap<SymbolIndex, (AnalysisState, Vec<Instruction>)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct AnalysisState {
     pub variable_stack: VariableStack,
     loop_depth: usize,
 
     functions: HashMap<SymbolIndex, (Function, usize)>,
     structures: HashMap<SymbolIndex, (Structure, usize)>,
+
+    available_files: Vec<SymbolIndex>,
     
     explicit_return: Option<SourcedDataType>,
 
@@ -26,21 +30,21 @@ pub struct AnalysisState {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct Function {
     return_type: SourcedDataType,
     arguments: Vec<SourcedDataType>,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct Structure {
     fields: Vec<(SymbolIndex, SourcedDataType)>,
 }
 
 
 impl<'a> GlobalState<'a> {
-    pub fn new(symbol_table: &'a SymbolTable) -> Self { Self { symbol_table } }
+    pub fn new(symbol_table: &'a mut SymbolTable) -> Self { Self { symbol_table, files: HashMap::new() } }
 }
 
 
@@ -53,12 +57,13 @@ impl AnalysisState {
             explicit_return: None,
             functions: HashMap::new(),
             structures: HashMap::new(),
+            available_files: vec![],
 
         }
     }
 
     pub fn start_analysis(&mut self, global: &mut GlobalState, instructions: &mut [Instruction]) -> Result<(), Error> {
-        self.analyze_block(global, instructions, true)?;
+        self.analyze_block(global, instructions, false)?;
 
         Ok(())
     }
@@ -94,15 +99,13 @@ impl AnalysisState {
         }
         // Declarations
         {
-            instructions.iter().for_each(|x| {
+            for x in instructions.iter() {
                 if let InstructionKind::Declaration(d) = &x.instruction_kind {
-                    self.declaration_early_process(d)
+                    self.declaration_early_process(global, &x.source_range, d)?
                 }
-            })
+            }
         }
         
-        // dbg!(&self, &global.symbol_table);
-
         
         let mut errors = vec![];
         let return_val = instructions.iter_mut().map(|x| match self.analyze(global, x) {
@@ -130,7 +133,7 @@ impl AnalysisState {
     }
 
 
-    fn declaration_early_process(&mut self, declaration: &Declaration) {
+    fn declaration_early_process(&mut self, global: &mut GlobalState, source_range: &SourceRange, declaration: &Declaration) -> Result<(), Error> {
         match declaration {
             Declaration::FunctionDeclaration { name, arguments, return_type, .. } => {
                 self.declare_function(*name, Function {
@@ -150,7 +153,7 @@ impl AnalysisState {
             Declaration::Namespace { body, .. } => {
                 for i in body.iter() {
                     if let InstructionKind::Declaration(d) = &i.instruction_kind {
-                        self.declaration_early_process(d)
+                        self.declaration_early_process(global, &i.source_range, d)?
                     }
                 }
 
@@ -159,21 +162,44 @@ impl AnalysisState {
             
             Declaration::Extern { functions, .. } => {
                 for f in functions {
-                    self.declare_function(f.0, Function {
-                        return_type: f.1,
-                        arguments: f.2.clone(),
+                    self.declare_function(f.identifier, Function {
+                        return_type: f.return_type,
+                        arguments: f.arguments.clone(),
                     })
                 }
             },
-        }
+
+            
+            Declaration::UseFile { file_name } => {
+                self.available_files.push(*file_name);
+                if global.files.contains_key(file_name) {
+                    return Ok(())
+                }
+                
+                let path = global.symbol_table.get(*file_name);
+                let file = match fs::read_to_string(format!("{path}.az")) {
+                    Ok(v) => v,
+                    Err(_) => return Err(CompilerError::new(223, "file doesn't exist")
+                        .highlight(*source_range)
+                            .note(format!("can't find a file named {}.az", path))
+                        .build()),
+                }.replace('\t', "    ");
+
+                let tokens = azurite_lexer::lex(&file, global.symbol_table)?;
+                let mut instructions = azurite_parser::parse(tokens.into_iter(), global.symbol_table)?;
+                let mut analysis = AnalysisState::new();
+                analysis.start_analysis(global, &mut instructions)?;
+
+                global.files.insert(*file_name, (analysis, instructions));
+            },
+        };
+        Ok(())
     }
     
 
     fn analyze_declaration(&mut self, global: &mut GlobalState, declaration: &mut Declaration, source_range: &SourceRange) -> Result<(), Error> {
         match declaration {
             Declaration::FunctionDeclaration { arguments, return_type, body, source_range_declaration, name } => {
-                // println!("MHM {}", global.symbol_table.get(*name));
-                
                 let mut analysis_state = AnalysisState::new();
 
                 analysis_state.functions = std::mem::take(&mut self.functions);
@@ -235,7 +261,7 @@ impl AnalysisState {
             },
 
 
-            Declaration::StructDeclaration { fields, name } => {
+            Declaration::StructDeclaration { fields, .. } => {
                 let errs = fields
                     .iter()
                     .map(|x| self.is_valid_type(global, x.1))
@@ -259,15 +285,18 @@ impl AnalysisState {
             
             Declaration::Extern { functions, .. } => {
                 for f in functions {
-                    self.is_valid_type(global, f.1)?;
+                    self.is_valid_type(global, f.return_type)?;
 
-                    for argument in &f.2 {
+                    for argument in &f.arguments {
                         self.is_valid_type(global, *argument)?;
                     }
                 }
 
                 Ok(())
             },
+
+            
+            Declaration::UseFile { .. } => Ok(()),
         }
     }
     
@@ -381,10 +410,22 @@ impl AnalysisState {
 
 
             Expression::FunctionCall { identifier, arguments } => {
-                let function = match self.get_function(identifier) {
+                let (function, new_identifier) = match self.get_function(global, identifier) {
                     Some(v) => v,
                     None => {
-                        // dbg!(&identifier, &global.symbol_table, &self);
+                        return Err(CompilerError::new(212, "function isn't declared")
+                            .highlight(*source_range)
+                                .note(format!("there's no function named {}", global.symbol_table.get(*identifier)))
+                            .build())
+                    },
+                };
+
+                println!("{} -> {}", global.symbol_table.get(*identifier), global.symbol_table.get(new_identifier));
+                *identifier = new_identifier;
+
+                let (function, new_identifier) = match self.get_function(global, identifier) {
+                    Some(v) => v,
+                    None => {
                         return Err(CompilerError::new(212, "function isn't declared")
                             .highlight(*source_range)
                                 .note(format!("there's no function named {}", global.symbol_table.get(*identifier)))
@@ -639,11 +680,9 @@ impl AnalysisState {
                 let expected_type = match self.explicit_return {
                     Some(v) => v,
                     None =>
-                    // TODO: Change when native functions are ready :3
-                    
                     return Err(CompilerError::new(221, "return in main scope")
                         .highlight(*source_range)
-                            .note("consider using [todo system exit function]".to_string())
+                            .note("consider using exit([exit code])".to_string())
                         .build())
                 };
 
@@ -734,8 +773,42 @@ impl AnalysisState {
     }
 
 
-    fn get_function(&self, symbol: &SymbolIndex) -> Option<&Function> {
-        self.functions.get(symbol).map(|x| &x.0)
+    fn get_function_detailed<'a>(&'a self, symbol_table: &mut SymbolTable, files: &'a HashMap<SymbolIndex, (AnalysisState, Vec<Instruction>)>, symbol: &SymbolIndex, implicit_complete: bool) -> Option<(&'a Function, SymbolIndex)> {
+        let temp = self.functions.get(symbol);
+        match temp.map(|x| &x.0) {
+            Some(v) => Some((v, *symbol)),
+            None => {
+                let (root, root_excluded) = symbol_table.find_root(*symbol);
+
+                if let Some(root_excluded) = root_excluded {
+                    if self.available_files.contains(&root) {
+                        if let Some(v) = files.get(&root)?.0.get_function_detailed(symbol_table, files, &root_excluded, false) {
+                            return Some((v.0, symbol_table.add_combo(root, v.1)))
+                        }
+                    }
+                }
+
+
+                if !implicit_complete {
+                    return None
+                }
+                
+                for namespace in self.available_files.iter() {
+                    if let Some(v) = files.get(namespace)?.0.get_function_detailed(symbol_table, files, symbol, false) {
+                        return Some((v.0, symbol_table.add_combo(*namespace, v.1)))
+                    }
+
+                }
+                
+                None 
+            },
+        }
+        
+    }
+
+    
+    fn get_function<'a>(&'a self, global: &'a mut GlobalState, symbol: &SymbolIndex) -> Option<(&'a Function, SymbolIndex)> {
+        self.get_function_detailed(global.symbol_table, &global.files, symbol, true)
     }
 
     
@@ -745,8 +818,8 @@ impl AnalysisState {
     }
 
     
-    fn get_struct(&self, global: &GlobalState, range: &SourceRange, symbol: &SymbolIndex) -> Result<&Structure, Error> {
-        match self.structures.get(symbol).map(|x| &x.0) {
+    fn get_struct<'a>(&'a self, global: &'a GlobalState, range: &SourceRange, symbol: &SymbolIndex) -> Result<&'a Structure, Error> {
+        match self.get_struct_option(global, symbol) {
             Some(v) => Ok(v),
             None => Err(CompilerError::new(215, "structure isn't declared")
             .highlight(*range)
@@ -754,6 +827,23 @@ impl AnalysisState {
             .build()),
         }
         
+    }
+
+
+    fn get_struct_option<'a>(&'a self, global: &'a GlobalState, symbol: &SymbolIndex) -> Option<&'a Structure> {
+        match self.structures.get(symbol).map(|x| &x.0) {
+            Some(v) => Some(v),
+            None => {
+                let (root, root_excluded) = global.symbol_table.find_root(*symbol);
+                let root_excluded = root_excluded?;
+
+                if !self.available_files.contains(&root_excluded) {
+                    return None
+                }
+                
+                global.files.get(&root)?.0.get_struct_option(global, &root_excluded)
+            },
+        }
     }
 }
 

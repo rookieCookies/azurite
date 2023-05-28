@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 azurite_parser = { path = "../azurite_parser" }
+azurite_lexer = { path = "../azurite_lexer" }
 azurite_errors = { path = "../azurite_errors" }
 common = { path = "../common" }
 

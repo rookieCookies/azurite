@@ -120,7 +120,7 @@ pub fn lex(data: &str, symbol_table: &mut SymbolTable) -> Result<Vec<Token>, Err
                 }
             }
 
-            '\n' | '\t' | '\r' | ' ' => continue,
+            '\n' | '\r' | ' ' => continue,
 
             '"' => match lexer.string() {
                 Ok(value) => TokenKind::Literal(value),
@@ -171,6 +171,9 @@ pub fn lex(data: &str, symbol_table: &mut SymbolTable) -> Result<Vec<Token>, Err
                     TokenKind::Underscore
                 }
             },
+
+
+            '\t' => panic!("compiler error! tab character wasn't converted"),
             
             
             _ => {

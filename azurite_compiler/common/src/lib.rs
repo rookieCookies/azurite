@@ -1,6 +1,6 @@
 use azurite_errors::SourceRange;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SourcedDataType {
     pub source_range: SourceRange,
     pub data_type: DataType,
@@ -59,7 +59,7 @@ impl DataType {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SourcedData {
     pub source_range: SourceRange,
     pub data: Data,
@@ -93,7 +93,7 @@ impl Data {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SymbolTable {
     vec: Vec<SymbolTableValue>,
 }
@@ -134,8 +134,27 @@ impl SymbolTable {
     pub fn get(&self, index: SymbolIndex) -> String {
         match &self.vec[index.0] {
             SymbolTableValue::String(v) => v.to_owned(),
-            SymbolTableValue::Combo(v1, v2) => format!("[{}<|::({}, {v2:?})]", self.get(*v1), self.get(*v2)),
+            SymbolTableValue::Combo(v1, v2) => format!("{}::{}", self.get(*v1), self.get(*v2)),
         }
+    }
+
+
+    pub fn find_root(&self, index: SymbolIndex) -> (SymbolIndex, Option<SymbolIndex>) {
+        match &self.vec[index.0] {
+            SymbolTableValue::String(_) => (index, None),
+            SymbolTableValue::Combo(v1, v2) => {
+                match &self.vec[v1.0] {
+                    SymbolTableValue::String(_) => (*v1, Some(*v2)),
+                    SymbolTableValue::Combo(_, _) => self.find_root(*v1),
+                }
+            },
+        }
+    }
+
+
+    pub fn find_combo(&self, v1: SymbolIndex, v2: SymbolIndex) -> SymbolIndex {
+        let mock = SymbolTableValue::Combo(v1, v2);
+        SymbolIndex(self.vec.iter().enumerate().find(|x| *x.1 == mock).unwrap().0)
     }
 }
 
@@ -154,7 +173,7 @@ impl SymbolIndex {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum SymbolTableValue {
     String(String),
     Combo(SymbolIndex, SymbolIndex)

@@ -22,6 +22,7 @@ impl VM {
         let result = 'global: loop {
             let value = current.next();
 
+            // println!("{} {:?}\n\t{:?}", current.pointer, azurite_common::Bytecode::from_u8(value).unwrap(), self.stack.values.iter().take(self.stack.top).collect::<Vec<_>>());
             match value {
                 consts::ExternFile => {
                     let path = current.string();
@@ -270,11 +271,15 @@ impl VM {
             };
 
 
-            // println!("{} {:?}\n\t{:?}", current.pointer, Bytecode::from_u8(value).unwrap(), self.stack.values.iter().take(self.stack.top).collect::<Vec<_>>())
+
 
         };
 
 
+        if let Err(e) = result {
+            println!("ERROR: {e}");
+        }
+        
         for library in libraries {
             unsafe {
                 let shutdown : ExternFunction = match library.get(b"_shutdown") {

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{ConversionState, Function, Block, BlockIndex, BlockTerminator, Variable, IR};
 
-impl ConversionState<'_> {
+impl ConversionState {
     pub fn optimize(&mut self) {
          loop {
             let has_changed = self.functions.iter_mut().map(|x| x.optimize(true)).any(|x| x);

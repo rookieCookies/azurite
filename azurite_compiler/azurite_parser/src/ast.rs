@@ -4,20 +4,20 @@ use azurite_errors::SourceRange;
 use azurite_lexer::TokenKind;
 use common::{SymbolIndex, SourcedDataType, SourcedData};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Instruction {
     pub instruction_kind: InstructionKind,
     pub source_range: SourceRange,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum InstructionKind {
     Statement   (Statement),
     Expression  (Expression),
     Declaration (Declaration),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Statement {
     DeclareVar {
         identifier: SymbolIndex,
@@ -47,7 +47,7 @@ pub enum Statement {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Expression {
     Data(SourcedData),
     
@@ -94,7 +94,7 @@ pub enum Expression {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Declaration {
     FunctionDeclaration {
         name: SymbolIndex,
@@ -117,12 +117,25 @@ pub enum Declaration {
 
     Extern {
         file: SymbolIndex,
-        functions: Vec<(SymbolIndex, SourcedDataType, Vec<SourcedDataType>)>,
+        functions: Vec<ExternFunctionAST>,
+    },
+
+    UseFile {
+        file_name: SymbolIndex,
     }
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
+pub struct ExternFunctionAST {
+    pub raw_name: SymbolIndex,
+    pub identifier: SymbolIndex,
+    pub return_type: SourcedDataType,
+    pub arguments: Vec<SourcedDataType>,
+}
+
+
+#[derive(Debug, PartialEq)]
 pub enum BinaryOperator {
     Add,
     Subtract,

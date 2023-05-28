@@ -2,7 +2,7 @@ pub mod ast;
 
 use std::{iter::Peekable, vec::IntoIter};
 
-use ast::{Instruction, BinaryOperator, InstructionKind, Expression, Statement, Declaration};
+use ast::{Instruction, BinaryOperator, InstructionKind, Expression, Statement, Declaration, ExternFunctionAST};
 use azurite_lexer::{Token, TokenKind, Keyword, Literal};
 use azurite_errors::{Error, SourceRange, CompilerError, ErrorBuilder, CombineIntoError};
 use common::{DataType, Data, SymbolTable, SourcedDataType, SourcedData, SymbolIndex};
@@ -123,33 +123,58 @@ impl Parser<'_> {
         let current_token = self.current_token().unwrap();
         let source = current_token.source_range;
         
-        let string = match current_token.token_kind {
-            TokenKind::Identifier(v) => v,
+        // let mut string = match current_token.token_kind {
+        //     TokenKind::Identifier(v) => v,
 
-            _ => return {
-                let source_range = current_token.source_range;
-                self.advance();
-                Err(CompilerError::new(104, "expected data type")
-                    .highlight(source_range)
-                    .build())
-            }
-        };
+        //     _ => return {
+        //         let source_range = current_token.source_range;
+        //         self.advance();
+        //         Err(CompilerError::new(104, "expected data type")
+        //             .highlight(source_range)
+        //             .build())
+        //     }
+        // };
 
         // while let Some(TokenKind::DoubleColon) = self.peek().map(|x| x.token_kind) {
         //     self.advance();
         //     self.advance();
 
         //     let identifier = self.expect_identifier()?;
-        //     string = self.symbol_table.add_combo(identifier, string);
+        //     string = self.symbol_table.add_combo(string, identifier);
         // }
-        
-        let data_type = match self.symbol_table.get(string).as_str() {
+
+
+        // PERF: Obviously, cache this vec somewhere so it doesn't constantly realloc
+        let mut string = vec![];
+        loop {
+            string.push(self.expect_identifier()?);
+
+            if let Some(TokenKind::DoubleColon) = self.peek().map(|x| x.token_kind) {
+                self.advance(); // identifier
+                self.advance(); // double colon
+                // self.advance(); // next identifier
+                // loop
+            } else { break }
+        }
+
+        let mut built_string = None;
+
+        for i in string.into_iter().rev() {
+            match built_string {
+                Some(v) => built_string = Some(self.symbol_table.add_combo(i, v)),
+                None => built_string = Some(i),
+            }
+        }
+
+        let built_string = built_string.unwrap();        
+
+        let data_type = match self.symbol_table.get(built_string).as_str() {
             "int" => DataType::Integer,
             "float" => DataType::Float,
             "bool" => DataType::Bool,
             "str" => DataType::String,
             
-            _ => DataType::Struct(string)
+            _ => DataType::Struct(built_string)
         };
 
         Ok(SourcedDataType::new(SourceRange::new(source.start, self.current_token().unwrap().source_range.end), data_type))
@@ -173,6 +198,7 @@ impl Parser<'_> {
                 Keyword::Fn => self.function_declaration(),
                 Keyword::Struct => self.struct_declaration(),
 
+                Keyword::Using => self.using_declaration(),
                 Keyword::Extern => self.extern_block(),
 
                 Keyword::Return => {
@@ -196,6 +222,7 @@ impl Parser<'_> {
                     instruction_kind: InstructionKind::Statement(Statement::Continue),
                     source_range: self.current_token().unwrap().source_range
                 }),
+
 
                 
                 _ => self.expression(),
@@ -495,15 +522,27 @@ impl Parser<'_> {
     fn namespace_declaration(&mut self) -> ParseResult {
         fn namespace_rename(symbol_table: &mut SymbolTable, namespace: SymbolIndex, i: &mut Instruction) {
             match &mut i.instruction_kind {
-                InstructionKind::Declaration(Declaration::FunctionDeclaration { name, .. } | Declaration::StructDeclaration { name, .. }) => *name = symbol_table.add_combo(namespace, *name),
+                InstructionKind::Declaration(Declaration::FunctionDeclaration { name, .. } | Declaration::StructDeclaration { name, .. }) => {
+                    print!("{:?} -> ", name);
+                    *name = symbol_table.add_combo(namespace, *name);
+                    println!("{name:?}");
+                    // *name = symbol_table.add_combo(namespace, *name)
+                }
                 
                 InstructionKind::Declaration(Declaration::Namespace { body, identifier }) => {
+                    print!("{:?} -> ", identifier);
                     *identifier = symbol_table.add_combo(namespace, *identifier);
+                    println!("{identifier:?}");
                     
-                    dbg!(symbol_table.get(*identifier));
                     body.iter_mut().for_each(|x| namespace_rename(symbol_table, namespace, x));
                     // body.iter_mut().for_each(|x| namespace_rename(symbol_table, *identifier, x));
                 },
+
+                InstructionKind::Declaration(Declaration::Extern { functions, .. }) => {
+                    for f in functions {
+                        f.identifier = symbol_table.add_combo(namespace, f.identifier);
+                    }
+                }
 
                 _ => todo!()
             }
@@ -537,6 +576,7 @@ impl Parser<'_> {
                 TokenKind::Keyword(Keyword::Namespace) => self.namespace_declaration(),
                 TokenKind::Keyword(Keyword::Fn) => self.function_declaration(),
                 TokenKind::Keyword(Keyword::Struct) => self.struct_declaration(),
+                TokenKind::Keyword(Keyword::Extern) => self.extern_block(),
 
                 
                 _ => Err(CompilerError::new(105, "invalid statement in namespace")
@@ -561,6 +601,9 @@ impl Parser<'_> {
         for i in body.iter_mut() {
             namespace_rename(self.symbol_table, identifier, i)
         }
+
+        dbg!(&self.symbol_table);
+        
 
         Ok(Instruction {
             instruction_kind: InstructionKind::Declaration(Declaration::Namespace { body, identifier }),
@@ -627,7 +670,7 @@ impl Parser<'_> {
             self.expect(&TokenKind::RightParenthesis)?;
 
             
-            let ret_type = if let Some(TokenKind::Colon) = self.peek().map(|x| x.token_kind) {
+            let return_type = if let Some(TokenKind::Colon) = self.peek().map(|x| x.token_kind) {
                 self.advance();
                 self.advance();
                 self.parse_type()?
@@ -635,13 +678,32 @@ impl Parser<'_> {
 
             self.advance();
 
-            functions.push((name, ret_type, arguments));
+            functions.push(ExternFunctionAST {
+                raw_name: name,
+                identifier: name,
+                return_type,
+                arguments,
+            });
         }
 
         self.expect(&TokenKind::RightBracket)?;
 
         Ok(Instruction {
             instruction_kind: InstructionKind::Declaration(Declaration::Extern { file: path, functions }),
+            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end)
+        })
+    }
+
+
+    fn using_declaration(&mut self) -> ParseResult {
+        self.expect(&TokenKind::Keyword(Keyword::Using))?;
+        let start = self.current_token().unwrap().source_range.start;
+        self.advance();
+
+        let string = self.expect_identifier()?;
+
+        Ok(Instruction {
+            instruction_kind: InstructionKind::Declaration(Declaration::UseFile { file_name: string }),
             source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end)
         })
     }
@@ -1003,7 +1065,7 @@ impl Parser<'_> {
         expression.source_range.start = start;
         match &mut expression.instruction_kind {
             InstructionKind::Expression(v) => match v {
-                // | Expression::StructureCreation { identifier, .. }
+                | Expression::StructureCreation { identifier, .. }
                 | Expression::FunctionCall { identifier, .. } => {
                     *identifier = self.symbol_table.add_combo(namespace, *identifier)
                 },

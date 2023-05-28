@@ -15,20 +15,23 @@ pub use common::SymbolTable;
 
 pub fn compile(data: &str) -> Result<(Vec<u8>, Vec<Data>, SymbolTable), Error> {
     let mut symbol_table = SymbolTable::new();
+    let root = symbol_table.add(String::from(":root"));
     
     let tokens = lex(data, &mut symbol_table)?;
 
     let mut instructions = parse(tokens.into_iter(), &mut symbol_table)?;
-
-    let symbol_table = symbol_table;
     
-    let mut global_state = GlobalState::new(&symbol_table);
+    let mut global_state = GlobalState::new(&mut symbol_table);
     
-    AnalysisState::new().start_analysis(&mut global_state, &mut instructions)?;
+    let mut analysis = AnalysisState::new();
+    analysis.start_analysis(&mut global_state, &mut instructions)?;
+    global_state.files.insert(root, (analysis, instructions));
 
-    let mut ir = ConversionState::new(&symbol_table);
+    let files = global_state.files.into_iter().map(|x| (x.0, x.1.1)).collect();
 
-    ir.generate(instructions);
+    let mut ir = ConversionState::new(symbol_table);
+
+    ir.generate(files);
 
     ir.sort();
     if env::var(environment::RELEASE_MODE).unwrap_or("0".to_string()) == *"1" {
@@ -46,9 +49,11 @@ pub fn compile(data: &str) -> Result<(Vec<u8>, Vec<Data>, SymbolTable), Error> {
         }
     }
     
-
+    let externs = ir.externs;
+    let functions = ir.functions;
+    let constants = ir.constants;
     let mut codegen = CodeGen::new();
-    codegen.codegen(&symbol_table, ir.externs, ir.functions);
+    codegen.codegen(&ir.symbol_table, externs, functions);
 
-    Ok((codegen.bytecode, ir.constants, symbol_table))
+    Ok((codegen.bytecode, constants, ir.symbol_table))
 }

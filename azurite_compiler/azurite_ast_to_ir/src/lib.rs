@@ -6,22 +6,22 @@ use azurite_parser::ast::{Instruction, Expression, BinaryOperator, Statement, In
 use common::{Data, SymbolIndex, SymbolTable};
 use rayon::prelude::{ParallelIterator, IntoParallelRefMutIterator};
 
-#[derive(Debug)]
-pub struct ConversionState<'a> {
+#[derive(Debug, PartialEq)]
+pub struct ConversionState {
     pub constants: Vec<Data>,
     pub functions: Vec<Function>,
     pub externs: Vec<ExternFunction>,
 
-    function_lookup: HashMap<SymbolIndex, FunctionLookup>,
+    files: HashMap<SymbolIndex, HashMap<SymbolIndex, FunctionLookup>>,
     function_counter: u32,
     extern_counter: u32,
-
     
-    symbol_table: &'a SymbolTable,
+    pub symbol_table: SymbolTable,
+    current_file: SymbolIndex,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Function {
     pub function_index: FunctionIndex,
     variable_lookup: Vec<(SymbolIndex, Variable)>,
@@ -41,14 +41,14 @@ pub struct Function {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ExternFunction {
     pub path: SymbolIndex,
     pub functions: Vec<SymbolIndex>,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Block {
     pub block_index: BlockIndex,
     pub instructions: Vec<IR>,
@@ -56,7 +56,7 @@ pub struct Block {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum FunctionLookup {
     Normal(FunctionIndex),
     Extern(u32),
@@ -96,7 +96,7 @@ impl Display for Variable {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BlockTerminator {
     Goto(BlockIndex),
     SwitchBool { cond: Variable, op1: BlockIndex, op2: BlockIndex },
@@ -104,7 +104,7 @@ pub enum BlockTerminator {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum IR {
     Copy     { dst: Variable, src: Variable },
     Swap     { v1: Variable, v2: Variable },
@@ -139,23 +139,56 @@ pub enum Result {
 }
 
 
-impl<'a> ConversionState<'a> {
-    pub fn new(symbol_table: &'a SymbolTable) -> Self { 
+impl ConversionState {
+    pub fn new(mut symbol_table: SymbolTable) -> Self { 
         Self {
+            current_file: symbol_table.add(String::from(":root")),
             constants: vec![],
             functions: vec![],
             symbol_table,
             function_counter: 0,
-            function_lookup: HashMap::new(),
+            files: HashMap::new(),
             externs: vec![],
             extern_counter: 0,
+
         }
     }
 
-    pub fn generate(&mut self, instructions: Vec<Instruction>) {
+    pub fn generate(&mut self, mut files: Vec<(SymbolIndex, Vec<Instruction>)>) {
+        files.sort_by_key(|x| x.0);
+        
+        let root_index = self.symbol_table.add(String::from(":root"));
         let mut function = Function::new(self.function(), 0);
 
-        function.generate(self, instructions);
+        files.iter().for_each(|x| { self.files.insert(x.0, HashMap::new()); });
+        for file in files.iter() {
+            if file.0 == root_index {
+                continue
+            }
+            self.declaration_process(file.0, &file.1);
+        }
+        
+
+        let mut root = None;
+        let mut vec = vec![];
+        for file in files {
+            if file.0 == root_index {
+                root = Some(file.1);
+                continue;
+            }
+
+            self.current_file = file.0;
+
+            let mut function = Function::new(self.function(), 0);
+            function.generate(self, file.1);
+            vec.push(function.function_index);
+            self.functions.push(function);
+        }
+
+        let vec = vec.into_iter().map(|x| IR::Call { dst: Variable(0), id: x, args: vec![] }).collect();
+        let block = Block { block_index: function.block(), instructions: vec, ending: BlockTerminator::Goto(BlockIndex(1)) };
+        function.blocks.push(block);
+        function.generate(self, root.unwrap());
 
         self.functions.push(function);
     }
@@ -169,7 +202,7 @@ impl<'a> ConversionState<'a> {
                 for ir in &block.instructions {
                     let _ = write!(lock, "    ");
                     let _ = match ir {
-                        IR::Load { dst, data }                 => writeln!(lock, "load {dst} {}", self.constants[*data as usize].to_string(self.symbol_table)),
+                        IR::Load { dst, data }                 => writeln!(lock, "load {dst} {}", self.constants[*data as usize].to_string(&self.symbol_table)),
                         IR::Add { dst, left, right }           => writeln!(lock, "add {dst} {left} {right}"),
                         IR::Subtract { dst, left, right }      => writeln!(lock, "sub {dst} {left} {right}"),
                         IR::Multiply { dst, left, right }      => writeln!(lock, "mul {dst} {left} {right}"),
@@ -205,14 +238,40 @@ impl<'a> ConversionState<'a> {
         lock
     }
 
+
     pub fn sort(&mut self) {
         self.functions.par_iter_mut().for_each(|x| x.blocks.sort_by_key(|x| x.block_index.0));
         self.functions.sort_by_key(|x| x.function_index.0);
     }
+
+
+    pub fn find_function(&mut self, symbol: SymbolIndex) -> &FunctionLookup {
+        match self.files.get(&self.current_file).unwrap().get(&symbol) {
+            Some(v) => v,
+            None => {
+                let (mut root, root_excluded) = self.symbol_table.find_root(symbol);
+                let mut root_excluded = root_excluded.unwrap();
+
+                loop {
+                    match self.files.get(&root).unwrap().get(&root_excluded) {
+                        Some(v) => return v,
+                        None => {
+                            println!("{} {}", self.symbol_table.get(root), self.symbol_table.get(root_excluded));
+                            let (root_t, root_excluded_t) = self.symbol_table.find_root(root_excluded);
+                            root = root_t;
+                            root_excluded = root_excluded_t.unwrap();
+                        },
+                    }
+                    
+                }
+            },
+        }
+        
+    }
 }
 
 
-impl ConversionState<'_> {
+impl ConversionState {
     fn function(&mut self) -> FunctionIndex {
         self.function_counter += 1;
         FunctionIndex(self.function_counter - 1)
@@ -269,28 +328,8 @@ impl Function {
 
 
     fn evaluate(&mut self, state: &mut ConversionState, block: &mut Block, instructions: Vec<Instruction>, final_value: &mut Variable) -> bool {
-        for instruction in &instructions {
-            match &instruction.instruction_kind {
-                InstructionKind::Declaration(d) => match d {
-                    Declaration::FunctionDeclaration { name, arguments, .. } => {
-                        let function = Function::new(state.function(), arguments.len());
-                        state.function_lookup.insert(*name, FunctionLookup::Normal(function.function_index));
+        state.declaration_process(state.current_file, &instructions);
 
-                        state.functions.push(function);
-                    },
-                    Declaration::StructDeclaration { .. } => (),
-                    Declaration::Namespace { .. } => (),
-                    Declaration::Extern { functions, .. } => {
-                        for f in functions {
-                            let t = state.extern_function();
-                            state.function_lookup.insert(f.0, FunctionLookup::Extern(t));
-                        }
-                    },
-                },
-                _ => continue,
-            }
-        }
-        
         for instruction in instructions {
             let statement = matches!(instruction.instruction_kind, InstructionKind::Statement(_) | InstructionKind::Declaration(_));
 
@@ -308,6 +347,49 @@ impl Function {
         }
         false
     }
+
+}
+
+
+impl ConversionState {
+    fn declaration_process(&mut self, file: SymbolIndex, instructions: &Vec<Instruction>) {
+        let mut files = std::mem::take(&mut self.files);
+        let file = files.get_mut(&file).unwrap();
+        for instruction in instructions.iter() {
+            match &instruction.instruction_kind {
+                InstructionKind::Declaration(d) => {
+                    match d {
+                        Declaration::FunctionDeclaration { name, arguments, .. } => {
+                            if file.contains_key(name) {
+                                    continue
+                                }
+                            let function = Function::new(self.function(), arguments.len());
+                            file.insert(*name, FunctionLookup::Normal(function.function_index));
+
+                            self.functions.push(function);
+                        },
+                        Declaration::StructDeclaration { .. } => (),
+                        Declaration::Namespace { .. } => (),
+                        Declaration::Extern { functions, .. } => {
+                            for f in functions {
+                                if file.contains_key(&f.identifier) {
+                                    continue
+                                }
+
+                                let t = self.extern_function();
+                                file.insert(f.identifier, FunctionLookup::Extern(t));
+                            }
+                        },
+                        Declaration::UseFile { file_name } => (),
+                    }
+                },
+                _ => continue,
+            }
+        }
+
+        self.files = files;
+    }
+        
 }
 
 
@@ -357,7 +439,7 @@ impl Function {
     fn declaration(&mut self, state: &mut ConversionState, declaration: Declaration) {
         match declaration {
              Declaration::FunctionDeclaration { arguments, body, name, .. } => {
-                let function_index = *match state.function_lookup.get(&name).unwrap() {
+                let function_index = *match state.files.get(&state.current_file).unwrap().get(&name).unwrap() {
                     FunctionLookup::Normal(v) => v,
                     FunctionLookup::Extern(_) => unreachable!(),
                 };
@@ -392,8 +474,11 @@ impl Function {
             
             
             Declaration::Extern { file, functions } => {
-                state.externs.push(ExternFunction { path: file, functions: functions.into_iter().map(|x| x.0).collect() })
+                state.externs.push(ExternFunction { path: file, functions: functions.into_iter().map(|x| x.raw_name).collect() })
             },
+
+            
+            Declaration::UseFile { file_name } => (),
         }
     }
 
@@ -556,7 +641,6 @@ impl Function {
 
             
             Expression::FunctionCall { identifier, arguments } => {
-
                 let dst = self.variable();
                 let mut variables = Vec::with_capacity(arguments.len());
 
@@ -565,7 +649,7 @@ impl Function {
                     variables.push(argument_reg);
                 }
 
-                let function_lookup = state.function_lookup.get(&identifier).unwrap();
+                let function_lookup = state.find_function(identifier);
                 
                 match function_lookup {
                     FunctionLookup::Normal(v) => block.ir(IR::Call    { dst, id: *v, args: variables }),

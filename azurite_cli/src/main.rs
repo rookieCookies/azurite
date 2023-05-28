@@ -86,6 +86,7 @@ fn main() -> Result<(), ExitCode> {
     Ok(())
 }
 
+
 fn parse_environments(mut arguments: Args) {
     while let Some(i) = arguments.next() {
         match i.as_str() {
@@ -114,9 +115,12 @@ fn compile(file: &str) -> Result<Packed, ExitCode> {
     let instant = Instant::now();
 
     let raw_data = fs::read(file).expect("cant open fine");
-    let file_data = String::from_utf8_lossy(&raw_data);
+    let file_data = String::from_utf8_lossy(&raw_data).replace('\t', "    ");
 
-    
+
+    // azurite_compiler::compile_test(&file_data);
+
+    // std::process::exit(0);
     let (bytecode, constants, symbol_table) = match azurite_compiler::compile(&file_data) {
         Ok(v) => v,
         Err(e) => {

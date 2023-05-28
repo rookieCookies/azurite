@@ -1,6 +1,6 @@
 use common::{SymbolIndex, SourcedDataType};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct VariableStack {
     values: Vec<(SymbolIndex, SourcedDataType)>,
 }

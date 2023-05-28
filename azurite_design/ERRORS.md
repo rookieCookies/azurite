@@ -48,6 +48,7 @@
 107) Invalid extern block
 - This error occurs when the value after the `extern` keyword isn't a string
 
+
 # Analysis Errors
 201) Invalid Type Arithmetic Operation
 - This error occurs when you try to perform an arithmetic operation between invalid types
@@ -114,3 +115,6 @@
 
 222) Invalid return type
 - This error occurs when the return value is of a different type than the expected type
+
+223) File doesn't exist
+- This error occurs when using a file that doesn't exist
