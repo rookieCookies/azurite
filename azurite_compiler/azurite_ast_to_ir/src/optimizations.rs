@@ -11,20 +11,6 @@ impl ConversionState {
                 break
             }
         }
-
-        // self.functions.iter_mut().for_each(Function::reg_alloc);
-
-        // self.functions.iter_mut().for_each(|x| 
-        //     {
-        //         let mut already_done = HashSet::with_capacity(x.blocks.len());
-        //         let mut mapping = Map((0..x.stack_size).map(Variable).collect());
-        //         let mut already_done = HashSet::with_capacity(x.blocks.len());
-
-        //         x.copy_prop(x.entry, &mut already_done, &mut rem_buffer, &mut mapping)
-        //     }
-        // );
-
-        
     }
 }
 

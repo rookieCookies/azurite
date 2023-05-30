@@ -1,11 +1,12 @@
 pub mod ast;
 
+
 use std::{iter::Peekable, vec::IntoIter};
 
 use ast::{Instruction, BinaryOperator, InstructionKind, Expression, Statement, Declaration, ExternFunctionAST};
 use azurite_lexer::{Token, TokenKind, Keyword, Literal};
-use azurite_errors::{Error, SourceRange, CompilerError, ErrorBuilder, CombineIntoError};
-use common::{DataType, Data, SymbolTable, SourcedDataType, SourcedData, SymbolIndex};
+use azurite_errors::{Error, SourceRange, CompilerError, ErrorBuilder, CombineIntoError, SourcedDataType, SourcedData};
+use common::{DataType, Data, SymbolTable, SymbolIndex};
 
 type ParseResult = Result<Instruction, Error>;
 
@@ -15,13 +16,15 @@ struct Parser<'a> {
     current: Option<Token>,
 
     symbol_table: &'a mut SymbolTable,
+    file: SymbolIndex,
 }
 
-pub fn parse(tokens: IntoIter<Token>, symbol_table: &mut SymbolTable) -> Result<Vec<Instruction>, Error> {
+pub fn parse(tokens: IntoIter<Token>, file: SymbolIndex, symbol_table: &mut SymbolTable) -> Result<Vec<Instruction>, Error> {
     let mut parser = Parser {
         tokens: tokens.peekable(),
         current: None,
         symbol_table,
+        file,
     };
 
     parser.advance();
@@ -92,7 +95,7 @@ impl Parser<'_> {
         };
 
         if &token.token_kind != token_kind {
-            return Err(CompilerError::new(102, "unexpected token")
+            return Err(CompilerError::new(self.file, 102, "unexpected token")
                 .highlight(token.source_range)
                     .note(format!("expected {token_kind:?}"))
                 .build())
@@ -112,7 +115,7 @@ impl Parser<'_> {
             return Ok(v)
         }
 
-        return Err(CompilerError::new(102, "unexpected token")
+        return Err(CompilerError::new(self.file, 102, "unexpected token")
             .highlight(token.source_range)
                 .note("expected identifier".to_string())
             .build())
@@ -509,7 +512,7 @@ impl Parser<'_> {
             }
 
             
-            _ => Err(CompilerError::new(103, "invalid assignment value")
+            _ => Err(CompilerError::new(self.file, 103, "invalid assignment value")
                     .highlight(left.source_range)
                         .note("this is not one of the following: identifier, field access".to_string())
                     .build()
@@ -579,7 +582,7 @@ impl Parser<'_> {
                 TokenKind::Keyword(Keyword::Extern) => self.extern_block(),
 
                 
-                _ => Err(CompilerError::new(105, "invalid statement in namespace")
+                _ => Err(CompilerError::new(self.file, 105, "invalid statement in namespace")
                     .highlight(token.source_range)
                         .note("only the following are allowed: function declarations, namespaces, structure declarations".to_string())
                     .build())
@@ -619,7 +622,7 @@ impl Parser<'_> {
 
         let path = match self.current_token().map(|x| x.token_kind).unwrap() {
             TokenKind::Literal(Literal::String(v)) => v,
-            _ => return Err(CompilerError::new(107, "expected a constant string")
+            _ => return Err(CompilerError::new(self.file, 107, "expected a constant string")
                     .highlight(self.current_token().unwrap().source_range)
                         .note("..because of the `extern` keyword before".to_string())
                     .build())
@@ -862,7 +865,7 @@ impl Parser<'_> {
 
             _ => {
                 let return_val = Err(
-                    CompilerError::new(101, "expected an expression")
+                    CompilerError::new(self.file, 101, "expected an expression")
                         .highlight(token.source_range)
                         .build()
                 );
@@ -1083,7 +1086,7 @@ impl Parser<'_> {
                 // }
 
 
-                _ => return Err(CompilerError::new(105, "invalid expression in namespace")
+                _ => return Err(CompilerError::new(self.file, 105, "invalid expression in namespace")
                     .highlight(expression.source_range)
                         .note("only function calls are allowed".to_string())
                     .build())

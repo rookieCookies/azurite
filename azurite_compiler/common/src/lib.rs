@@ -1,15 +1,3 @@
-use azurite_errors::SourceRange;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SourcedDataType {
-    pub source_range: SourceRange,
-    pub data_type: DataType,
-}
-
-impl SourcedDataType {
-    pub fn new(source_range: SourceRange, data_type: DataType) -> Self { Self { source_range, data_type } }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataType {
     Integer,
@@ -20,14 +8,6 @@ pub enum DataType {
     Any,
     
     Struct(SymbolIndex),
-}
-
-
-impl SourcedDataType {
-    pub fn from(value: &SourcedData) -> Self {
-        Self::new(value.source_range, DataType::from(&value.data))
-    }
-    
 }
 
 
@@ -56,17 +36,6 @@ impl DataType {
             DataType::Struct(v) => symbol_table.get(v)
         }
     }
-}
-
-
-#[derive(Debug, PartialEq)]
-pub struct SourcedData {
-    pub source_range: SourceRange,
-    pub data: Data,
-}
-
-impl SourcedData {
-    pub fn new(source_range: SourceRange, data_type: Data) -> Self { Self { source_range, data: data_type } }
 }
 
 

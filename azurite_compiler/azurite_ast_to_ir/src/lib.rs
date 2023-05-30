@@ -140,9 +140,9 @@ pub enum Result {
 
 
 impl ConversionState {
-    pub fn new(mut symbol_table: SymbolTable) -> Self { 
+    pub fn new(symbol_table: SymbolTable, root_file: SymbolIndex) -> Self { 
         Self {
-            current_file: symbol_table.add(String::from(":root")),
+            current_file: root_file,
             constants: vec![],
             functions: vec![],
             symbol_table,
@@ -154,10 +154,10 @@ impl ConversionState {
         }
     }
 
-    pub fn generate(&mut self, mut files: Vec<(SymbolIndex, Vec<Instruction>)>) {
+    pub fn generate(&mut self, root_index: SymbolIndex, mut files: Vec<(SymbolIndex, Vec<Instruction>)>) {
+        self.current_file = root_index;
         files.sort_by_key(|x| x.0);
         
-        let root_index = self.symbol_table.add(String::from(":root"));
         let mut function = Function::new(self.function(), 0);
 
         files.iter().for_each(|x| { self.files.insert(x.0, HashMap::new()); });
@@ -256,7 +256,6 @@ impl ConversionState {
                     match self.files.get(&root).unwrap().get(&root_excluded) {
                         Some(v) => return v,
                         None => {
-                            println!("{} {}", self.symbol_table.get(root), self.symbol_table.get(root_excluded));
                             let (root_t, root_excluded_t) = self.symbol_table.find_root(root_excluded);
                             root = root_t;
                             root_excluded = root_excluded_t.unwrap();

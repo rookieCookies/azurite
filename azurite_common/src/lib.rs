@@ -10,6 +10,7 @@ pub mod environment {
     pub const DUMP_IR_FILE : &str = "AZURITE_COMPILER_DUMP_IR_FILE";
 }
 
+
 macro_rules! opcode {
     ( $(#[$attr:meta])* $vis:vis enum $name:ident : $type:ty {
         $($variant:ident),* $(,)?

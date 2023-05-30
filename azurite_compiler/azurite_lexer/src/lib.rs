@@ -12,6 +12,7 @@ pub struct Token {
     pub source_range: SourceRange,
 }
 
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenKind {
     LeftParenthesis,
@@ -51,6 +52,7 @@ pub enum TokenKind {
     EndOfFile,
 }
 
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Literal {
     Integer(i64),
@@ -58,6 +60,7 @@ pub enum Literal {
     String(SymbolIndex),
     Bool(bool),
 }
+
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Keyword {
@@ -78,6 +81,7 @@ pub enum Keyword {
     Return,
 }
 
+
 struct Lexer<'a> {
     characters: Chars<'a>,
     index: usize,
@@ -88,9 +92,11 @@ struct Lexer<'a> {
 
     string_storage: String,
     symbol_table: &'a mut SymbolTable,
+    file: SymbolIndex,
 }
 
-pub fn lex(data: &str, symbol_table: &mut SymbolTable) -> Result<Vec<Token>, Error> {
+
+pub fn lex(data: &str, file: SymbolIndex, symbol_table: &mut SymbolTable) -> Result<Vec<Token>, Error> {
     let mut lexer = Lexer {
         characters: data.chars(),
         index: 0,
@@ -99,6 +105,7 @@ pub fn lex(data: &str, symbol_table: &mut SymbolTable) -> Result<Vec<Token>, Err
         string_storage: String::with_capacity(128),
         character_index: 0,
         symbol_table,
+        file,
     };
 
     let mut tokens = vec![];
@@ -177,7 +184,7 @@ pub fn lex(data: &str, symbol_table: &mut SymbolTable) -> Result<Vec<Token>, Err
             
             
             _ => {
-                errors.push(CompilerError::new(1, "invalid character")
+                errors.push(CompilerError::new(lexer.file, 1, "invalid character")
                     .highlight(SourceRange::new(start, start))
                         .note(format!("{:?}", value))
                     .build());
@@ -189,7 +196,7 @@ pub fn lex(data: &str, symbol_table: &mut SymbolTable) -> Result<Vec<Token>, Err
 
         let token = Token {
             token_kind,
-            source_range: SourceRange { start, end },
+            source_range: SourceRange { start, end: end - lexer.stale as usize },
         };
 
         tokens.push(token);
@@ -235,6 +242,7 @@ impl Lexer<'_> {
         self.characters.clone().next()
     }
 
+    // SAFETY:
     // It is the responsibility of the caller to
     // properly call `Lexer::return_string_storage`
     // on all code-paths and not use this multiple
@@ -278,7 +286,7 @@ impl Lexer<'_> {
             "fn" => TokenKind::Keyword(Keyword::Fn),
             "struct" => TokenKind::Keyword(Keyword::Struct),
             "impl" => TokenKind::Keyword(Keyword::Impl),
-            "namespace" => TokenKind::Keyword(Keyword::Namespace),
+            // "namespace" => TokenKind::Keyword(Keyword::Namespace),
             "using" => TokenKind::Keyword(Keyword::Using),
             "extern" => TokenKind::Keyword(Keyword::Extern),
             "if" => TokenKind::Keyword(Keyword::If),
@@ -303,6 +311,7 @@ impl Lexer<'_> {
         token
     }
 
+    
     fn string(&mut self) -> Result<Literal, Vec<Error>> {
         let mut string = String::new();
         let start = self.character_index;
@@ -343,7 +352,7 @@ impl Lexer<'_> {
         }
 
         if self.current_character() != Some('"') {
-            errors.push(CompilerError::new(2, "unterminated string")
+            errors.push(CompilerError::new(self.file, 2, "unterminated string")
                 .highlight(SourceRange::new(start, self.character_index))
                     .note("consider adding a quotation mark here".to_string())
 
@@ -359,10 +368,11 @@ impl Lexer<'_> {
         Err(errors)
     }
 
+
     fn unicode_escape_character(&mut self) -> Result<char, Error> {
         if self.advance() != Some('{') {
             self.stale = true;
-            return Err(CompilerError::new(3, "corrupt unicode escape")
+            return Err(CompilerError::new(self.file, 3, "corrupt unicode escape")
                 .highlight(SourceRange::new(self.character_index, self.character_index))
                     .note("unicode escapes are formatted like \\u{..}".to_string())
 
@@ -381,7 +391,7 @@ impl Lexer<'_> {
                 '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'A' | 'B' | 'C'
                 | 'D' | 'E' | 'F' => unicode.push(value),
 
-                _ => return Err(CompilerError::new(4, "invalid unicode value")
+                _ => return Err(CompilerError::new(self.file, 4, "invalid unicode value")
                     .highlight(SourceRange::new(self.character_index, self.character_index))
                         .note("unicode escape values must be written in base-16 (0-1-2-3-4-5-6-7-8-9-A-B-C-D-E-F)".to_string())
                     
@@ -390,18 +400,19 @@ impl Lexer<'_> {
             }
         }
 
-        let number = base_n_number_conversion(self.character_index, 16, &unicode)?;
+        let number = self.base_n_number_conversion(self.character_index, 16, &unicode)?;
 
         self.return_string_storage(unicode);
 
         match char::from_u32(number as u32) {
             Some(value) => Ok(value),
-            None => Err(CompilerError::new(7, "isn't a valid unicode character")
+            None => Err(CompilerError::new(self.file, 7, "isn't a valid unicode character")
                     .highlight(SourceRange::new(start, self.character_index))
                     .build()
                 ),
         }
     }
+
 
     fn number(&mut self) -> Result<Literal, Error> {
         if self.current_character() == Some('0') {
@@ -431,6 +442,7 @@ impl Lexer<'_> {
         }
     }
 
+
     fn base_n_number(&mut self, base: u32) -> Result<Literal, Error> {
         if base > 16 {
             panic!("invalid base number provided by the compiler")
@@ -443,7 +455,7 @@ impl Lexer<'_> {
         while let Some(value) = self.current_character() {
             match map_to_hex(value) {
                 Some(n) if base < n as u32 + 1 => 
-                    return Err(CompilerError::new(6, "invalid number for base")
+                    return Err(CompilerError::new(self.file, 6, "invalid number for base")
                         .highlight(SourceRange::new(self.character_index, self.character_index))
                             .note(format!("the value {value} is too big for a base-{base} number"))
 
@@ -467,7 +479,7 @@ impl Lexer<'_> {
         if dot_count > 1 {
             self.return_string_storage(number_string);
 
-            return Err(CompilerError::new(8, "too many dots")
+            return Err(CompilerError::new(self.file, 8, "too many dots")
                 .highlight(SourceRange::new(start, self.character_index-1))
                 .build()
             );
@@ -477,7 +489,7 @@ impl Lexer<'_> {
             .split_once('.')
             .unwrap_or((&number_string, ""));
 
-        let number = base_n_number_conversion(self.character_index, base, full_number)?;
+        let number = self.base_n_number_conversion(self.character_index, base, full_number)?;
 
         if !decimals.is_empty() {
             let mut decimal = 0.0;
@@ -497,31 +509,37 @@ impl Lexer<'_> {
     }
 }
 
-fn base_n_number_conversion(index: usize, base: u32, text: &str) -> Result<i64, Error> {
-    let mut number = 0;
-    let start = index - text.len();
-    for (index, value) in text.chars().rev().enumerate() {
-        let digit = value.to_digit(base).expect("unreachable") as i64;
-        let power = index as u32;
 
-        let power = match (base as i64).checked_pow(power) {
-            Some(value) => value,
-            None => return Err(CompilerError::new(5, "number is too large")
-                .highlight(SourceRange::new(start, index+1))
-                .build()
-            ),
-        };
+impl Lexer<'_> {
+    fn base_n_number_conversion(&self, index: usize, base: u32, text: &str) -> Result<i64, Error> {
+        let mut number = 0;
+        let start = index - text.len();
+        for (index, value) in text.chars().rev().enumerate() {
+            let digit = value.to_digit(base).expect("unreachable") as i64;
+            let power = index as u32;
 
-        number += match power.checked_mul(digit) {
-            Some(value) => value,
-            None => return Err(CompilerError::new(5, "number is too large")
-                .highlight(SourceRange::new(start, index+1))
-                .build()),
-        };
+            let power = match (base as i64).checked_pow(power) {
+                Some(value) => value,
+                None => return Err(CompilerError::new(self.file, 5, "number is too large")
+                    .highlight(SourceRange::new(start, index+1))
+                    .build()
+                ),
+            };
+
+            number += match power.checked_mul(digit) {
+                Some(value) => value,
+                None => return Err(CompilerError::new(self.file, 5, "number is too large")
+                    .highlight(SourceRange::new(start, index+1))
+                    .build()),
+            };
+        }
+
+        Ok(number)
     }
 
-    Ok(number)
+    
 }
+
 
 fn map_to_hex(character: char) -> Option<u8> {
     match character {

@@ -1,8 +1,8 @@
 use std::fmt::Display;
 
-use azurite_errors::SourceRange;
+use azurite_errors::{SourceRange, SourcedData, SourcedDataType};
 use azurite_lexer::TokenKind;
-use common::{SymbolIndex, SourcedDataType, SourcedData};
+use common::SymbolIndex;
 
 #[derive(Debug, PartialEq)]
 pub struct Instruction {

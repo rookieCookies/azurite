@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 
 use azurite_common::environment;
@@ -5,33 +6,60 @@ use azurite_common::environment;
 use azurite_errors::Error;
 
 pub use azurite_lexer::lex;
+use azurite_parser::ast::Instruction;
 pub use azurite_parser::parse;
 pub use azurite_ast_to_ir::ConversionState;
 pub use azurite_semantic_analysis::AnalysisState;
 pub use azurite_codegen::CodeGen;
 use azurite_semantic_analysis::GlobalState;
 pub use common::Data;
+use common::SymbolIndex;
 pub use common::SymbolTable;
 
-pub fn compile(data: &str) -> Result<(Vec<u8>, Vec<Data>, SymbolTable), Error> {
+pub fn compile(file_name: String, data: String) -> (Result<(Vec<u8>, Vec<Data>, SymbolTable), Error>, HashMap<SymbolIndex, (String, String)>) {
     let mut symbol_table = SymbolTable::new();
-    let root = symbol_table.add(String::from(":root"));
+    let file_name = symbol_table.add(file_name);
     
-    let tokens = lex(data, &mut symbol_table)?;
+    let tokens = match lex(&data, file_name, &mut symbol_table) {
+        Ok(v) => v,
+        Err(e) => return (Err(e), HashMap::from([(file_name, (symbol_table.get(file_name), data.to_string()))])),
+    };
 
-    let mut instructions = parse(tokens.into_iter(), &mut symbol_table)?;
+    let mut instructions = match parse(tokens.into_iter(), file_name, &mut symbol_table) {
+        Ok(v) => v,
+        Err(e) => return (Err(e), HashMap::from([(file_name, (symbol_table.get(file_name), data.to_string()))])),
+    };
+    
     
     let mut global_state = GlobalState::new(&mut symbol_table);
     
-    let mut analysis = AnalysisState::new();
-    analysis.start_analysis(&mut global_state, &mut instructions)?;
-    global_state.files.insert(root, (analysis, instructions));
+    let mut analysis = AnalysisState::new(file_name);
+    match analysis.start_analysis(&mut global_state, &mut instructions) {
+        Ok(v) => v,
+        Err(e) => {
+            let mut temp : HashMap<SymbolIndex, (String, String)> = global_state.files.into_iter().map(|x| (x.0, (symbol_table.get(x.0), x.1.2))).collect();
+            temp.insert(file_name, (symbol_table.get(file_name), data));
+            return (Err(e), temp)
+        },
+    };
 
-    let files = global_state.files.into_iter().map(|x| (x.0, x.1.1)).collect();
+    global_state.files.insert(file_name, (analysis, instructions, data));
 
-    let mut ir = ConversionState::new(symbol_table);
 
-    ir.generate(files);
+    let (files, files_data) : (Vec<(SymbolIndex, Vec<Instruction>)>, HashMap<SymbolIndex, (String, String)>) = 
+        global_state.files.
+            into_iter().
+            map(|x| 
+                (
+                    (x.0, x.1.1),
+                    (x.0, (symbol_table.get(x.0), x.1.2))
+                )
+            ).unzip();
+    
+
+    let mut ir = ConversionState::new(symbol_table, file_name);
+
+    ir.generate(file_name, files);
 
     ir.sort();
     if env::var(environment::RELEASE_MODE).unwrap_or("0".to_string()) == *"1" {
@@ -55,5 +83,5 @@ pub fn compile(data: &str) -> Result<(Vec<u8>, Vec<Data>, SymbolTable), Error> {
     let mut codegen = CodeGen::new();
     codegen.codegen(&ir.symbol_table, externs, functions);
 
-    Ok((codegen.bytecode, constants, ir.symbol_table))
+    (Ok((codegen.bytecode, constants, ir.symbol_table)), files_data)
 }

@@ -26,10 +26,34 @@ impl VM {
             match value {
                 consts::ExternFile => {
                     let path = current.string();
+
+                    #[cfg(target_os = "windows")]
+                    let path = format!("{path}.dll");
+                    
+                    #[cfg(any(target_os = "linux", target_os = "macos"))]
+                    let path = format!("{path}.so");
+
+                    #[cfg(not(any(
+                            target_os = "windows",
+                            target_os = "linux",
+                            target_os = "macos",
+                    )))]
+                    compile_error!("this platform is not supported");
+                    
                     let func_amount = current.next();
                     
                     unsafe {
-                        let Ok(lib) = Library::new(&path) else { break Err(format!("can't find a runtime library file named {path}")); };
+                        // let Ok(lib) = Library::new(&path) else { break Err(format!("can't find a runtime library file named {path}")); };
+                        let lib = match Library::new(&path) {
+                            Ok(v) => v,
+                            Err(_) => {
+                                let new_path = std::env::current_exe().unwrap().parent().unwrap().join("runtime").join(&path);
+                                match Library::new(&new_path) {
+                                    Ok(v) => v,
+                                    Err(_) => break Err(format!("can't find a runtime library file named {path}")),
+                                }
+                            },
+                        };
 
                         for _ in 0..func_amount {
                             let name = current.string();

@@ -121,10 +121,12 @@ fn compile(file: &str) -> Result<Packed, ExitCode> {
     // azurite_compiler::compile_test(&file_data);
 
     // std::process::exit(0);
-    let (bytecode, constants, symbol_table) = match azurite_compiler::compile(&file_data) {
+    let (result, debug_info) = azurite_compiler::compile(file.to_string(), file_data);
+    
+    let (bytecode, constants, symbol_table) = match result {
         Ok(v) => v,
         Err(e) => {
-            print!("{}", e.build((file, &file_data)));
+            print!("{}", e.build(&debug_info));
             return Err(ExitCode::FAILURE)
         }
     };

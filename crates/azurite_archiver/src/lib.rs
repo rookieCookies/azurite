@@ -2,6 +2,10 @@ use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher, slice::Ite
 
 use flate2::{write::ZlibEncoder, Compression, read::ZlibDecoder};
 
+
+const MAGIC_TEXT : &str = "GONNAGETSMASHED!";
+
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Packed {
     data_table: Vec<Data>,
@@ -34,7 +38,7 @@ impl Packed {
 
 
         let mut bytes = Vec::with_capacity(total_size);
-        
+
         {
             let version_number = env!("CARGO_PKG_VERSION");
             let mut hasher = DefaultHasher::new();
@@ -63,10 +67,19 @@ impl Packed {
 
         let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
         e.write_all(&bytes).unwrap();
-        e.finish().unwrap()
+        
+        let mut compressed = e.finish().unwrap();
+        let mut temp = Vec::with_capacity(MAGIC_TEXT.as_bytes().len() + compressed.len());
+
+        temp.extend_from_slice(MAGIC_TEXT.as_bytes());
+        temp.append(&mut compressed);
+
+        temp
     }
 
+
     pub fn from_bytes(data: &[u8]) -> Option<Packed> {
+        let data = &data[MAGIC_TEXT.as_bytes().len()..];
         let mut dec = ZlibDecoder::new(data);
         let mut data : Vec<u8> = Vec::new();
         dec.read_to_end(&mut data).unwrap();

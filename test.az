@@ -1,13 +1,3 @@
-extern "target/release/standard_library.dll" {
-    fn print(str)
-    fn println(str)
+using std
 
-    fn to_string_int(int): str
-    fn to_string_float(float): str
-    fn to_string_bool(bool): str
-
-    fn fib_rec(float) : float
-    
-}
-
-print("Hi!")
+println("hello world")

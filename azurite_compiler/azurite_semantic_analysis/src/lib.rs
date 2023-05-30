@@ -3,16 +3,17 @@ pub mod variable_stack;
 
 use std::{collections::HashMap, fs};
 
-use azurite_errors::{SourceRange, Error, CompilerError, ErrorBuilder, CombineIntoError};
+use azurite_errors::{SourceRange, Error, CompilerError, ErrorBuilder, CombineIntoError, SourcedDataType};
 use azurite_parser::ast::{Instruction, InstructionKind, Statement, Expression, BinaryOperator, Declaration};
-use common::{DataType, SymbolTable, SymbolIndex, SourcedDataType};
+use common::{DataType, SymbolTable, SymbolIndex};
 use variable_stack::VariableStack;
 
 #[derive(Debug, PartialEq)]
 pub struct GlobalState<'a> {
     symbol_table: &'a mut SymbolTable,
-    pub files: HashMap<SymbolIndex, (AnalysisState, Vec<Instruction>)>,
+    pub files: HashMap<SymbolIndex, (AnalysisState, Vec<Instruction>, String)>,
 }
+
 
 #[derive(Debug, PartialEq)]
 pub struct AnalysisState {
@@ -27,6 +28,7 @@ pub struct AnalysisState {
     explicit_return: Option<SourcedDataType>,
 
     depth: usize,
+    file: SymbolIndex,
 }
 
 
@@ -49,7 +51,7 @@ impl<'a> GlobalState<'a> {
 
 
 impl AnalysisState {
-    pub fn new() -> Self {
+    pub fn new(file: SymbolIndex) -> Self {
         Self {
             variable_stack: VariableStack::new(),
             loop_depth: 0,
@@ -58,6 +60,7 @@ impl AnalysisState {
             functions: HashMap::new(),
             structures: HashMap::new(),
             available_files: vec![],
+            file,
 
         }
     }
@@ -177,20 +180,33 @@ impl AnalysisState {
                 }
                 
                 let path = global.symbol_table.get(*file_name);
-                let file = match fs::read_to_string(format!("{path}.az")) {
+                let path = format!("{path}.az");
+                let file = match fs::read_to_string(&path) {
                     Ok(v) => v,
-                    Err(_) => return Err(CompilerError::new(223, "file doesn't exist")
-                        .highlight(*source_range)
-                            .note(format!("can't find a file named {}.az", path))
-                        .build()),
+                    Err(_) => {
+                        let new_path = std::env::current_exe().unwrap().parent().unwrap().join("api").join(&path);
+                        match fs::read_to_string(new_path) {
+                            Ok(v) => v,
+                            Err(_) => return Err(CompilerError::new(self.file, 223, "file doesn't exist")
+                                .highlight(*source_range)
+                                    .note(format!("can't find a file named {}", path))
+                                .build())
+                        }
+                    },
                 }.replace('\t', "    ");
+                
+                
+                let tokens = azurite_lexer::lex(&file, *file_name, global.symbol_table);
+                global.files.insert(*file_name, (AnalysisState::new(*file_name), vec![], file));
 
-                let tokens = azurite_lexer::lex(&file, global.symbol_table)?;
-                let mut instructions = azurite_parser::parse(tokens.into_iter(), global.symbol_table)?;
-                let mut analysis = AnalysisState::new();
+                let tokens = tokens?;
+                let mut instructions = azurite_parser::parse(tokens.into_iter(), *file_name, global.symbol_table)?;
+                let mut analysis = AnalysisState::new(*file_name);
                 analysis.start_analysis(global, &mut instructions)?;
 
-                global.files.insert(*file_name, (analysis, instructions));
+                let temp = global.files.get_mut(file_name).unwrap(); 
+                temp.0 = analysis;
+                temp.1 = instructions;
             },
         };
         Ok(())
@@ -200,7 +216,7 @@ impl AnalysisState {
     fn analyze_declaration(&mut self, global: &mut GlobalState, declaration: &mut Declaration, source_range: &SourceRange) -> Result<(), Error> {
         match declaration {
             Declaration::FunctionDeclaration { arguments, return_type, body, source_range_declaration, name } => {
-                let mut analysis_state = AnalysisState::new();
+                let mut analysis_state = AnalysisState::new(self.file);
 
                 analysis_state.functions = std::mem::take(&mut self.functions);
                 analysis_state.structures = std::mem::take(&mut self.structures);
@@ -245,7 +261,7 @@ impl AnalysisState {
                 self.structures = std::mem::take(&mut analysis_state.structures);
 
                 if !self.is_of_type(global, *return_type, body_return_type)? {
-                    return Err(CompilerError::new(211, "function body returns a different type")
+                    return Err(CompilerError::new(self.file, 211, "function body returns a different type")
                         .highlight(*source_range_declaration)
                             .note(format!("function returns {}", global.to_string(return_type.data_type)))
 
@@ -327,7 +343,7 @@ impl AnalysisState {
                             (DataType::Any, DataType::Any) => DataType::Any,
                             
                             _ => {
-                                return Err(CompilerError::new(201, "invalid type arithmetic operation")
+                                return Err(CompilerError::new(self.file, 201, "invalid type arithmetic operation")
                                     .highlight(SourceRange::combine(left.source_range, right.source_range))
                                         .note(format!("left side is of type {} while the right side is of type {}", global.to_string(left_type.data_type), global.to_string(right_type.data_type)))
                                     .build())
@@ -343,7 +359,7 @@ impl AnalysisState {
                     | BinaryOperator::GreaterEquals
                     | BinaryOperator::LesserEquals => {
                         if !self.is_of_type(global, left_type, right_type)? {
-                            return Err(CompilerError::new(202, "comparisson types differ")
+                            return Err(CompilerError::new(self.file, 202, "comparisson types differ")
                                 .highlight(SourceRange::combine(left.source_range, right.source_range))
                                     .note(format!("left side is of type {} while the right side is of type {}", global.to_string(left_type.data_type), global.to_string(right_type.data_type)))
                                 .build())
@@ -367,7 +383,7 @@ impl AnalysisState {
                 let condition_type = self.analyze(global, condition)?;
 
                 if !self.is_of_type(global, condition_type, SourcedDataType::new(SourceRange::new(0, 0), DataType::Bool))? {
-                    return Err(CompilerError::new(203, "condition expects a boolean")
+                    return Err(CompilerError::new(self.file, 203, "condition expects a boolean")
                         .highlight(condition.source_range)
                             .note(format!("is of type {}", global.to_string(condition_type.data_type)))
                         .build())
@@ -380,7 +396,7 @@ impl AnalysisState {
                     let else_type = self.analyze(global, else_part)?;
 
                     if !self.is_of_type(global, body_type, else_type)? {
-                        return Err(CompilerError::new(204, "if expressions branches don't return the same type")
+                        return Err(CompilerError::new(self.file, 204, "if expressions branches don't return the same type")
                             .highlight(body.last().map_or(*source_range, |x| x.source_range))
                                 .note(format!("is of type {}", global.to_string(body_type.data_type)))
                             
@@ -400,7 +416,7 @@ impl AnalysisState {
                 match self.variable_stack.find(*identifier) {
                     Some(v) => Ok(v),
                     None => {
-                        Err(CompilerError::new(205, "variable does not exist")
+                        Err(CompilerError::new(self.file, 205, "variable does not exist")
                             .highlight(*source_range)
                             .build()
                         )
@@ -413,30 +429,18 @@ impl AnalysisState {
                 let (function, new_identifier) = match self.get_function(global, identifier) {
                     Some(v) => v,
                     None => {
-                        return Err(CompilerError::new(212, "function isn't declared")
+                        return Err(CompilerError::new(self.file, 212, "function isn't declared")
                             .highlight(*source_range)
                                 .note(format!("there's no function named {}", global.symbol_table.get(*identifier)))
                             .build())
                     },
                 };
 
-                println!("{} -> {}", global.symbol_table.get(*identifier), global.symbol_table.get(new_identifier));
                 *identifier = new_identifier;
-
-                let (function, new_identifier) = match self.get_function(global, identifier) {
-                    Some(v) => v,
-                    None => {
-                        return Err(CompilerError::new(212, "function isn't declared")
-                            .highlight(*source_range)
-                                .note(format!("there's no function named {}", global.symbol_table.get(*identifier)))
-                            .build())
-                    },
-                };
-
                 let return_type = function.return_type;
         
                 if function.arguments.len() != arguments.len() {
-                    return Err(CompilerError::new(214, "invalid number of arguments")
+                    return Err(CompilerError::new(self.file, 214, "invalid number of arguments")
                         .highlight(*source_range)
                             .note(format!("expected {} arguments found {}", function.arguments.len(), arguments.len()))
                         .build())
@@ -466,7 +470,7 @@ impl AnalysisState {
                         };
 
                         if !is_of_type {
-                            errors.push(CompilerError::new(213, "argument is of invalid type")
+                            errors.push(CompilerError::new(self.file, 213, "argument is of invalid type")
                                 .highlight(argument.source_range)
                                     .note(format!("is of type {} while the function expects {}", global.to_string(argument_type.data_type), global.to_string(expected_type.data_type)))
 
@@ -512,7 +516,7 @@ impl AnalysisState {
                             };
 
                             if !is_same_type {
-                                field_errors.push(CompilerError::new(217, "structure field and provided value are not of the same type")
+                                field_errors.push(CompilerError::new(self.file, 217, "structure field and provided value are not of the same type")
                                     .highlight(v.source_range)
                                         .note(format!("defined here as type {}", global.to_string(v.data_type)))
 
@@ -530,7 +534,7 @@ impl AnalysisState {
 
 
                     if !invalid.is_empty() {
-                        field_errors.push(CompilerError::new(218, "invalid fields")
+                        field_errors.push(CompilerError::new(self.file, 218, "invalid fields")
                             .highlight(*source_range)
                                 .note(format!("invalid: {}", invalid.into_iter().map(|x| global.symbol_table.get(x)).intersperse(", ".to_string()).collect::<String>()))
                             .build())
@@ -538,7 +542,7 @@ impl AnalysisState {
 
 
                     if !hashmap.is_empty() {
-                        field_errors.push(CompilerError::new(219, "missing fields")
+                        field_errors.push(CompilerError::new(self.file, 219, "missing fields")
                             .highlight(*source_range)
                                 .note(format!("missing: {}", hashmap.into_iter().map(|x| global.symbol_table.get(x.0)).intersperse(", ".to_string()).collect::<String>()))
                             .build())
@@ -574,7 +578,7 @@ impl AnalysisState {
                     _ => ()
                 };
 
-                return Err(CompilerError::new(220, "structure field doesn't exist")
+                return Err(CompilerError::new(self.file, 220, "structure field doesn't exist")
                         .highlight(*source_range)
                             .note(format!("is of type {} which doesn't have a field named {}", global.to_string(structure_type.data_type), global.symbol_table.get(*identifier)))
                         .build()
@@ -603,7 +607,7 @@ impl AnalysisState {
                 self.variable_stack.push(*identifier, if let Some(v) = type_hint { *v } else { data_type });
 
                 if !type_hint.map_or(Ok(true), |x| self.is_of_type(global, data_type, x))? {
-                    return Err(CompilerError::new(210, "value differs from type hint")
+                    return Err(CompilerError::new(self.file, 210, "value differs from type hint")
                         .highlight(data.source_range)
                             .note(format!("is of type {} but the type hint is {}", global.to_string(data_type.data_type), global.to_string(type_hint.unwrap().data_type)))
                         .build())
@@ -619,7 +623,7 @@ impl AnalysisState {
                         let value = match self.variable_stack.find(*v) {
                             Some(v) => v,
                             None => {
-                                return Err(CompilerError::new(206, "can't update a variable that does not exist")
+                                return Err(CompilerError::new(self.file, 206, "can't update a variable that does not exist")
                                     .highlight(left.source_range)
                                     .build());
                             },
@@ -628,7 +632,7 @@ impl AnalysisState {
                         let right_type = self.analyze(global, right)?;
 
                         if !self.is_of_type(global, right_type, value)? {
-                            return Err(CompilerError::new(207, "variable is of different type")
+                            return Err(CompilerError::new(self.file, 207, "variable is of different type")
                                 .highlight(*source_range)
                                     .note(format!("{} is of type {} but the assigned value is of type {}", global.symbol_table.get(*v), global.to_string(value.data_type), global.to_string(right_type.data_type)))
                                 .build())
@@ -655,7 +659,7 @@ impl AnalysisState {
             
             Statement::Break => {
                 if self.loop_depth == 0 {
-                    return Err(CompilerError::new(208, "break outside of loop")
+                    return Err(CompilerError::new(self.file, 208, "break outside of loop")
                         .highlight(*source_range)
                         .build())
                 }
@@ -665,7 +669,7 @@ impl AnalysisState {
             
             Statement::Continue => {
                 if self.loop_depth == 0 {
-                    return Err(CompilerError::new(209, "continue outside of loop")
+                    return Err(CompilerError::new(self.file, 209, "continue outside of loop")
                         .highlight(*source_range)
                         .build())
                 }
@@ -680,14 +684,14 @@ impl AnalysisState {
                 let expected_type = match self.explicit_return {
                     Some(v) => v,
                     None =>
-                    return Err(CompilerError::new(221, "return in main scope")
+                    return Err(CompilerError::new(self.file, 221, "return in main scope")
                         .highlight(*source_range)
-                            .note("consider using exit([exit code])".to_string())
+                            .note("consider using 'exit(0)'".to_string())
                         .build())
                 };
 
                 if !self.is_of_type(global, expected_type, datatype)? {
-                    return Err(CompilerError::new(222, "invalid return type")
+                    return Err(CompilerError::new(self.file, 222, "invalid return type")
                         .highlight(expected_type.source_range)
                             .note(format!("defined as {}", global.to_string(expected_type.data_type)))
                         
@@ -713,7 +717,7 @@ impl AnalysisState {
                             *index_to = v.0;
 
                             if !self.is_of_type(global, v.1.1, right_value)? {
-                                return Err(CompilerError::new(207, "variable is of different type")
+                                return Err(CompilerError::new(self.file, 207, "variable is of different type")
                                     .highlight(*source_range)
                                         .note(format!("{} is of type {} but the assigned value is of type {}", global.symbol_table.get(*identifier), global.to_string(v.1.1.data_type), global.to_string(right_value.data_type)))
                                     .build())
@@ -728,7 +732,7 @@ impl AnalysisState {
                     _ => ()
                 };
 
-                return Err(CompilerError::new(220, "structure field doesn't exist")
+                return Err(CompilerError::new(self.file, 220, "structure field doesn't exist")
                         .highlight(*source_range)
                             .note(format!("is of type {} which doesn't have a field named {}", global.to_string(structure_type.data_type), global.symbol_table.get(*identifier)))
                         .build()
@@ -757,7 +761,7 @@ impl AnalysisState {
         };
 
         if !v {
-            return Err(CompilerError::new(214, "type doesn't exist")
+            return Err(CompilerError::new(self.file, 214, "type doesn't exist")
                 .highlight(value.source_range)
                     .note(format!("is of type {} which isn't declared", global.to_string(value.data_type)))
                 .build())
@@ -773,7 +777,7 @@ impl AnalysisState {
     }
 
 
-    fn get_function_detailed<'a>(&'a self, symbol_table: &mut SymbolTable, files: &'a HashMap<SymbolIndex, (AnalysisState, Vec<Instruction>)>, symbol: &SymbolIndex, implicit_complete: bool) -> Option<(&'a Function, SymbolIndex)> {
+    fn get_function_detailed<'a>(&'a self, symbol_table: &mut SymbolTable, files: &'a HashMap<SymbolIndex, (AnalysisState, Vec<Instruction>, String)>, symbol: &SymbolIndex, implicit_complete: bool) -> Option<(&'a Function, SymbolIndex)> {
         let temp = self.functions.get(symbol);
         match temp.map(|x| &x.0) {
             Some(v) => Some((v, *symbol)),
@@ -821,7 +825,7 @@ impl AnalysisState {
     fn get_struct<'a>(&'a self, global: &'a GlobalState, range: &SourceRange, symbol: &SymbolIndex) -> Result<&'a Structure, Error> {
         match self.get_struct_option(global, symbol) {
             Some(v) => Ok(v),
-            None => Err(CompilerError::new(215, "structure isn't declared")
+            None => Err(CompilerError::new(self.file, 215, "structure isn't declared")
             .highlight(*range)
                 .note(format!("there's no structure named {}", global.symbol_table.get(*symbol)))
             .build()),

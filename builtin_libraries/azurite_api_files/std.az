@@ -1,0 +1,3 @@
+extern "target/release/standard_library" {
+	fn println(str)
+}

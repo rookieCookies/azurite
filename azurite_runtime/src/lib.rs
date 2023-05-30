@@ -1,4 +1,4 @@
-#![deny(clippy::pedantic)]
+// #![deny(clippy::pedantic)]
 #![feature(iter_next_chunk)]
 mod object_map;
 mod runtime;
