@@ -301,6 +301,10 @@ impl ConversionState {
                         Declaration::Namespace { .. } => (),
                         Declaration::Extern { functions, .. } => {
                             for f in functions {
+                                if self.extern_functions.contains_key(&f.identifier) {
+                                    continue
+                                }
+                                
                                 let t = self.extern_function();
                                 self.extern_functions.insert(f.identifier, t);
                             }
