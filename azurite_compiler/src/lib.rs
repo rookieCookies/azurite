@@ -16,11 +16,15 @@ pub use common::Data;
 use common::SymbolIndex;
 pub use common::SymbolTable;
 
-pub fn compile(file_name: String, data: String) -> (Result<(Vec<u8>, Vec<Data>, SymbolTable), Error>, HashMap<SymbolIndex, (String, String)>) {
+type DebugHashmap = HashMap<SymbolIndex, (String, String)>;
+type ReturnValue = Result<(Vec<u8>, Vec<Data>, SymbolTable), Error>;
+
+pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
     let mut symbol_table = SymbolTable::new();
-    let file_name = symbol_table.add(file_name);
+    let file_name = symbol_table.add(file_name[..file_name.len()-3].to_string());
     
-    let tokens = match lex(&data, file_name, &mut symbol_table) {
+    let tokens = match lex(&data, file_name, &mut symbol_table) {
+
         Ok(v) => v,
         Err(e) => return (Err(e), HashMap::from([(file_name, (symbol_table.get(file_name), data.to_string()))])),
     };
@@ -37,7 +41,7 @@ pub fn compile(file_name: String, data: String) -> (Result<(Vec<u8>, Vec<Data>, 
     match analysis.start_analysis(&mut global_state, &mut instructions) {
         Ok(v) => v,
         Err(e) => {
-            let mut temp : HashMap<SymbolIndex, (String, String)> = global_state.files.into_iter().map(|x| (x.0, (symbol_table.get(x.0), x.1.2))).collect();
+            let mut temp : DebugHashmap = global_state.files.into_iter().map(|x| (x.0, (symbol_table.get(x.0), x.1.2))).collect();
             temp.insert(file_name, (symbol_table.get(file_name), data));
             return (Err(e), temp)
         },
@@ -46,7 +50,7 @@ pub fn compile(file_name: String, data: String) -> (Result<(Vec<u8>, Vec<Data>, 
     global_state.files.insert(file_name, (analysis, instructions, data));
 
 
-    let (files, files_data) : (Vec<(SymbolIndex, Vec<Instruction>)>, HashMap<SymbolIndex, (String, String)>) = 
+    let (files, files_data) : (Vec<(SymbolIndex, Vec<Instruction>)>, DebugHashmap) = 
         global_state.files.
             into_iter().
             map(|x| 
@@ -57,31 +61,82 @@ pub fn compile(file_name: String, data: String) -> (Result<(Vec<u8>, Vec<Data>, 
             ).unzip();
     
 
-    let mut ir = ConversionState::new(symbol_table, file_name);
+    let mut ir = ConversionState::new(symbol_table);
 
     ir.generate(file_name, files);
 
     ir.sort();
+
+    #[cfg(not(features = "afl"))]
     if env::var(environment::RELEASE_MODE).unwrap_or("0".to_string()) == *"1" {
         ir.optimize();
     }
 
+    #[cfg(features = "afl")]
+    ir.optimize();
+
     ir.sort();
 
+    let mut functions : Vec<_> = std::mem::take(&mut ir.functions).into_iter().map(|x| x.1).collect();
+    functions.sort_unstable_by_key(|x| x.function_index.0);
+
+    #[cfg(not(features = "afl"))]
     if env::var(environment::DUMP_IR).unwrap_or("0".to_string()) == *"1" {
-        let dump = ir.pretty_print();
+        let mut string = String::new();
+        for f in &functions {
+            f.pretty_print(&ir, &mut string);
+        }
+        
         if let Ok(v) = env::var(environment::DUMP_IR_FILE) {
-            std::fs::write(v, dump.as_bytes()).unwrap()
+            std::fs::write(v, string.as_bytes()).unwrap()
         } else {
-            println!("{dump}");
+            println!("{string}");
         }
     }
     
+    
     let externs = ir.externs;
-    let functions = ir.functions;
+    
     let constants = ir.constants;
     let mut codegen = CodeGen::new();
+
+    
     codegen.codegen(&ir.symbol_table, externs, functions);
 
     (Ok((codegen.bytecode, constants, ir.symbol_table)), files_data)
+}
+
+
+
+pub fn convert_constants_to_bytes(constants: Vec<Data>, symbol_table: &SymbolTable) -> Vec<u8> {
+    let mut constants_bytes = vec![];
+
+    for constant in constants {
+        match constant {
+            Data::Int(v) => {
+                constants_bytes.push(0);
+                constants_bytes.append(&mut v.to_le_bytes().into());
+            },
+            
+            Data::Float(v) => {
+                constants_bytes.push(1);
+                constants_bytes.append(&mut v.to_le_bytes().into());
+            },
+            
+            Data::Bool(v) => {
+                constants_bytes.push(2);
+                constants_bytes.push(v.try_into().unwrap());
+            },
+            
+            Data::String(v) => {
+                constants_bytes.push(3);
+                constants_bytes.append(&mut (symbol_table.get(v).as_bytes().len() as u64).to_le_bytes().to_vec());
+                constants_bytes.append(&mut symbol_table.get(v).as_bytes().to_vec());
+            },
+            
+            Data::Empty => panic!("empty data type shouldn't be constants"),
+        }
+    }
+
+    constants_bytes
 }

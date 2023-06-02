@@ -1,3 +1,4 @@
+#![allow(clippy::map_entry)]
 #![feature(iter_intersperse)]
 pub mod variable_stack;
 
@@ -8,10 +9,20 @@ use azurite_parser::ast::{Instruction, InstructionKind, Statement, Expression, B
 use common::{DataType, SymbolTable, SymbolIndex};
 use variable_stack::VariableStack;
 
+const STD_LIBRARY : &str = include_str!("../../../builtin_libraries/azurite_api_files/std.az");
+
+
+mod rename {
+    pub const BLOCK : &str = "_block_";
+}
+
+
 #[derive(Debug, PartialEq)]
 pub struct GlobalState<'a> {
     symbol_table: &'a mut SymbolTable,
     pub files: HashMap<SymbolIndex, (AnalysisState, Vec<Instruction>, String)>,
+
+    functions: HashMap<SymbolIndex, Function>,
 }
 
 
@@ -20,7 +31,7 @@ pub struct AnalysisState {
     pub variable_stack: VariableStack,
     loop_depth: usize,
 
-    functions: HashMap<SymbolIndex, (Function, usize)>,
+    functions: HashMap<SymbolIndex, (SymbolIndex, usize)>,
     structures: HashMap<SymbolIndex, (Structure, usize)>,
 
     available_files: Vec<SymbolIndex>,
@@ -29,6 +40,7 @@ pub struct AnalysisState {
 
     depth: usize,
     file: SymbolIndex,
+    custom_path: SymbolIndex,
 }
 
 
@@ -46,7 +58,14 @@ struct Structure {
 
 
 impl<'a> GlobalState<'a> {
-    pub fn new(symbol_table: &'a mut SymbolTable) -> Self { Self { symbol_table, files: HashMap::new() } }
+    pub fn new(symbol_table: &'a mut SymbolTable) -> Self { 
+        symbol_table.add(rename::BLOCK.to_string());
+        Self {
+            symbol_table, 
+            files: HashMap::new(),
+            functions: HashMap::new(),
+        }
+    }
 }
 
 
@@ -61,11 +80,34 @@ impl AnalysisState {
             structures: HashMap::new(),
             available_files: vec![],
             file,
+            custom_path: file,
 
         }
     }
 
     pub fn start_analysis(&mut self, global: &mut GlobalState, instructions: &mut [Instruction]) -> Result<(), Error> {
+        // {
+        //     let file_name = global.symbol_table.add(String::from("std"));
+        //     self.available_files.push(file_name);
+        //     if !global.files.contains_key(&file_name) {
+        //         let file = STD_LIBRARY.replace('\t', "    ");
+        
+        //         let tokens = azurite_lexer::lex(&file, file_name, global.symbol_table);
+        //         global.files.insert(file_name, (AnalysisState::new(file_name), vec![], file));
+
+        //         let tokens = tokens?;
+        //         let mut instructions = azurite_parser::parse(tokens.into_iter(), file_name, global.symbol_table)?;
+        //         let mut analysis = AnalysisState::new(file_name);
+        //         analysis.start_analysis(global, &mut instructions)?;
+
+        //         let temp = global.files.get_mut(&file_name).unwrap(); 
+        //         temp.0 = analysis;
+        //         temp.1 = instructions;
+
+
+        //     }
+        // }
+        
         self.analyze_block(global, instructions, false)?;
 
         Ok(())
@@ -102,8 +144,8 @@ impl AnalysisState {
         }
         // Declarations
         {
-            for x in instructions.iter() {
-                if let InstructionKind::Declaration(d) = &x.instruction_kind {
+            for x in instructions.iter_mut() {
+                if let InstructionKind::Declaration(d) = &mut x.instruction_kind {
                     self.declaration_early_process(global, &x.source_range, d)?
                 }
             }
@@ -136,13 +178,19 @@ impl AnalysisState {
     }
 
 
-    fn declaration_early_process(&mut self, global: &mut GlobalState, source_range: &SourceRange, declaration: &Declaration) -> Result<(), Error> {
+    fn declaration_early_process(&mut self, global: &mut GlobalState, source_range: &SourceRange, declaration: &mut Declaration) -> Result<(), Error> {
         match declaration {
             Declaration::FunctionDeclaration { name, arguments, return_type, .. } => {
-                self.declare_function(*name, Function {
-                    return_type: *return_type,
-                    arguments: arguments.iter().map(|x| x.1).collect(),
-                });
+                // println!("unique name: {:?} {}", self.custom_path, global.symbol_table.get(self.custom_path));
+                // print!("{:?}, {} -> ", name, global.symbol_table.get(*name));
+
+                let new_name = global.symbol_table.add_combo(self.custom_path, *name);
+                self.functions.insert(*name, (new_name, self.depth));
+                *name = new_name;
+                
+                println!("{:?} {}", name, global.symbol_table.get(*name));
+                
+                global.functions.insert(*name, Function { return_type: *return_type, arguments: arguments.iter().map(|x| x.1).collect() });
             },
 
             
@@ -154,8 +202,8 @@ impl AnalysisState {
 
             
             Declaration::Namespace { body, .. } => {
-                for i in body.iter() {
-                    if let InstructionKind::Declaration(d) = &i.instruction_kind {
+                for i in body.iter_mut() {
+                    if let InstructionKind::Declaration(d) = &mut i.instruction_kind {
                         self.declaration_early_process(global, &i.source_range, d)?
                     }
                 }
@@ -165,10 +213,14 @@ impl AnalysisState {
             
             Declaration::Extern { functions, .. } => {
                 for f in functions {
-                    self.declare_function(f.identifier, Function {
+                    let new_name = global.symbol_table.add_combo(self.custom_path, f.identifier);
+                    self.functions.insert(f.identifier, (new_name, self.depth));
+                    f.identifier = new_name;
+
+                    global.functions.insert(f.identifier, Function {
                         return_type: f.return_type,
                         arguments: f.arguments.clone(),
-                    })
+                    });
                 }
             },
 
@@ -189,7 +241,7 @@ impl AnalysisState {
                             Ok(v) => v,
                             Err(_) => return Err(CompilerError::new(self.file, 223, "file doesn't exist")
                                 .highlight(*source_range)
-                                    .note(format!("can't find a file named {}", path))
+                                    .note(format!("can't find a file named {path}"))
                                 .build())
                         }
                     },
@@ -215,7 +267,7 @@ impl AnalysisState {
 
     fn analyze_declaration(&mut self, global: &mut GlobalState, declaration: &mut Declaration, source_range: &SourceRange) -> Result<(), Error> {
         match declaration {
-            Declaration::FunctionDeclaration { arguments, return_type, body, source_range_declaration, name } => {
+            Declaration::FunctionDeclaration { arguments, return_type, body, source_range_declaration, name: _ } => {
                 let mut analysis_state = AnalysisState::new(self.file);
 
                 analysis_state.functions = std::mem::take(&mut self.functions);
@@ -353,11 +405,7 @@ impl AnalysisState {
 
 
                     | BinaryOperator::Equals
-                    | BinaryOperator::NotEquals
-                    | BinaryOperator::GreaterThan
-                    | BinaryOperator::LesserThan
-                    | BinaryOperator::GreaterEquals
-                    | BinaryOperator::LesserEquals => {
+                    | BinaryOperator::NotEquals => {
                         if !self.is_of_type(global, left_type, right_type)? {
                             return Err(CompilerError::new(self.file, 202, "comparisson types differ")
                                 .highlight(SourceRange::combine(left.source_range, right.source_range))
@@ -366,6 +414,29 @@ impl AnalysisState {
                         }
             
                         DataType::Bool
+                    }
+
+
+                    | BinaryOperator::GreaterThan
+                    | BinaryOperator::LesserThan
+                    | BinaryOperator::GreaterEquals
+                    | BinaryOperator::LesserEquals => {
+                        match (left_type.data_type, right_type.data_type) {
+                            | (DataType::Any, DataType::Integer)
+                            | (DataType::Integer, DataType::Any)
+                            | (DataType::Integer, DataType::Integer)
+                            | (DataType::Any, DataType::Float)
+                            | (DataType::Float, DataType::Any)
+                            | (DataType::Float, DataType::Float)
+                            | (DataType::Any, DataType::Any) => DataType::Bool,
+                            
+                            _ => {
+                                return Err(CompilerError::new(self.file, 201, "invalid type order operation")
+                                    .highlight(SourceRange::combine(left.source_range, right.source_range))
+                                        .note(format!("left side is of type {} while the right side is of type {}", global.to_string(left_type.data_type), global.to_string(right_type.data_type)))
+                                    .build())
+                            }
+                        }
                     }
                     
                 };
@@ -426,7 +497,7 @@ impl AnalysisState {
 
 
             Expression::FunctionCall { identifier, arguments } => {
-                let (function, new_identifier) = match self.get_function(global, identifier) {
+                let (function, absolute_identifier) = match self.get_function(global, identifier) {
                     Some(v) => v,
                     None => {
                         return Err(CompilerError::new(self.file, 212, "function isn't declared")
@@ -436,7 +507,7 @@ impl AnalysisState {
                     },
                 };
 
-                *identifier = new_identifier;
+                *identifier = absolute_identifier;
                 let return_type = function.return_type;
         
                 if function.arguments.len() != arguments.len() {
@@ -586,7 +657,7 @@ impl AnalysisState {
             },
 
             
-            Expression::WithinNamespace { namespace, do_within } => {
+            Expression::WithinNamespace { do_within, .. } => {
                 self.analyze(global, do_within)
             },
         }
@@ -772,22 +843,25 @@ impl AnalysisState {
     }
 
     
-    fn declare_function(&mut self, symbol: SymbolIndex, function: Function) {
-        self.functions.insert(symbol, (function, self.depth));
-    }
-
-
-    fn get_function_detailed<'a>(&'a self, symbol_table: &mut SymbolTable, files: &'a HashMap<SymbolIndex, (AnalysisState, Vec<Instruction>, String)>, symbol: &SymbolIndex, implicit_complete: bool) -> Option<(&'a Function, SymbolIndex)> {
+    fn get_function_detailed<'a>(
+            &self,
+            symbol_table: &mut SymbolTable,
+            files: &HashMap<SymbolIndex, (AnalysisState, Vec<Instruction>, String)>,
+            functions: &'a HashMap<SymbolIndex, Function>,
+            symbol: &SymbolIndex,
+            implicit_complete: bool
+    ) -> Option<(&'a Function, SymbolIndex)> {
+        
         let temp = self.functions.get(symbol);
-        match temp.map(|x| &x.0) {
-            Some(v) => Some((v, *symbol)),
+        match temp.map(|x| (functions.get(&x.0).unwrap(), x.0)) {
+            Some((func, absolute_ident)) => Some((func, absolute_ident)),
             None => {
                 let (root, root_excluded) = symbol_table.find_root(*symbol);
 
                 if let Some(root_excluded) = root_excluded {
                     if self.available_files.contains(&root) {
-                        if let Some(v) = files.get(&root)?.0.get_function_detailed(symbol_table, files, &root_excluded, false) {
-                            return Some((v.0, symbol_table.add_combo(root, v.1)))
+                        if let Some(v) = files.get(&root)?.0.get_function_detailed(symbol_table, files, functions, &root_excluded, false) {
+                            return Some((v.0, v.1))
                         }
                     }
                 }
@@ -798,8 +872,8 @@ impl AnalysisState {
                 }
                 
                 for namespace in self.available_files.iter() {
-                    if let Some(v) = files.get(namespace)?.0.get_function_detailed(symbol_table, files, symbol, false) {
-                        return Some((v.0, symbol_table.add_combo(*namespace, v.1)))
+                    if let Some(v) = files.get(namespace)?.0.get_function_detailed(symbol_table, files, functions, symbol, false) {
+                        return Some((v.0, v.1))
                     }
 
                 }
@@ -812,7 +886,7 @@ impl AnalysisState {
 
     
     fn get_function<'a>(&'a self, global: &'a mut GlobalState, symbol: &SymbolIndex) -> Option<(&'a Function, SymbolIndex)> {
-        self.get_function_detailed(global.symbol_table, &global.files, symbol, true)
+        self.get_function_detailed(global.symbol_table, &global.files, &global.functions, symbol, true)
     }
 
     

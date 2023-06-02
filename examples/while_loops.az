@@ -1,0 +1,4 @@
+var i = 15
+while i > 0 {
+    i = i - 1
+}

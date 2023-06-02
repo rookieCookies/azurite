@@ -176,7 +176,7 @@ impl ErrorOption {
             ErrorOption::Highlight { range, note, colour, file } => {
                 let mut string = String::new();
 
-                let (file, source) = files.get(&file).unwrap();
+                let (file_name, source) = files.get(&file).unwrap();
 
                 let start_line = utils::line_at_index(source, range.start).unwrap().1;
                 let end_line   = utils::line_at_index(source, range.end - 1).unwrap().1;
@@ -184,13 +184,15 @@ impl ErrorOption {
 
                 
                 {
-                    let _ = writeln!(string, "{}{} {}:{}:{}", " ".repeat(line_size), "-->".color(ORANGE), file, start_line, range.start - utils::start_of_line(source, start_line));
+                    let _ = writeln!(string, "{}{} {}:{}:{}", " ".repeat(line_size), "-->".color(ORANGE), file_name, start_line, range.start - utils::start_of_line(source, start_line));
                     let _ = write!(string, "{} {}", " ".repeat(line_size), "|".color(ORANGE));
                 }
 
 
-
-                for (line_number, line) in source.lines().enumerate().take(end_line + 1).skip(start_line) {
+                // println!("{}", source.as_bytes().len());
+                // writeln!(string, "{}", &source[range.start..range.end]);
+                
+               for (line_number, line) in source.lines().enumerate().take(end_line + 1).skip(start_line) {
                     let _ = writeln!(string);
 
                     let _ = writeln!(string, "{:>w$} {} {}", line_number.to_string().color(ORANGE), "|".color(ORANGE), line, w = line_size);
@@ -209,7 +211,7 @@ impl ErrorOption {
                             " ".repeat({
                                 let mut count = 0;
                                 for (index, i) in line.chars().enumerate() {
-                                    if count >= range.start - start_of_line - 1 {
+                                    if count >= range.start - start_of_line {
                                         count = index;
                                         break
                                     }
@@ -219,9 +221,10 @@ impl ErrorOption {
                             }),
                             "^".repeat({
                                 if end_line == line_number {
-                                    (range.end-range.start).max(1)
+                                    (range.end-range.start) + 1
                                 } else {
-                                    (line.len() - (range.start - start_of_line)).max(1)
+                                    dbg!(line, range, start_of_line, line_number);
+                                    line.len() - (range.start - start_of_line) + 1
                                 }
                             }).color(colour),
                         );
@@ -235,7 +238,7 @@ impl ErrorOption {
                             }).color(colour),
                         );
 
-                        
+                       
                     } else {
                         let _ = write!(string, "{}",
                             "^".repeat(line.len()).color(colour),

@@ -42,6 +42,7 @@ impl CodeGen {
         }
     }
 
+
     fn codegen_blocks(&mut self, function: Function) {
         self.function_starts.insert(function.function_index, self.bytecode.len() as u32);
         self.emit_bytecode(Bytecode::Push);

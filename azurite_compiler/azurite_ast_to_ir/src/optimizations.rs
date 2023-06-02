@@ -1,11 +1,48 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use crate::{ConversionState, Function, Block, BlockIndex, BlockTerminator, Variable, IR};
+use crate::{ConversionState, Function, Block, BlockIndex, BlockTerminator, IR, FunctionIndex};
 
 impl ConversionState {
     pub fn optimize(&mut self) {
-         loop {
-            let has_changed = self.functions.iter_mut().map(|x| x.optimize(true)).any(|x| x);
+        loop {
+            let mut has_changed = self.functions.iter_mut().map(|x| x.1.optimize(true)).any(|x| x);
+            
+            {
+                let mut used_functions = HashMap::from([(FunctionIndex(0), FunctionIndex(0))]);
+                let mut counter = 1;
+
+                for f in self.functions.iter_mut() {
+                    for b in f.1.blocks.iter_mut() {
+                        for i in b.instructions.iter_mut() {
+                            match i {
+                                IR::Call { id, .. } => {
+                                    let val = match used_functions.entry(*id) {
+                                        std::collections::hash_map::Entry::Occupied(v) => *v.get(),
+                                        std::collections::hash_map::Entry::Vacant(v) => {
+                                            counter += 1;
+                                            *v.insert(FunctionIndex(counter-1))
+                                        }
+                                    };
+
+                                    *id = val;
+                                },
+                                _ => continue,
+                            }
+                        }
+                    }
+                }
+
+                for f in self.functions.iter().map(|x| (*x.0, x.1.function_index)).collect::<Vec<_>>() {
+                    if let Some(mapping) = used_functions.get(&f.1) {
+                        self.functions.get_mut(&f.0).unwrap().function_index = *mapping;
+                    } else {
+                        has_changed = true;
+                        self.functions.remove(&f.0);
+                    }
+                }
+
+            }
+
             
             if !has_changed {
                 break
@@ -90,7 +127,6 @@ impl Function {
 
 
         }
-       
 
 
         {
@@ -155,6 +191,32 @@ impl Function {
 
 
         {
+            let mut remove = vec![];
+            for block in self.blocks.iter_mut() {
+                remove.clear();
+
+                for (index, i) in block.instructions.iter().enumerate() {
+                    match i {
+                        | IR::Copy { dst: v1, src: v2 }
+                        | IR::Swap { v1, v2 } => {
+                            if v1 == v2 {
+                                remove.push(index)
+                            }
+                        },
+
+                        _ => continue,
+                    }
+                }
+
+                for i in remove.iter().rev() {
+                    block.instructions.remove(*i);
+                }
+            }
+        }
+
+
+
+        {
             let mut block_mapping = HashMap::with_capacity(self.blocks.len());
 
             for (block_counter, block) in self.blocks.iter_mut().enumerate() {
@@ -183,123 +245,4 @@ impl Function {
         has_changed
     }
 
-
-//     fn copy_prop(&mut self, block: BlockIndex, already_done: &mut HashSet<BlockIndex>, rem_buffer: &mut Vec<usize>, mapping: &mut Map ) {
-//         if already_done.contains(&block) {
-//             return;
-//         }
-
-//         let block = self.find_block_mut(block);
-
-//         for i in block.instructions.iter_mut().enumerate() {
-//             match i.1 {
-//                 crate::IR::Copy { dst, src } => {
-//                     mapping.set(*dst, *src);
-//                     // rem_buffer.push(i.0);
-//                 },
-
-                
-//                 crate::IR::Swap { v1, v2 } => {
-//                     *v1 = mapping.get(*v1);
-//                     *v2 = mapping.get(*v2);
-//                 },
-
-                
-//                 | crate::IR::Unit { dst }
-//                 | crate::IR::Load { dst, .. } => {
-//                     *dst = mapping.get(*dst);
-//                 },
-
-                
-//                 | crate::IR::Add { dst, left, right }
-//                 | crate::IR::Subtract { dst, left, right }
-//                 | crate::IR::Multiply { dst, left, right }
-//                 | crate::IR::Divide { dst, left, right }
-//                 | crate::IR::Equals { dst, left, right }
-//                 | crate::IR::NotEquals { dst, left, right }
-//                 | crate::IR::GreaterThan { dst, left, right }
-//                 | crate::IR::LesserThan { dst, left, right }
-//                 | crate::IR::GreaterEquals { dst, left, right }
-//                 | crate::IR::LesserEquals { dst, left, right } => {
-//                     dbg!(&mapping);
-//                     *dst = mapping.get(*dst);
-//                     // *dst = mapping[dst.0 as usize];
-//                     *left = mapping.get(*left);
-//                     *right = mapping.get(*right);
-//                 }
-
-//                 | crate::IR::Struct { dst, fields: args }
-//                 | crate::IR::ExtCall { dst, args, .. }
-//                 | crate::IR::Call { dst, args, .. } => {
-//                     // *dst = mapping[dst.0 as usize];
-//                     *dst = mapping.get(*dst);
-
-//                     for i in args.iter_mut() {
-//                         *i = mapping.get(*i)
-//                     }
-//                 },
-                
-//                 | crate::IR::SetField { dst, data: val, .. }
-//                 | crate::IR::AccStruct { dst, val, ..} => {
-//                     // *dst = mapping[dst.0 as usize];
-//                     *dst = mapping.get(*dst);
-                                
-//                     *val = mapping.get(*val);
-//                 },
-//                 IR::Copy { dst, src } => todo!(),
-//                 IR::Swap { v1, v2 } => todo!(),
-//                 IR::Load { dst, data } => todo!(),
-//                 IR::Unit { dst } => todo!(),
-//                 IR::Add { dst, left, right } => todo!(),
-//                 IR::Subtract { dst, left, right } => todo!(),
-//                 IR::Multiply { dst, left, right } => todo!(),
-//                 IR::Divide { dst, left, right } => todo!(),
-//                 IR::Equals { dst, left, right } => todo!(),
-//                 IR::NotEquals { dst, left, right } => todo!(),
-//                 IR::GreaterThan { dst, left, right } => todo!(),
-//                 IR::LesserThan { dst, left, right } => todo!(),
-//                 IR::GreaterEquals { dst, left, right } => todo!(),
-//                 IR::LesserEquals { dst, left, right } => todo!(),
-//                 IR::Call { dst, id, args } => todo!(),
-//                 IR::ExtCall { dst, index, args } => todo!(),
-//                 IR::Struct { dst, fields } => todo!(),
-//                 IR::AccStruct { dst, val, index } => todo!(),
-//                 IR::SetField { dst, data, index } => todo!(),
-//                 IR::Noop => todo!(),
-//             }
-//         }
-
-//         rem_buffer.iter().rev().for_each(|x| { block.instructions.remove(*x); });
-//         rem_buffer.clear();
-
-//         already_done.insert(block.block_index);
-//         // dbg!(&block, &mapping);
-            
-//         match block.ending {
-//             BlockTerminator::Goto(v) => self.copy_prop(v, already_done, rem_buffer, mapping),
-//             BlockTerminator::SwitchBool { op1, op2, .. } => {
-//                 self.copy_prop(op1, already_done, rem_buffer, mapping);
-//                 self.copy_prop(op2, already_done, rem_buffer, mapping)
-//             },
-                
-//             BlockTerminator::Return => (),
-//         }
-//     }
-}
-
-#[derive(Debug)]
-struct Map(Vec<Variable>);
-impl Map {
-    fn get(&self, reg: Variable) -> Variable {
-        let val = self.0[reg.0 as usize];
-
-        if val == reg {
-            return reg
-        }
-        self.get(val)
-    }
-
-    fn set(&mut self, reg: Variable, set: Variable) {
-        self.0[reg.0 as usize] = set
-    }
 }

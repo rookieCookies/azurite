@@ -2,7 +2,7 @@ use azurite_common::consts;
 use libloading::{Library, Symbol};
 
 use crate::{VMData, object_map::Object, VM, Code};
-use std::ops::{Add, Sub, Mul, Div};
+use std::ops::{Add, Sub, Mul};
 
 
 type ExternFunction<'a> = Symbol<'a, unsafe extern fn(&mut VM)>;
@@ -44,7 +44,8 @@ impl VM {
                     
                     unsafe {
                         // let Ok(lib) = Library::new(&path) else { break Err(format!("can't find a runtime library file named {path}")); };
-                        let lib = match Library::new(&path) {
+                        let lib = match Library::new(&path) {
+
                             Ok(v) => v,
                             Err(_) => {
                                 let new_path = std::env::current_exe().unwrap().parent().unwrap().join("runtime").join(&path);
@@ -92,7 +93,27 @@ impl VM {
                 consts::Add => self.binary_operation(&mut current, VM::arithmetic_operation, i64::wrapping_add, f64::add),
                 consts::Subtract => self.binary_operation(&mut current, VM::arithmetic_operation, i64::wrapping_sub, f64::sub),
                 consts::Multiply => self.binary_operation(&mut current, VM::arithmetic_operation, i64::wrapping_mul, f64::mul),
-                consts::Divide => self.binary_operation(&mut current, VM::arithmetic_operation, i64::wrapping_div, f64::div),
+                consts::Divide => {
+                    let dst = current.next();
+                    let v1 = current.next();
+                    let v2 = current.next();
+
+                    
+                    let val = match (self.stack.reg(v1), self.stack.reg(v2)) {
+                        (VMData::Integer(v1), VMData::Integer(v2)) => {
+                            if v2 == 0 {
+                                break Err(String::from("division by zero"));
+                            }
+
+                            VMData::Integer(v1.wrapping_div(v2))
+                        },
+                        (VMData::Float(v1), VMData::Float(v2))     => VMData::Float(v1 / v2),
+
+                        _ => unreachable!(),
+                    };
+
+                    self.stack.set_reg(dst, val);
+                },
 
                 
                 consts::GreaterThan => self.binary_operation(&mut current, VM::comparisson_operation, i64::gt, f64::gt),
@@ -173,7 +194,9 @@ impl VM {
                     let dst = current.next();
                     let arg_count = current.next() as usize;
 
-                    self.stack.push(arg_count + 1);
+                    if let Err(e) = self.stack.push(arg_count + 1) {
+                        break Err(e)
+                    }
                     
                     let temp = self.stack.top - arg_count - self.stack.stack_offset;
                     for v in 0..arg_count {
@@ -196,7 +219,9 @@ impl VM {
                     let dst = current.next();
                     let arg_count = current.next() as usize;
 
-                    self.stack.push(arg_count + 1);
+                    if let Err(e) = self.stack.push(arg_count + 1) {
+                        break Err(e)
+                    }
                     
                     let temp = self.stack.top - arg_count - self.stack.stack_offset;
                     for v in 0..arg_count {
@@ -218,7 +243,9 @@ impl VM {
 
                 consts::Push => {
                     let amount = current.next();
-                    self.stack.push(amount as usize);
+                    if let Err(e) = self.stack.push(amount as usize) {
+                        break Err(e)
+                    }
                 }
 
 
@@ -229,10 +256,11 @@ impl VM {
 
 
                 consts::Unit => {
-                    let reg = current.next();
-
                     #[cfg(debug_assertions)]
-                    self.stack.set_reg(reg, VMData::Empty);
+                    {
+                        let reg = current.next();
+                        self.stack.set_reg(reg, VMData::Empty);
+                    }
                 }
 
 
@@ -306,8 +334,10 @@ impl VM {
         
         for library in libraries {
             unsafe {
-                let shutdown : ExternFunction = match library.get(b"_shutdown") {
-                    Ok(v) => v,
+                let shutdown : ExternFunction = match library.get(b"_shutdown") {
+
+                    Ok(v) => v,
+
                     Err(_) => continue,
                 };
 

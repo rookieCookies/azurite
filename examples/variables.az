@@ -1,2 +1,16 @@
+struct Hi {
+    value: int
+}
+
+
 var hi = 123
+
+var hi = Hi {
+    value: hi
+}
+
 var hello : float = 2.5
+
+
+hello = 3.5
+hi.value = 3

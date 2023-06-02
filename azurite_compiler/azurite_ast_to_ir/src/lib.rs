@@ -1,6 +1,6 @@
 pub mod optimizations;
 
-use std::{mem::replace, fmt::{Display, Write}, collections::HashMap};
+use std::{mem::replace, fmt::{Display, Write}, collections::{HashMap, BTreeMap}};
 
 use azurite_parser::ast::{Instruction, Expression, BinaryOperator, Statement, InstructionKind, Declaration};
 use common::{Data, SymbolIndex, SymbolTable};
@@ -9,20 +9,21 @@ use rayon::prelude::{ParallelIterator, IntoParallelRefMutIterator};
 #[derive(Debug, PartialEq)]
 pub struct ConversionState {
     pub constants: Vec<Data>,
-    pub functions: Vec<Function>,
     pub externs: Vec<ExternFunction>,
 
-    files: HashMap<SymbolIndex, HashMap<SymbolIndex, FunctionLookup>>,
+    pub functions: BTreeMap<SymbolIndex, Function>,
+    
+    extern_functions: HashMap<SymbolIndex, u32>,
     function_counter: u32,
     extern_counter: u32,
     
     pub symbol_table: SymbolTable,
-    current_file: SymbolIndex,
 }
 
 
 #[derive(Debug, PartialEq)]
 pub struct Function {
+    pub identifier: SymbolIndex,
     pub function_index: FunctionIndex,
     variable_lookup: Vec<(SymbolIndex, Variable)>,
     
@@ -140,132 +141,67 @@ pub enum Result {
 
 
 impl ConversionState {
-    pub fn new(symbol_table: SymbolTable, root_file: SymbolIndex) -> Self { 
+    pub fn new(symbol_table: SymbolTable) -> Self { 
         Self {
-            current_file: root_file,
             constants: vec![],
-            functions: vec![],
             symbol_table,
             function_counter: 0,
-            files: HashMap::new(),
+            functions: BTreeMap::new(),
             externs: vec![],
             extern_counter: 0,
+            extern_functions: HashMap::new(),
 
         }
     }
 
-    pub fn generate(&mut self, root_index: SymbolIndex, mut files: Vec<(SymbolIndex, Vec<Instruction>)>) {
-        self.current_file = root_index;
-        files.sort_by_key(|x| x.0);
-        
-        let mut function = Function::new(self.function(), 0);
 
-        files.iter().for_each(|x| { self.files.insert(x.0, HashMap::new()); });
+    pub fn generate(&mut self, root_index: SymbolIndex, files: Vec<(SymbolIndex, Vec<Instruction>)>) {
+        let init_function = self.symbol_table.add(String::from("::init"));
+        let mut function = Function::new(init_function, self.function(), 0);
+
         for file in files.iter() {
-            if file.0 == root_index {
-                continue
-            }
-            self.declaration_process(file.0, &file.1);
+            self.declaration_process(&file.1);
         }
         
 
-        let mut root = None;
-        let mut vec = vec![];
         for file in files {
-            if file.0 == root_index {
-                root = Some(file.1);
-                continue;
-            }
+            let mut function = Function::new(file.0, self.function(), 0);
 
-            self.current_file = file.0;
-
-            let mut function = Function::new(self.function(), 0);
             function.generate(self, file.1);
-            vec.push(function.function_index);
-            self.functions.push(function);
+            self.functions.insert(file.0, function);
         }
 
-        let vec = vec.into_iter().map(|x| IR::Call { dst: Variable(0), id: x, args: vec![] }).collect();
-        let block = Block { block_index: function.block(), instructions: vec, ending: BlockTerminator::Goto(BlockIndex(1)) };
-        function.blocks.push(block);
-        function.generate(self, root.unwrap());
 
-        self.functions.push(function);
+        let vec = Vec::from([IR::Call { dst: Variable(0), id: self.find_function(root_index).function_index, args: vec![] }]);
+        let block = Block { block_index: function.block(), instructions: vec, ending: BlockTerminator::Return };
+        function.blocks.push(block);
+
+        self.functions.insert(init_function, function);
+
+        {
+            // for f in &self.functions {
+                // assert!(!f.blocks.is_empty());
+            // }
+        }
     }
 
     pub fn pretty_print(&mut self) -> String {
         let mut lock = String::new();
-        for i in &self.functions {
-            let _ = writeln!(lock, "fn {}", i.function_index);
-            for block in &i.blocks {
-                let _ = writeln!(lock, "  bb{}:", block.block_index.0);
-                for ir in &block.instructions {
-                    let _ = write!(lock, "    ");
-                    let _ = match ir {
-                        IR::Load { dst, data }                 => writeln!(lock, "load {dst} {}", self.constants[*data as usize].to_string(&self.symbol_table)),
-                        IR::Add { dst, left, right }           => writeln!(lock, "add {dst} {left} {right}"),
-                        IR::Subtract { dst, left, right }      => writeln!(lock, "sub {dst} {left} {right}"),
-                        IR::Multiply { dst, left, right }      => writeln!(lock, "mul {dst} {left} {right}"),
-                        IR::Divide { dst, left, right }        => writeln!(lock, "div {dst} {left} {right}"),
-                        IR::Copy { src, dst }                  => writeln!(lock, "copy {src} {dst}"),
-                        IR::Swap { v1, v2 }                    => writeln!(lock, "swap {v1} {v2}"),
-                        IR::Equals { dst, left, right }        => writeln!(lock, "eq {dst} {left} {right}"),
-                        IR::NotEquals { dst, left, right }     => writeln!(lock, "neq {dst} {left} {right}"),
-                        IR::GreaterThan { dst, left, right }   => writeln!(lock, "gt {dst} {left} {right}"),
-                        IR::LesserThan { dst, left, right }    => writeln!(lock, "lt {dst} {left} {right}"),
-                        IR::GreaterEquals { dst, left, right } => writeln!(lock, "ge {dst} {left} {right}"),
-                        IR::LesserEquals { dst, left, right }  => writeln!(lock, "le {dst} {left} {right}"),
-                        IR::Call { id, dst, args }             => writeln!(lock, "call {id} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
-                        IR::ExtCall { index, dst, args }       => writeln!(lock, "ecall {index} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
-                        IR::Unit { dst }                       => writeln!(lock, "unit {dst}"),
-                        IR::Struct { dst, fields }             => writeln!(lock, "struct {dst} ({} )", fields.iter().map(|x| format!(" {x}")).collect::<String>()),
-                        IR::AccStruct { dst, val, index }      => writeln!(lock, "accstruct, {dst} {val} {index}"),
-                        IR::SetField { dst, data, index }      => writeln!(lock, "setfield {dst} {data} {index}"),
-                        IR::Noop                               => writeln!(lock, "noop"),
-                    };
-                }
-            
-                let _ = write!(lock, "    ");
-                let _ =  match block.ending {
-                    BlockTerminator::Goto(v) => writeln!(lock, "goto {v}"),
-                    BlockTerminator::SwitchBool { cond, op1, op2 } => writeln!(lock, "switch-bool {cond} {op1} {op2}"),
-                    BlockTerminator::Return => writeln!(lock, "return"),
-                };
-            
-                let _ = writeln!(lock);
-            }
+        for function in self.functions.values() {
+            function.pretty_print(self, &mut lock);
         }
         lock
     }
 
 
     pub fn sort(&mut self) {
-        self.functions.par_iter_mut().for_each(|x| x.blocks.sort_by_key(|x| x.block_index.0));
-        self.functions.sort_by_key(|x| x.function_index.0);
+        self.functions.par_iter_mut().for_each(|x| x.1.blocks.sort_by_key(|x| x.block_index.0));
     }
 
 
-    pub fn find_function(&mut self, symbol: SymbolIndex) -> &FunctionLookup {
-        match self.files.get(&self.current_file).unwrap().get(&symbol) {
-            Some(v) => v,
-            None => {
-                let (mut root, root_excluded) = self.symbol_table.find_root(symbol);
-                let mut root_excluded = root_excluded.unwrap();
-
-                loop {
-                    match self.files.get(&root).unwrap().get(&root_excluded) {
-                        Some(v) => return v,
-                        None => {
-                            let (root_t, root_excluded_t) = self.symbol_table.find_root(root_excluded);
-                            root = root_t;
-                            root_excluded = root_excluded_t.unwrap();
-                        },
-                    }
-                    
-                }
-            },
-        }
-        
+    /// SAFETY: If the function is an extern function this will panic
+    pub fn find_function(&mut self, symbol: SymbolIndex) -> &Function {
+        self.functions.get(&symbol).unwrap()
     }
 }
 
@@ -284,12 +220,13 @@ impl ConversionState {
 
 
 impl Function {
-    fn new(index: FunctionIndex, argument_count: usize) -> Self {
+    fn new(identifier: SymbolIndex, index: FunctionIndex, argument_count: usize) -> Self {
         Self {
+            identifier,
             function_index: index,
             variable_lookup: vec![],
-            variable_counter: 0,
-            stack_size: 0,
+            variable_counter: argument_count as u32,
+            stack_size: argument_count as u32,
             block_counter: 0,
             breaks: vec![],
             continues: vec![],
@@ -327,7 +264,7 @@ impl Function {
 
 
     fn evaluate(&mut self, state: &mut ConversionState, block: &mut Block, instructions: Vec<Instruction>, final_value: &mut Variable) -> bool {
-        state.declaration_process(state.current_file, &instructions);
+        state.declaration_process(&instructions);
 
         for instruction in instructions {
             let statement = matches!(instruction.instruction_kind, InstructionKind::Statement(_) | InstructionKind::Declaration(_));
@@ -351,42 +288,29 @@ impl Function {
 
 
 impl ConversionState {
-    fn declaration_process(&mut self, file: SymbolIndex, instructions: &Vec<Instruction>) {
-        let mut files = std::mem::take(&mut self.files);
-        let file = files.get_mut(&file).unwrap();
+    fn declaration_process(&mut self, instructions: &[Instruction]) {
         for instruction in instructions.iter() {
             match &instruction.instruction_kind {
                 InstructionKind::Declaration(d) => {
                     match d {
                         Declaration::FunctionDeclaration { name, arguments, .. } => {
-                            if file.contains_key(name) {
-                                    continue
-                                }
-                            let function = Function::new(self.function(), arguments.len());
-                            file.insert(*name, FunctionLookup::Normal(function.function_index));
-
-                            self.functions.push(function);
+                            let function = Function::new(*name, self.function(), arguments.len());
+                            self.functions.insert(*name, function);
                         },
                         Declaration::StructDeclaration { .. } => (),
                         Declaration::Namespace { .. } => (),
                         Declaration::Extern { functions, .. } => {
                             for f in functions {
-                                if file.contains_key(&f.identifier) {
-                                    continue
-                                }
-
                                 let t = self.extern_function();
-                                file.insert(f.identifier, FunctionLookup::Extern(t));
+                                self.extern_functions.insert(f.identifier, t);
                             }
                         },
-                        Declaration::UseFile { file_name } => (),
+                        Declaration::UseFile { .. } => (),
                     }
                 },
                 _ => continue,
             }
         }
-
-        self.files = files;
     }
         
 }
@@ -437,14 +361,11 @@ impl Function {
 
     fn declaration(&mut self, state: &mut ConversionState, declaration: Declaration) {
         match declaration {
-             Declaration::FunctionDeclaration { arguments, body, name, .. } => {
-                let function_index = *match state.files.get(&state.current_file).unwrap().get(&name).unwrap() {
-                    FunctionLookup::Normal(v) => v,
-                    FunctionLookup::Extern(_) => unreachable!(),
-                };
+            Declaration::FunctionDeclaration { arguments, body, name, .. } => {
+                let function_index = state.find_function(name).function_index;
 
                 
-                let mut function = Function::new(function_index, arguments.len());
+                let mut function = Function::new(name, function_index, arguments.len());
 
                 let return_addrs = function.variable();
                 
@@ -460,7 +381,8 @@ impl Function {
                     block.ending = BlockTerminator::Return;
                 }
 
-                *state.functions.iter_mut().find(|x| x.function_index == function_index).unwrap() = function;
+                let t = state.functions.insert(name, function);
+                assert!(t.is_some());
             },
 
             
@@ -477,7 +399,7 @@ impl Function {
             },
 
             
-            Declaration::UseFile { file_name } => (),
+            Declaration::UseFile { .. } => (),
         }
     }
 
@@ -648,13 +570,14 @@ impl Function {
                     variables.push(argument_reg);
                 }
 
-                let function_lookup = state.find_function(identifier);
-                
-                match function_lookup {
-                    FunctionLookup::Normal(v) => block.ir(IR::Call    { dst, id: *v, args: variables }),
-                    FunctionLookup::Extern(v) => block.ir(IR::ExtCall { dst, index: *v, args: variables }),
-                }
-
+                // dbg!(&state);
+                if let Some(v) = state.functions.get(&identifier) {
+                    block.ir(IR::Call    { dst, id: v.function_index, args: variables })
+                } else if let Some(v) = state.extern_functions.get(&identifier) {
+                    block.ir(IR::ExtCall { dst, index: *v, args: variables })
+                } else { 
+                    panic!("huh?")
+                 }
 
                 dst
             },
@@ -725,6 +648,50 @@ impl Function {
         self.blocks.iter().find(|x| x.block_index == index).unwrap()
     }
 
+}
+
+
+impl Function {
+    pub fn pretty_print(&self, state: &ConversionState, lock: &mut impl Write) {
+        let _ = writeln!(lock, "fn {} ({})", self.function_index, state.symbol_table.get(self.identifier));
+        for block in &self.blocks {
+            let _ = writeln!(lock, "  bb{}:", block.block_index.0);
+            for ir in &block.instructions {
+                let _ = write!(lock, "    ");
+                let _ = match ir {
+                    IR::Load { dst, data }                 => writeln!(lock, "load {dst} {}", state.constants[*data as usize].to_string(&state.symbol_table)),
+                    IR::Add { dst, left, right }           => writeln!(lock, "add {dst} {left} {right}"),
+                    IR::Subtract { dst, left, right }      => writeln!(lock, "sub {dst} {left} {right}"),
+                    IR::Multiply { dst, left, right }      => writeln!(lock, "mul {dst} {left} {right}"),
+                    IR::Divide { dst, left, right }        => writeln!(lock, "div {dst} {left} {right}"),
+                    IR::Copy { src, dst }                  => writeln!(lock, "copy {src} {dst}"),
+                    IR::Swap { v1, v2 }                    => writeln!(lock, "swap {v1} {v2}"),
+                    IR::Equals { dst, left, right }        => writeln!(lock, "eq {dst} {left} {right}"),
+                    IR::NotEquals { dst, left, right }     => writeln!(lock, "neq {dst} {left} {right}"),
+                    IR::GreaterThan { dst, left, right }   => writeln!(lock, "gt {dst} {left} {right}"),
+                    IR::LesserThan { dst, left, right }    => writeln!(lock, "lt {dst} {left} {right}"),
+                    IR::GreaterEquals { dst, left, right } => writeln!(lock, "ge {dst} {left} {right}"),
+                    IR::LesserEquals { dst, left, right }  => writeln!(lock, "le {dst} {left} {right}"),
+                    IR::Call { id, dst, args }             => writeln!(lock, "call {id} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
+                    IR::ExtCall { index, dst, args }       => writeln!(lock, "ecall {index} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
+                    IR::Unit { dst }                       => writeln!(lock, "unit {dst}"),
+                    IR::Struct { dst, fields }             => writeln!(lock, "struct {dst} ({} )", fields.iter().map(|x| format!(" {x}")).collect::<String>()),
+                    IR::AccStruct { dst, val, index }      => writeln!(lock, "accstruct, {dst} {val} {index}"),
+                    IR::SetField { dst, data, index }      => writeln!(lock, "setfield {dst} {data} {index}"),
+                    IR::Noop                               => writeln!(lock, "noop"),
+                };
+            }
+        
+            let _ = write!(lock, "    ");
+            let _ =  match block.ending {
+                BlockTerminator::Goto(v) => writeln!(lock, "goto {v}"),
+                BlockTerminator::SwitchBool { cond, op1, op2 } => writeln!(lock, "switch-bool {cond} {op1} {op2}"),
+                BlockTerminator::Return => writeln!(lock, "return"),
+            };
+        
+            let _ = writeln!(lock);
+        }
+    }
 }
 
 impl Block {

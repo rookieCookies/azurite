@@ -1,3 +1,9 @@
-using std
+// using std
+
+extern "builtin_libraries/.target/release/standard_library" {
+	fn int_to_str(int): str
+	fn print(str)
+	fn println(str)
+}
 
 println("hello world")

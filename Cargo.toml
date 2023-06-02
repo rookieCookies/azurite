@@ -13,6 +13,8 @@ members = [
     "azurite_compiler/azurite_codegen",
     "azurite_runtime",
     "azurite_common",
+
+    "afl",
     "crates/azurite_archiver",
 ]
 
@@ -22,6 +24,9 @@ lto = true
 codegen-units = 1
 strip = true
 
+
+[profile.dev]
+incremental = true
 
 [profile.test]
 incremental = true

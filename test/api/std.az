@@ -1,3 +1,0 @@
-extern "standard_library" {
-	fn println(str)
-}

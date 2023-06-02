@@ -1,5 +1,6 @@
 
 [workspace]
 members = [
-  "standard_library"
+  "standard_library",
+  "rng_library",
 ]

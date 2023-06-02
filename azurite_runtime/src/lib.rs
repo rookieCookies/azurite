@@ -130,19 +130,16 @@ fn bytes_to_constants(vm: &mut VM, data: Vec<u8>) {
             2 => VMData::Bool(constants_iter.next().unwrap() == 1),
 
             3 => {
-                let mut string = Vec::new();
-                loop {
-                    let data = constants_iter.next().unwrap();
-                    if data == 0 {
-                        break
-                    }
+                let length = u64::from_le_bytes(constants_iter.next_chunk::<8>().unwrap());
 
-                    string.push(data);
+                let mut vec = Vec::with_capacity(length as usize);
+                for _ in 0..length {
+                    vec.push(constants_iter.next().unwrap());
                 }
 
-                let object = Object::String(String::from_utf8_lossy(&string).into_owned());
+                let object = String::from_utf8(vec).unwrap();
                 
-                let index = vm.objects.put(object).unwrap();
+                let index = vm.objects.put(object_map::Object::String(object)).unwrap();
 
                 VMData::Object(index as u64)
             }
@@ -277,8 +274,13 @@ impl Stack {
     }
 
     #[inline(always)]
-    fn push(&mut self, amount: usize) {
+    fn push(&mut self, amount: usize) -> Result<(), String> {
         self.top += amount;
+        if self.top >= self.values.len() {
+            return Err(String::from("stack overflow"))
+        }
+
+        Ok(())
     }
 
     #[inline(always)]

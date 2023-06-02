@@ -1,7 +1,7 @@
 //test numbers
-assert_info(1 < 2, "1 < 2")
+assert_info(1 < 2,  "1 < 2")
 assert_info(1 == 1, "1 == 1")
-assert_info(2 > 1, "2 > 1")
+assert_info(2 > 1,  "2 > 1")
 assert_info(1 <= 2, "1 <= 2")
 assert_info(2 >= 1, "2 >= 1")
 
@@ -10,9 +10,9 @@ assert_info(2 >= 1, "2 >= 1")
 var a = 1
 var b = 2
 
-assert_info(a < b, "a < b")
+assert_info(a < b,  "a < b")
 assert_info(a == a, "a == a")
-assert_info(b > a, "b > a")
+assert_info(b > a,  "b > a")
 assert_info(a <= b, "a <= b")
 assert_info(b >= a, "b >= a")
 

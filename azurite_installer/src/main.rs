@@ -1,9 +1,18 @@
-use std::{process::ExitCode, io::Write, path::{PathBuf, Path}};
+use std::{process::ExitCode, io::Write, path::PathBuf};
 
 use directories::ProjectDirs;
 use include_dir::{include_dir, Dir};
 
+#[cfg(not(features = "afl"))]
+#[cfg(target_os = "windows")]
 const AZURITE_CLI_BINARY : &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../target/release/azurite_cli.exe"));
+
+#[cfg(not(features = "afl"))]
+#[cfg(not(target_os = "windows"))]
+const AZURITE_CLI_BINARY : &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../target/release/azurite_cli"));
+
+#[cfg(features = "afl")]
+const AZURITE_CLI_BINARY : &[u8] = "";
 
 static AZURITE_LIBRARIES_FOLDER: Dir = include_dir!("$CARGO_MANIFEST_DIR/../builtin_libraries/azurite_libraries/");
 static AZURITE_LIBRAR_API_FOLDER: Dir = include_dir!("$CARGO_MANIFEST_DIR/../builtin_libraries/azurite_api_files/");

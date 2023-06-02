@@ -1,5 +1,5 @@
-fn hi() {
-    
-}
+using using_b
 
-using "examples/using_b.az"
+fn message(): str {
+    "Hello world!"
+}

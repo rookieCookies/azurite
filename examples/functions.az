@@ -1,10 +1,10 @@
 fn hi() {
-    IO::writeln("Hello there!")
+    println("Hello there!")
 }
 
-fn calculate() -> int {
-    12 * 8
+fn calculate(v1: int, v2: int) -> int {
+    v1 * v2
 }
 
 hi()
-calculate()
+calculate(69, 420)

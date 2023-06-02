@@ -8,6 +8,8 @@ pub mod environment {
     
     pub const DUMP_IR      : &str = "AZURITE_COMPILER_DUMP_IR";
     pub const DUMP_IR_FILE : &str = "AZURITE_COMPILER_DUMP_IR_FILE";
+
+    pub const NO_STD       : &str = "AZURITE_NO_STD";
 }
 
 

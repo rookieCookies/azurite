@@ -1,0 +1,13 @@
+var i = 10.0
+
+loop {
+    if > 5 {
+        i = i * 0.8
+        continue
+
+    } else if i < 0 {
+        break
+    }
+
+    i = i - 1
+}

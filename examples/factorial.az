@@ -1,4 +1,4 @@
-fn factorial(n: float) -> float {
+fn factorial(n: float) : float {
     if n == 1.0 {
         return 1.0
     }

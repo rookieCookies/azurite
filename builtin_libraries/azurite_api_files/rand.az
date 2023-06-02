@@ -1,0 +1,8 @@
+extern "rng_library" {
+    fn randi(): int
+    fn randf(): float
+}
+
+fn rand_range_int(min: int, max: int): int {
+    float_to_int(randf() * (max - min) + min)
+}

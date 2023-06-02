@@ -1,3 +1,37 @@
-extern "target/release/standard_library" {
+extern "standard_library" {
+	fn print(str)
 	fn println(str)
+
+	fn int_to_str(int): str
+	fn int_to_float(int): float
+	fn int_to_bool(int): bool
+
+	fn float_to_str(float): str
+	fn float_to_int(float): int
+	fn float_to_bool(float): bool
+
+	fn bool_to_str(bool): str
+	fn bool_to_int(bool): int
+	fn bool_to_float(bool): float
+
+	fn exit(int)
+
+	fn get_var(str): str
+	fn set_var(str, str)
+
+	fn panic(str)
+}
+
+
+fn assert(val: bool) {
+	if val == false {
+		// panic("assert failed")
+	}
+}
+
+
+fn assert_info(val: bool, string: str) {
+	if val == false {
+		// panic(string)
+	}
 }

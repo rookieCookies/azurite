@@ -68,10 +68,10 @@ impl Parser<'_> {
             Ok(instructions)
         } else {
             Err(errors.combine_into_error())
-       }
+        }
     }
-  
 }
+
 
 impl Parser<'_> {    
     fn advance(&mut self) -> Option<&Token> {
@@ -105,7 +105,7 @@ impl Parser<'_> {
     }
 
 
-     fn expect_identifier(&self) -> Result<SymbolIndex, Error> {
+    fn expect_identifier(&self) -> Result<SymbolIndex, Error> {
         let token = match self.current_token() {
             Some(value) => value,
             None => panic!("unreachable"),
@@ -125,27 +125,6 @@ impl Parser<'_> {
     fn parse_type(&mut self) -> Result<SourcedDataType, Error> {
         let current_token = self.current_token().unwrap();
         let source = current_token.source_range;
-        
-        // let mut string = match current_token.token_kind {
-        //     TokenKind::Identifier(v) => v,
-
-        //     _ => return {
-        //         let source_range = current_token.source_range;
-        //         self.advance();
-        //         Err(CompilerError::new(104, "expected data type")
-        //             .highlight(source_range)
-        //             .build())
-        //     }
-        // };
-
-        // while let Some(TokenKind::DoubleColon) = self.peek().map(|x| x.token_kind) {
-        //     self.advance();
-        //     self.advance();
-
-        //     let identifier = self.expect_identifier()?;
-        //     string = self.symbol_table.add_combo(string, identifier);
-        // }
-
 
         // PERF: Obviously, cache this vec somewhere so it doesn't constantly realloc
         let mut string = vec![];
@@ -183,6 +162,7 @@ impl Parser<'_> {
         Ok(SourcedDataType::new(SourceRange::new(source.start, self.current_token().unwrap().source_range.end), data_type))
     }
 }
+
 
 impl Parser<'_> {
     fn statement(&mut self) -> ParseResult {
@@ -289,7 +269,7 @@ impl Parser<'_> {
         })
         
     }
-    
+
 
     fn function_declaration(&mut self) -> ParseResult {
         self.expect(&TokenKind::Keyword(Keyword::Fn))?;
@@ -400,7 +380,7 @@ impl Parser<'_> {
         })
     }
 
-    
+
     fn loop_statement(&mut self) -> ParseResult {
         self.expect(&TokenKind::Keyword(Keyword::Loop))?;
         let start = self.current_token().unwrap().source_range.start;
@@ -448,8 +428,8 @@ impl Parser<'_> {
         //        do_stuff()
         //     } else {
         //        break
-        //     }
         // }
+        //     }
         
         let if_statement = Instruction {
             instruction_kind: InstructionKind::Expression(Expression::IfExpression {
@@ -526,19 +506,13 @@ impl Parser<'_> {
         fn namespace_rename(symbol_table: &mut SymbolTable, namespace: SymbolIndex, i: &mut Instruction) {
             match &mut i.instruction_kind {
                 InstructionKind::Declaration(Declaration::FunctionDeclaration { name, .. } | Declaration::StructDeclaration { name, .. }) => {
-                    print!("{:?} -> ", name);
                     *name = symbol_table.add_combo(namespace, *name);
-                    println!("{name:?}");
-                    // *name = symbol_table.add_combo(namespace, *name)
                 }
                 
                 InstructionKind::Declaration(Declaration::Namespace { body, identifier }) => {
-                    print!("{:?} -> ", identifier);
                     *identifier = symbol_table.add_combo(namespace, *identifier);
-                    println!("{identifier:?}");
                     
                     body.iter_mut().for_each(|x| namespace_rename(symbol_table, namespace, x));
-                    // body.iter_mut().for_each(|x| namespace_rename(symbol_table, *identifier, x));
                 },
 
                 InstructionKind::Declaration(Declaration::Extern { functions, .. }) => {

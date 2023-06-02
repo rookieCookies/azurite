@@ -6,7 +6,7 @@ use common::{SymbolTable, SymbolIndex};
 mod tests;
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Token {
     pub token_kind: TokenKind,
     pub source_range: SourceRange,
@@ -82,6 +82,7 @@ pub enum Keyword {
 }
 
 
+#[derive(Debug)]
 struct Lexer<'a> {
     characters: Chars<'a>,
     index: usize,
@@ -123,11 +124,12 @@ pub fn lex(data: &str, file: SymbolIndex, symbol_table: &mut SymbolTable) -> Res
                     Err(error) => {
                         errors.push(error);
                         continue;
-                    }
+
+                    },
                 }
             }
 
-            '\n' | '\r' | ' ' => continue,
+            '\n' | ' ' => continue,
 
             '"' => match lexer.string() {
                 Ok(value) => TokenKind::Literal(value),
@@ -181,32 +183,35 @@ pub fn lex(data: &str, file: SymbolIndex, symbol_table: &mut SymbolTable) -> Res
 
 
             '\t' => panic!("compiler error! tab character wasn't converted"),
+            '\r' => panic!("compiler error! carriage return character wasn't converted"),
             
             
             _ => {
                 errors.push(CompilerError::new(lexer.file, 1, "invalid character")
                     .highlight(SourceRange::new(start, start))
-                        .note(format!("{:?}", value))
+                        .note(format!("{value:?}"))
                     .build());
                 continue;
             }
         };
 
-        let end = lexer.character_index + 1;
+        let end = lexer.character_index - lexer.stale as usize;
 
         let token = Token {
             token_kind,
-            source_range: SourceRange { start, end: end - lexer.stale as usize },
+            source_range: SourceRange { start, end },
         };
 
         tokens.push(token);
     }
 
+    let end = lexer.character_index.saturating_sub(1);
+
     tokens.push(Token {
         token_kind: TokenKind::EndOfFile,
         source_range: SourceRange {
-            start: lexer.character_index,
-            end: lexer.character_index,
+            start: end,
+            end,
         },
     });
 
@@ -216,6 +221,7 @@ pub fn lex(data: &str, file: SymbolIndex, symbol_table: &mut SymbolTable) -> Res
         Err(errors.combine_into_error())
     }
 }
+
 
 // utility methods
 impl Lexer<'_> {
@@ -227,8 +233,9 @@ impl Lexer<'_> {
         
         self.index += 1;
 
-        let char_size = &self.current.unwrap_or(' ').len_utf8();
-        self.character_index += char_size;
+        if let Some(v) = self.current {
+            self.character_index += v.len_utf8();
+        }
         
         self.current = self.characters.next();
         self.current
@@ -400,7 +407,7 @@ impl Lexer<'_> {
             }
         }
 
-        let number = self.base_n_number_conversion(self.character_index, 16, &unicode)?;
+        let number = self.base_n_number_conversion(16, &unicode)?;
 
         self.return_string_storage(unicode);
 
@@ -489,7 +496,7 @@ impl Lexer<'_> {
             .split_once('.')
             .unwrap_or((&number_string, ""));
 
-        let number = self.base_n_number_conversion(self.character_index, base, full_number)?;
+        let number = self.base_n_number_conversion(base, full_number)?;
 
         if !decimals.is_empty() {
             let mut decimal = 0.0;
@@ -511,9 +518,11 @@ impl Lexer<'_> {
 
 
 impl Lexer<'_> {
-    fn base_n_number_conversion(&self, index: usize, base: u32, text: &str) -> Result<i64, Error> {
-        let mut number = 0;
-        let start = index - text.len();
+    fn base_n_number_conversion(&self, base: u32, text: &str) -> Result<i64, Error> {
+        let mut number : i64 = 0;
+        let start = self.index - text.len() - 1;
+
+        
         for (index, value) in text.chars().rev().enumerate() {
             let digit = value.to_digit(base).expect("unreachable") as i64;
             let power = index as u32;
@@ -521,15 +530,22 @@ impl Lexer<'_> {
             let power = match (base as i64).checked_pow(power) {
                 Some(value) => value,
                 None => return Err(CompilerError::new(self.file, 5, "number is too large")
-                    .highlight(SourceRange::new(start, index+1))
+                    .highlight(SourceRange::new(start, self.character_index-1))
                     .build()
                 ),
             };
 
-            number += match power.checked_mul(digit) {
+            let result : i64 = match power.checked_mul(digit) {
                 Some(value) => value,
                 None => return Err(CompilerError::new(self.file, 5, "number is too large")
-                    .highlight(SourceRange::new(start, index+1))
+                    .highlight(SourceRange::new(start, self.character_index-1))
+                    .build()),
+            };
+
+            number = match number.checked_add(result) {
+                Some(value) => value,
+                None => return Err(CompilerError::new(self.file, 5, "number is too large")
+                    .highlight(SourceRange::new(start, self.character_index-1))
                     .build()),
             };
         }

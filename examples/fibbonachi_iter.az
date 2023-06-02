@@ -10,3 +10,5 @@ fn fib_iter(n: float) : float {
     }
     a
 }
+
+assert_info(fib_iter(10.0) == 55.0, "factorial(5.0) == 120.0")

@@ -1,1 +1,3 @@
-IO::writeln("Hello!")
+using using_a
+
+println(message())

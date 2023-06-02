@@ -1,7 +1,3 @@
-#[cfg(target_os="windows")]
-const LINE_COUNT : usize = 2;
-
-#[cfg(not(target_os="windows"))]
 const LINE_COUNT : usize = 1;
 
 

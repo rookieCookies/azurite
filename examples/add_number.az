@@ -1,5 +1,5 @@
-fn add_num(x: int, y: int): str {
-    int::to_string(x + y)
+fn add_num(x: int, y: int): int {
+    x + y
 }
 
-assert_info(add_num(4, 6) == "10", "add_num(4, 6) == \"10\"")
+assert_info(add_num(4, 6) == 10, "add_num(4, 6) == 10")
