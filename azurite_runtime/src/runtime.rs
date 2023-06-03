@@ -1,17 +1,18 @@
 use azurite_common::consts;
 use libloading::{Library, Symbol};
+use colored::Colorize;
 
-use crate::{VMData, object_map::Object, VM, Code};
+use crate::{VMData, object_map::Object, VM, Code, FatalError, Result};
 use std::ops::{Add, Sub, Mul};
 
 
-type ExternFunction<'a> = Symbol<'a, unsafe extern fn(&mut VM)>;
+    type ExternFunction<'a> = Symbol<'a, unsafe extern fn(&mut VM) -> Result>;
 
 
 impl VM {
     #[allow(clippy::too_many_lines)]
     #[inline(never)]
-    pub(crate) fn run(&mut self, mut current: Code) {
+    pub(crate) fn run(&mut self, mut current: Code) -> Result {
         let mut callstack = Vec::with_capacity(64);
 
         // SAFETY: `external_funcs` must be dropped before `libraries`
@@ -19,7 +20,7 @@ impl VM {
         let mut external_funcs = vec![];
 
 
-        let result = 'global: loop {
+        let result : Result = 'global: loop {
             let value = current.next();
 
             // println!("{} {:?}\n\t{:?}", current.pointer, azurite_common::Bytecode::from_u8(value).unwrap(), self.stack.values.iter().take(self.stack.top).collect::<Vec<_>>());
@@ -51,14 +52,14 @@ impl VM {
                                 let new_path = std::env::current_exe().unwrap().parent().unwrap().join("runtime").join(&path);
                                 match Library::new(&new_path) {
                                     Ok(v) => v,
-                                    Err(_) => break Err(format!("can't find a runtime library file named {path}")),
+                                    Err(_) => break Result::Err(FatalError::new(format!("can't find a runtime library file named {path}"))),
                                 }
                             },
                         };
 
                         for _ in 0..func_amount {
                             let name = current.string();
-                            let Ok(func) = lib.get::<ExternFunction<'_>>(name.as_bytes()) else { break 'global Err(format!("can't find a function named {name} in {path}")); };
+                            let Ok(func) = lib.get::<ExternFunction<'_>>(name.as_bytes()) else { break 'global Result::Err(FatalError::new(format!("can't find a function named {name} in {path}"))); };
                             
                             external_funcs.push(func.into_raw());
                         }
@@ -102,11 +103,12 @@ impl VM {
                     let val = match (self.stack.reg(v1), self.stack.reg(v2)) {
                         (VMData::Integer(v1), VMData::Integer(v2)) => {
                             if v2 == 0 {
-                                break Err(String::from("division by zero"));
+                                break Result::Err(FatalError::new(String::from("division by zero")));
                             }
 
                             VMData::Integer(v1.wrapping_div(v2))
                         },
+                        
                         (VMData::Float(v1), VMData::Float(v2))     => VMData::Float(v1 / v2),
 
                         _ => unreachable!(),
@@ -175,7 +177,7 @@ impl VM {
 
                 consts::Return => {
                     if callstack.is_empty() {
-                        break Ok(())
+                        return Result::Ok
                     }
 
                     let ret_val = self.stack.reg(0);
@@ -194,8 +196,8 @@ impl VM {
                     let dst = current.next();
                     let arg_count = current.next() as usize;
 
-                    if let Err(e) = self.stack.push(arg_count + 1) {
-                        break Err(e)
+                    if let Result::Err(e) = self.stack.push(arg_count + 1) {
+                        break Result::Err(e)
                     }
                     
                     let temp = self.stack.top - arg_count - self.stack.stack_offset;
@@ -219,8 +221,8 @@ impl VM {
                     let dst = current.next();
                     let arg_count = current.next() as usize;
 
-                    if let Err(e) = self.stack.push(arg_count + 1) {
-                        break Err(e)
+                    if let Result::Err(e) = self.stack.push(arg_count + 1) {
+                        break Result::Err(e)
                     }
                     
                     let temp = self.stack.top - arg_count - self.stack.stack_offset;
@@ -231,7 +233,11 @@ impl VM {
 
                     self.stack.set_stack_offset(self.stack.top - arg_count - 1);
                     
-                    unsafe { external_funcs[index as usize](self); };
+                    let result = unsafe { external_funcs[index as usize](self) };
+                    
+                    if result.is_err() {
+                        break result;
+                    }
 
                     let ret_val = self.stack.reg(0);
                     self.stack.set_stack_offset(current.offset);
@@ -243,8 +249,8 @@ impl VM {
 
                 consts::Push => {
                     let amount = current.next();
-                    if let Err(e) = self.stack.push(amount as usize) {
-                        break Err(e)
+                    if let Result::Err(e) = self.stack.push(amount as usize) {
+                        break Result::Err(e)
                     }
                 }
 
@@ -328,22 +334,22 @@ impl VM {
         };
 
 
-        if let Err(e) = result {
-            println!("ERROR: {e}");
+        if let Result::Err(e) = result {
+            println!("{}", format!("panicked at '{}'", e.read_message().to_string_lossy()).bright_red());
         }
         
         for library in libraries {
             unsafe {
                 let shutdown : ExternFunction = match library.get(b"_shutdown") {
-
                     Ok(v) => v,
-
                     Err(_) => continue,
                 };
 
                 shutdown(self);
             }
         }
+
+        Result::Ok
     }
 }
 

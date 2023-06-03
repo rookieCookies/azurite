@@ -1,9 +1,5 @@
-// using std
-
-extern "builtin_libraries/.target/release/standard_library" {
-	fn int_to_str(int): str
-	fn print(str)
-	fn println(str)
+fn add_num(x: int, y: int): int {
+    x + y + 5
 }
 
-println("hello world")
+assert_info(add_num(4, 6) == 10, "add_num(4, 6) == 10")

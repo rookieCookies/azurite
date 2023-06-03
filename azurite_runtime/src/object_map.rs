@@ -1,4 +1,4 @@
-use crate::VMData;
+use crate::{VMData, FatalError};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -66,7 +66,7 @@ impl ObjectMap {
     ///
     /// # Errors
     /// - If out of memory
-    pub fn put(&mut self, object: Object) -> Result<usize, String> {
+    pub fn put(&mut self, object: Object) -> Result<usize, FatalError> {
         let index = self.free;
         let v = self.map.get_mut(self.free).unwrap();
         let repl = std::mem::replace(v, object);
@@ -77,7 +77,7 @@ impl ObjectMap {
                 Ok(index)
             },
 
-            _ => Err(String::from("out of memory"))
+            _ => Err(FatalError::new(String::from("out of memory")))
         }
     }
 

@@ -86,27 +86,28 @@ impl AnalysisState {
     }
 
     pub fn start_analysis(&mut self, global: &mut GlobalState, instructions: &mut [Instruction]) -> Result<(), Error> {
-        // {
-        //     let file_name = global.symbol_table.add(String::from("std"));
-        //     self.available_files.push(file_name);
-        //     if !global.files.contains_key(&file_name) {
-        //         let file = STD_LIBRARY.replace('\t', "    ");
+        {
+            let file_name = global.symbol_table.add(String::from("std"));
+            self.available_files.push(file_name);
+            
+            if !global.files.contains_key(&file_name) {
+                let file = STD_LIBRARY.replace('\t', "    ");
         
-        //         let tokens = azurite_lexer::lex(&file, file_name, global.symbol_table);
-        //         global.files.insert(file_name, (AnalysisState::new(file_name), vec![], file));
+                let tokens = azurite_lexer::lex(&file, file_name, global.symbol_table);
+                global.files.insert(file_name, (AnalysisState::new(file_name), vec![], file));
 
-        //         let tokens = tokens?;
-        //         let mut instructions = azurite_parser::parse(tokens.into_iter(), file_name, global.symbol_table)?;
-        //         let mut analysis = AnalysisState::new(file_name);
-        //         analysis.start_analysis(global, &mut instructions)?;
+                let tokens = tokens?;
+                let mut instructions = azurite_parser::parse(tokens.into_iter(), file_name, global.symbol_table)?;
+                let mut analysis = AnalysisState::new(file_name);
+                analysis.start_analysis(global, &mut instructions)?;
 
-        //         let temp = global.files.get_mut(&file_name).unwrap(); 
-        //         temp.0 = analysis;
-        //         temp.1 = instructions;
+                let temp = global.files.get_mut(&file_name).unwrap(); 
+                temp.0 = analysis;
+                temp.1 = instructions;
 
 
-        //     }
-        // }
+            }
+        }
         
         self.analyze_block(global, instructions, false)?;
 
@@ -181,14 +182,10 @@ impl AnalysisState {
     fn declaration_early_process(&mut self, global: &mut GlobalState, source_range: &SourceRange, declaration: &mut Declaration) -> Result<(), Error> {
         match declaration {
             Declaration::FunctionDeclaration { name, arguments, return_type, .. } => {
-                // println!("unique name: {:?} {}", self.custom_path, global.symbol_table.get(self.custom_path));
-                // print!("{:?}, {} -> ", name, global.symbol_table.get(*name));
-
                 let new_name = global.symbol_table.add_combo(self.custom_path, *name);
                 self.functions.insert(*name, (new_name, self.depth));
                 *name = new_name;
                 
-                println!("{:?} {}", name, global.symbol_table.get(*name));
                 
                 global.functions.insert(*name, Function { return_type: *return_type, arguments: arguments.iter().map(|x| x.1).collect() });
             },
@@ -272,6 +269,7 @@ impl AnalysisState {
 
                 analysis_state.functions = std::mem::take(&mut self.functions);
                 analysis_state.structures = std::mem::take(&mut self.structures);
+                analysis_state.available_files = std::mem::take(&mut self.available_files);
                 
                 analysis_state.depth = self.depth;
                 analysis_state.explicit_return = Some(*return_type);
@@ -291,6 +289,7 @@ impl AnalysisState {
                     if !errors.is_empty() {
                         self.functions = std::mem::take(&mut analysis_state.functions);
                         self.structures = std::mem::take(&mut analysis_state.structures);
+                        self.available_files = std::mem::take(&mut analysis_state.available_files);
 
                         return Err(errors.combine_into_error())
                     }
@@ -303,6 +302,7 @@ impl AnalysisState {
                     Err(e) => {
                         self.functions = std::mem::take(&mut analysis_state.functions);
                         self.structures = std::mem::take(&mut analysis_state.structures);
+                        self.available_files = std::mem::take(&mut analysis_state.available_files);
 
                         return Err(e)
                         
@@ -311,6 +311,7 @@ impl AnalysisState {
 
                 self.functions = std::mem::take(&mut analysis_state.functions);
                 self.structures = std::mem::take(&mut analysis_state.structures);
+                self.available_files = std::mem::take(&mut analysis_state.available_files);
 
                 if !self.is_of_type(global, *return_type, body_return_type)? {
                     return Err(CompilerError::new(self.file, 211, "function body returns a different type")
@@ -851,7 +852,6 @@ impl AnalysisState {
             symbol: &SymbolIndex,
             implicit_complete: bool
     ) -> Option<(&'a Function, SymbolIndex)> {
-        
         let temp = self.functions.get(symbol);
         match temp.map(|x| (functions.get(&x.0).unwrap(), x.0)) {
             Some((func, absolute_ident)) => Some((func, absolute_ident)),

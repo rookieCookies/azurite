@@ -1,11 +1,12 @@
 // #![deny(clippy::pedantic)]
 #![feature(iter_next_chunk)]
+#![feature(try_trait_v2)]
 mod object_map;
 mod runtime;
 
 use azurite_archiver::{Packed, Data};
 use object_map::ObjectMap;
-use std::time::Instant;
+use std::{time::Instant, ops::FromResidual, convert::Infallible, ffi::CString};
 
 pub use object_map::Object;
 
@@ -23,6 +24,84 @@ pub fn run_packed(packed: Packed) {
     assert!(files.is_empty());
 
     run(&bytecode.0, constants.0);
+}
+
+
+/// The main VM object
+#[derive(Debug)]
+pub struct VM {
+    pub(crate) constants: Vec<VMData>,
+    pub stack: Stack,
+    pub objects: ObjectMap,
+}
+
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct Stack {
+    values: [VMData; 1024],
+    stack_offset: usize,
+    top: usize,
+}
+
+
+#[allow(clippy::inline_always)]
+impl Stack {
+    fn new() -> Self {
+        Self {
+            values: [VMData::Empty; 1024],
+            stack_offset: 0,
+            top: 1,
+        }
+    }
+
+    /// Returns the value at `stack_offset + reg`
+    ///
+    /// This method panics in debug mode if the resulting value is
+    /// beyond the "top" of the stack. 
+    ///
+    /// In release mode accessing a register above the "top" of the
+    /// stack is unspecified behaviour and could lead to crashes
+    #[inline(always)]
+    #[must_use]
+    pub fn reg(&self, reg: u8) -> VMData {
+        debug_assert!((reg as usize + self.stack_offset) < self.top, "{reg} {} {}", self.stack_offset, self.top);
+        self.values[reg as usize + self.stack_offset]
+    }
+
+    /// Sets the value at `stack_offset + reg` to the given data
+    ///
+    /// This method panics in debug mode if the resulting value is
+    /// beyond the "top" of the stack. 
+    ///
+    /// In release mode accessing a register above the "top" of the
+    /// stack is unspecified behaviour and could lead to crashes
+    #[inline(always)]
+    pub fn set_reg(&mut self, reg: u8, data: VMData) {
+        debug_assert!((reg as usize + self.stack_offset) < self.top, "reg: {reg} offset: {} top: {} {data:?}", self.stack_offset, self.top);
+        self.values[reg as usize + self.stack_offset] = data;
+    }
+
+    #[inline(always)]
+    fn set_stack_offset(&mut self, amount: usize) {
+        debug_assert!(amount < self.top);
+        self.stack_offset = amount;
+    }
+
+    #[inline(always)]
+    fn push(&mut self, amount: usize) -> Result {
+        self.top += amount;
+        if self.top >= self.values.len() {
+            return Result::Err(FatalError::new(String::from("stack overflow")))
+        }
+
+        Result::Ok
+    }
+
+    #[inline(always)]
+    fn pop(&mut self, amount: usize) {
+        self.top -= amount;
+    }
 }
 
 
@@ -99,6 +178,72 @@ impl VMData {
 }
 
 
+#[derive(Debug)]
+#[repr(C)]
+pub enum Result {
+    Ok,
+    Err(FatalError)
+}
+
+
+impl Result {
+    pub fn ok() -> Result {
+        Result::Ok
+    }
+
+
+    pub fn err(str: impl ToString) -> Result {
+        Result::Err(FatalError::new(str.to_string()))
+    }
+
+
+    #[inline]
+    pub fn is_err(&self) -> bool {
+        matches!(self, Result::Err(_))
+    }
+
+
+    #[inline]
+    pub fn is_ok(&self) -> bool {
+        matches!(self, Result::Ok)
+    }
+}
+
+
+impl FromResidual<std::result::Result<Infallible, FatalError>> for Result {
+    fn from_residual(residual: std::result::Result<Infallible, FatalError>) -> Self {
+        match residual {
+            Ok(_) => Self::Ok,
+            Err(e) => Self::Err(e),
+        }
+    }
+}
+
+
+/// An unrecoverable runtime error
+#[derive(Debug)]
+#[repr(C)]
+pub struct FatalError {
+    index: usize,
+    message: *mut i8,
+}
+
+
+impl FatalError {
+    pub fn new(message: String) -> Self {
+        Self {
+            index: usize::MAX,
+            message: CString::new(message).unwrap().into_raw(),
+        }
+    }
+
+
+    #[inline]
+    pub fn read_message(self) -> CString {
+        unsafe { CString::from_raw(self.message) } 
+    }
+}
+
 
 fn run(bytecode: &[u8], constants: Vec<u8>) {
     let mut vm = VM {
@@ -117,6 +262,7 @@ fn run(bytecode: &[u8], constants: Vec<u8>) {
     println!("it took {}ms {}ns, result {:?}", end.as_millis(), end.as_nanos(), vm.stack.reg(0));
 
 }
+
 
 fn bytes_to_constants(vm: &mut VM, data: Vec<u8>) {
     let mut constants_iter = data.into_iter();
@@ -151,15 +297,6 @@ fn bytes_to_constants(vm: &mut VM, data: Vec<u8>) {
     };
 }
 
-
-
-/// The main VM object
-#[derive(Debug)]
-pub struct VM {
-    pub(crate) constants: Vec<VMData>,
-    pub stack: Stack,
-    pub objects: ObjectMap,
-}
 
 
 #[derive(Debug)]
@@ -221,70 +358,3 @@ impl<'a> Code<'a> {
 }
 
 
-#[derive(Debug)]
-#[repr(C)]
-pub struct Stack {
-    values: [VMData; 1024],
-    stack_offset: usize,
-    top: usize,
-}
-
-
-#[allow(clippy::inline_always)]
-impl Stack {
-    fn new() -> Self {
-        Self {
-            values: [VMData::Empty; 1024],
-            stack_offset: 0,
-            top: 1,
-        }
-    }
-
-    /// Returns the value at `stack_offset + reg`
-    ///
-    /// This method panics in debug mode if the resulting value is
-    /// beyond the "top" of the stack. 
-    ///
-    /// In release mode accessing a register above the "top" of the
-    /// stack is unspecified behaviour and could lead to crashes
-    #[inline(always)]
-    #[must_use]
-    pub fn reg(&self, reg: u8) -> VMData {
-        debug_assert!((reg as usize + self.stack_offset) < self.top, "{reg} {} {}", self.stack_offset, self.top);
-        self.values[reg as usize + self.stack_offset]
-    }
-
-    /// Sets the value at `stack_offset + reg` to the given data
-    ///
-    /// This method panics in debug mode if the resulting value is
-    /// beyond the "top" of the stack. 
-    ///
-    /// In release mode accessing a register above the "top" of the
-    /// stack is unspecified behaviour and could lead to crashes
-    #[inline(always)]
-    pub fn set_reg(&mut self, reg: u8, data: VMData) {
-        debug_assert!((reg as usize + self.stack_offset) < self.top, "reg: {reg} offset: {} top: {} {data:?}", self.stack_offset, self.top);
-        self.values[reg as usize + self.stack_offset] = data;
-    }
-
-    #[inline(always)]
-    fn set_stack_offset(&mut self, amount: usize) {
-        debug_assert!(amount < self.top);
-        self.stack_offset = amount;
-    }
-
-    #[inline(always)]
-    fn push(&mut self, amount: usize) -> Result<(), String> {
-        self.top += amount;
-        if self.top >= self.values.len() {
-            return Err(String::from("stack overflow"))
-        }
-
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn pop(&mut self, amount: usize) {
-        self.top -= amount;
-    }
-}

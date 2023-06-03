@@ -19,7 +19,15 @@ struct Parser<'a> {
     file: SymbolIndex,
 }
 
-pub fn parse(tokens: IntoIter<Token>, file: SymbolIndex, symbol_table: &mut SymbolTable) -> Result<Vec<Instruction>, Error> {
+
+// Parser
+// 
+pub fn parse(
+    tokens: IntoIter<Token>, 
+    file: SymbolIndex, 
+    symbol_table: &mut SymbolTable
+) -> Result<Vec<Instruction>, Error> {
+
     let mut parser = Parser {
         tokens: tokens.peekable(),
         current: None,

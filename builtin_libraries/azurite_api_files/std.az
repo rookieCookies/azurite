@@ -1,6 +1,8 @@
 extern "standard_library" {
 	fn print(str)
 	fn println(str)
+	
+	fn read_line(): str
 
 	fn int_to_str(int): str
 	fn int_to_float(int): float
@@ -14,6 +16,8 @@ extern "standard_library" {
 	fn bool_to_int(bool): int
 	fn bool_to_float(bool): float
 
+	fn parse_str_as_int(str): int
+
 	fn exit(int)
 
 	fn get_var(str): str
@@ -25,13 +29,13 @@ extern "standard_library" {
 
 fn assert(val: bool) {
 	if val == false {
-		// panic("assert failed")
+		panic("assert failed")
 	}
 }
 
 
 fn assert_info(val: bool, string: str) {
 	if val == false {
-		// panic(string)
+		panic(string)
 	}
 }

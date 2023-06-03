@@ -97,7 +97,33 @@ struct Lexer<'a> {
 }
 
 
-pub fn lex(data: &str, file: SymbolIndex, symbol_table: &mut SymbolTable) -> Result<Vec<Token>, Error> {
+///
+/// Lexer
+///
+/// # Panics: 
+///   If `data` includes any `\t` or `\r` characters this function will panic  
+///   `\t` should be converted to spaces while any mention of `\r` should be
+///   stripped out
+///
+/// # Arguments:
+///   - `data`: The file source code
+///   - `file`:
+///     - The file name (without extension) the errors will be created with
+///     - This can be obtained by using the `SymbolTable::add` method
+///   - `symbol_table`:
+///     - **MUTABILITY**: Appends newly encountered strings and identifier
+///     - Check the `SymbolTable` docs to see how to create it
+///
+/// # Return Value:
+///   - The return value either returns a vector with the tokens or
+///     the lexing errors that occurred while lexing.
+///
+pub fn lex(
+    data: &str,
+    file: SymbolIndex,
+    symbol_table: &mut SymbolTable
+) -> Result<Vec<Token>, Error> {
+    
     let mut lexer = Lexer {
         characters: data.chars(),
         index: 0,
@@ -128,6 +154,7 @@ pub fn lex(data: &str, file: SymbolIndex, symbol_table: &mut SymbolTable) -> Res
                     },
                 }
             }
+
 
             '\n' | ' ' => continue,
 
@@ -241,28 +268,33 @@ impl Lexer<'_> {
         self.current
     }
 
+
     fn current_character(&self) -> Option<char> {
         self.current
     }
+
 
     pub(crate) fn peek(&mut self) -> Option<char> {
         self.characters.clone().next()
     }
 
-    // SAFETY:
-    // It is the responsibility of the caller to
-    // properly call `Lexer::return_string_storage`
-    // on all code-paths and not use this multiple
-    // times without returning.
+
+    // # Safety:
+    //   - It is the responsibility of the caller to
+    //     properly call `Lexer::return_string_storage`
+    //     on all code-paths and not use this multiple
+    //     times without returning.
     fn borrow_string_storage(&mut self) -> String {
         self.string_storage.clear();
         std::mem::take(&mut self.string_storage)
     }
 
+
     fn return_string_storage(&mut self, string: String) {
         self.string_storage = string;
     }
 
+    
     fn next_matches(&mut self, matches: char, yes: TokenKind, no: TokenKind) -> TokenKind {
         if self.peek() == Some(matches) {
             self.advance();

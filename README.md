@@ -1,16 +1,47 @@
 # azurite
-an interpreted programming language allowing you to express your thoughts in a clean and expandable code without a second thought
+<img align="right" width="280px" height="250px" src="https://cdn.discordapp.com/attachments/1098266476361818254/1114236173410386090/image.png">  
 
-the main goal of azurite is something I don't even know
-  
-now that i've got you hopefully hooked let's [**get you started**](./pages/INSTALLATION.md)
+**azurite is an easy to use programming language allowing developers to start making the stuff they want without any hassle**
+
+
+# why? 
+azurite allows for a tidy and concise writing experience with syntax that should be familiar to anyone with any experience in languages like C, Rust, C++, Java, etc. and if you don't, I'm sure you'll be able to pick it up in no time and love it! Or not, I'm not your mum
+
+
+# a small taste of azurite
+let's look at the most basic example! the good ol' hello world
+```
+println("hello world!")
+```
+oh. that's i?  
+<br>
+okay maybe let's look at a more complicated example, how about.. a guessing game?
+```
+using rand
+
+var secret_number = randi_range(0, 10)
+
+loop {
+	var input = read_line()
+	var number = parse_str_as_int(input)
+	
+	if (number > secret_number) {
+		println("Too big :/")
+	} else if (number < secret_number) {
+		println("Too small :/")
+	} else {
+		println("Perfect!")
+		break
+	}	
+}
+```
+maybe a bit too much? don't worry [i gotchu](./pages/MAKING_A_GUESSING_GAME.md)
 
 # todo:
 * DONE multi-file support 
 * make it so users can use a command like "azurite" instead of  
   running the executable directly, preferably make it automaticly  
   update the path value when installing
-* re-do the compiler as the code is a mess at the current moment
 * generics
 * tuples
 * traits

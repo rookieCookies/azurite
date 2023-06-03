@@ -52,10 +52,10 @@ impl CodeGen {
         let mut block_starts = HashMap::with_capacity(function.blocks.len() * 2);
         let mut block_endings = Vec::with_capacity(function.blocks.len());
         
-        for block in function.blocks {
+        for block in &function.blocks {
             let block_start = self.bytecode.len();
             
-            block.instructions.into_iter().for_each(|x| self.ir(x));
+            block.instructions.iter().for_each(|x| self.ir(x.clone()));
 
             let mut ending_buffer = match block.ending {
                 BlockTerminator::Goto(_) => vec![255; 5],
@@ -67,7 +67,7 @@ impl CodeGen {
                 },
             };
 
-            block_endings.push((self.bytecode.len(), block.ending));
+            block_endings.push((self.bytecode.len(), block.ending.clone()));
             self.bytecode.append(&mut ending_buffer);
             
             block_starts.insert(block.block_index.0, block_start);

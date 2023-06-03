@@ -10,6 +10,7 @@ azurite_common = { path = "../azurite_common" }
 azurite_archiver = { path = "../crates/azurite_archiver" }
 
 libloading = "*"
+colored = "*"
 
 [features]
 afl = []

@@ -155,20 +155,25 @@ impl ConversionState {
     }
 
 
-    pub fn generate(&mut self, root_index: SymbolIndex, files: Vec<(SymbolIndex, Vec<Instruction>)>) {
+    pub fn generate(&mut self, root_index: SymbolIndex, mut files: Vec<(SymbolIndex, Vec<Instruction>)>) {
+        files.sort_by_key(|x| x.0);
         let init_function = self.symbol_table.add(String::from("::init"));
         let mut function = Function::new(init_function, self.function(), 0);
 
         for file in files.iter() {
+            let function = Function::new(file.0, self.function(), 0);
+            self.functions.insert(file.0, function);
             self.declaration_process(&file.1);
         }
         
 
         for file in files {
-            let mut function = Function::new(file.0, self.function(), 0);
+            let function = self.functions.get(&file.0).unwrap().function_index;
+            let mut function = Function::new(file.0, function, 0);
 
             function.generate(self, file.1);
-            self.functions.insert(file.0, function);
+            let result = self.functions.insert(file.0, function);
+            assert!(result.is_some());
         }
 
 
@@ -178,12 +183,9 @@ impl ConversionState {
 
         self.functions.insert(init_function, function);
 
-        {
-            // for f in &self.functions {
-                // assert!(!f.blocks.is_empty());
-            // }
-        }
+        assert_eq!(self.functions.len(), self.function_counter as usize);
     }
+
 
     pub fn pretty_print(&mut self) -> String {
         let mut lock = String::new();
@@ -225,7 +227,7 @@ impl Function {
             identifier,
             function_index: index,
             variable_lookup: vec![],
-            variable_counter: argument_count as u32,
+            variable_counter: 0,
             stack_size: argument_count as u32,
             block_counter: 0,
             breaks: vec![],
@@ -294,6 +296,10 @@ impl ConversionState {
                 InstructionKind::Declaration(d) => {
                     match d {
                         Declaration::FunctionDeclaration { name, arguments, .. } => {
+                            if self.functions.contains_key(name) {
+                                continue
+                            }
+                            
                             let function = Function::new(*name, self.function(), arguments.len());
                             self.functions.insert(*name, function);
                         },
@@ -356,14 +362,14 @@ impl Function {
             },
             InstructionKind::Expression(e) => self.expression(state, block, e),
             InstructionKind::Declaration(d) => {
-                self.declaration(state, d);
+                self.declaration(state, block, d);
                 Variable(u32::MAX)
             },
         }
     }
 
 
-    fn declaration(&mut self, state: &mut ConversionState, declaration: Declaration) {
+    fn declaration(&mut self, state: &mut ConversionState, block: &mut Block, declaration: Declaration) {
         match declaration {
             Declaration::FunctionDeclaration { arguments, body, name, .. } => {
                 let function_index = state.find_function(name).function_index;
@@ -403,7 +409,9 @@ impl Function {
             },
 
             
-            Declaration::UseFile { .. } => (),
+            Declaration::UseFile { file_name } => {
+                block.ir(IR::Call { dst: self.variable(), id: state.find_function(file_name).function_index, args: vec![] })
+            },
         }
     }
 

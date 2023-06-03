@@ -6,7 +6,7 @@ impl ConversionState {
     pub fn optimize(&mut self) {
         loop {
             let mut has_changed = self.functions.iter_mut().map(|x| x.1.optimize(true)).any(|x| x);
-            
+
             {
                 let mut used_functions = HashMap::from([(FunctionIndex(0), FunctionIndex(0))]);
                 let mut counter = 1;
@@ -40,7 +40,7 @@ impl ConversionState {
                         self.functions.remove(&f.0);
                     }
                 }
-
+                
             }
 
             

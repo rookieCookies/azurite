@@ -1,3 +1,5 @@
+using std
+
 extern "rng_library" {
     fn randi(): int
     fn randf(): float
