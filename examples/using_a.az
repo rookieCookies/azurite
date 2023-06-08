@@ -1,5 +1,3 @@
 using using_b
 
-fn message(): str {
-    "Hello world!"
-}
+println(message())

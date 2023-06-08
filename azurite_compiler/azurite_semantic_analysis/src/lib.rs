@@ -2,10 +2,10 @@
 #![feature(iter_intersperse)]
 pub mod variable_stack;
 
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, path::{PathBuf, Path}};
 
 use azurite_errors::{SourceRange, Error, CompilerError, ErrorBuilder, CombineIntoError, SourcedDataType};
-use azurite_parser::ast::{Instruction, InstructionKind, Statement, Expression, BinaryOperator, Declaration};
+use azurite_parser::ast::{Instruction, InstructionKind, Statement, Expression, BinaryOperator, Declaration, UnaryOperator};
 use common::{DataType, SymbolTable, SymbolIndex};
 use variable_stack::VariableStack;
 
@@ -34,12 +34,14 @@ pub struct AnalysisState {
     functions: HashMap<SymbolIndex, (SymbolIndex, usize)>,
     structures: HashMap<SymbolIndex, (Structure, usize)>,
 
-    available_files: Vec<SymbolIndex>,
+    available_files: HashMap<SymbolIndex, SymbolIndex>,
     
     explicit_return: Option<SourcedDataType>,
 
     depth: usize,
+
     file: SymbolIndex,
+
     custom_path: SymbolIndex,
 }
 
@@ -78,7 +80,7 @@ impl AnalysisState {
             explicit_return: None,
             functions: HashMap::new(),
             structures: HashMap::new(),
-            available_files: vec![],
+            available_files: HashMap::new(),
             file,
             custom_path: file,
 
@@ -88,7 +90,7 @@ impl AnalysisState {
     pub fn start_analysis(&mut self, global: &mut GlobalState, instructions: &mut [Instruction]) -> Result<(), Error> {
         {
             let file_name = global.symbol_table.add(String::from("std"));
-            self.available_files.push(file_name);
+            self.available_files.insert(file_name, file_name);
             
             if !global.files.contains_key(&file_name) {
                 let file = STD_LIBRARY.replace('\t', "    ");
@@ -109,7 +111,7 @@ impl AnalysisState {
             }
         }
         
-        self.analyze_block(global, instructions, false)?;
+        self.analyze_block(global, instructions, false, true)?;
 
         Ok(())
     }
@@ -136,7 +138,7 @@ impl AnalysisState {
     }
     
 
-    fn analyze_block(&mut self, global: &mut GlobalState, instructions: &mut [Instruction], reset: bool) -> Result<SourcedDataType, Error> {
+    fn analyze_block(&mut self, global: &mut GlobalState, instructions: &mut [Instruction], reset: bool, pre_declaration: bool) -> Result<SourcedDataType, Error> {
         let top = self.variable_stack.len();
 
         if reset {
@@ -144,7 +146,7 @@ impl AnalysisState {
             
         }
         // Declarations
-        {
+        if pre_declaration {
             for x in instructions.iter_mut() {
                 if let InstructionKind::Declaration(d) = &mut x.instruction_kind {
                     self.declaration_early_process(global, &x.source_range, d)?
@@ -178,89 +180,6 @@ impl AnalysisState {
         }
     }
 
-
-    fn declaration_early_process(&mut self, global: &mut GlobalState, source_range: &SourceRange, declaration: &mut Declaration) -> Result<(), Error> {
-        match declaration {
-            Declaration::FunctionDeclaration { name, arguments, return_type, .. } => {
-                let new_name = global.symbol_table.add_combo(self.custom_path, *name);
-                self.functions.insert(*name, (new_name, self.depth));
-                *name = new_name;
-                
-                
-                global.functions.insert(*name, Function { return_type: *return_type, arguments: arguments.iter().map(|x| x.1).collect() });
-            },
-
-            
-            Declaration::StructDeclaration { name, fields } => {
-                self.declare_struct(*name, Structure {
-                    fields: fields.clone(),
-                })
-            },
-
-            
-            Declaration::Namespace { body, .. } => {
-                for i in body.iter_mut() {
-                    if let InstructionKind::Declaration(d) = &mut i.instruction_kind {
-                        self.declaration_early_process(global, &i.source_range, d)?
-                    }
-                }
-
-            },
-
-            
-            Declaration::Extern { functions, .. } => {
-                for f in functions {
-                    let new_name = global.symbol_table.add_combo(self.custom_path, f.identifier);
-                    self.functions.insert(f.identifier, (new_name, self.depth));
-                    f.identifier = new_name;
-
-                    global.functions.insert(f.identifier, Function {
-                        return_type: f.return_type,
-                        arguments: f.arguments.clone(),
-                    });
-                }
-            },
-
-            
-            Declaration::UseFile { file_name } => {
-                self.available_files.push(*file_name);
-                if global.files.contains_key(file_name) {
-                    return Ok(())
-                }
-                
-                let path = global.symbol_table.get(*file_name);
-                let path = format!("{path}.az");
-                let file = match fs::read_to_string(&path) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        let new_path = std::env::current_exe().unwrap().parent().unwrap().join("api").join(&path);
-                        match fs::read_to_string(new_path) {
-                            Ok(v) => v,
-                            Err(_) => return Err(CompilerError::new(self.file, 223, "file doesn't exist")
-                                .highlight(*source_range)
-                                    .note(format!("can't find a file named {path}"))
-                                .build())
-                        }
-                    },
-                }.replace('\t', "    ");
-                
-                
-                let tokens = azurite_lexer::lex(&file, *file_name, global.symbol_table);
-                global.files.insert(*file_name, (AnalysisState::new(*file_name), vec![], file));
-
-                let tokens = tokens?;
-                let mut instructions = azurite_parser::parse(tokens.into_iter(), *file_name, global.symbol_table)?;
-                let mut analysis = AnalysisState::new(*file_name);
-                analysis.start_analysis(global, &mut instructions)?;
-
-                let temp = global.files.get_mut(file_name).unwrap(); 
-                temp.0 = analysis;
-                temp.1 = instructions;
-            },
-        };
-        Ok(())
-    }
-    
 
     fn analyze_declaration(&mut self, global: &mut GlobalState, declaration: &mut Declaration, source_range: &SourceRange) -> Result<(), Error> {
         match declaration {
@@ -297,7 +216,7 @@ impl AnalysisState {
                 }
 
 
-                let body_return_type = match analysis_state.analyze_block(global, body, true) {
+                let body_return_type = match analysis_state.analyze_block(global, body, true, true) {
                     Ok(v) => v,
                     Err(e) => {
                         self.functions = std::mem::take(&mut analysis_state.functions);
@@ -346,7 +265,7 @@ impl AnalysisState {
 
             
             Declaration::Namespace { body, .. } => {
-                self.analyze_block(global, body, false)?;
+                self.analyze_block(global, body, false, false)?;
                 Ok(())
                 
             },
@@ -364,12 +283,21 @@ impl AnalysisState {
                 Ok(())
             },
 
+
+            Declaration::ImplBlock { body, datatype } => {
+                self.is_valid_type(global, *datatype)?;
+
+                self.analyze_block(global, body, false, false)?;
+
+                Ok(())
+            },
+
             
             Declaration::UseFile { .. } => Ok(()),
         }
     }
     
-    
+
     fn analyze_expression(&mut self, global: &mut GlobalState, expression: &mut Expression, source_range: &SourceRange) -> Result<SourcedDataType, Error> {
         match expression {
             Expression::Data(v) => Ok(SourcedDataType::from(v)),
@@ -432,7 +360,7 @@ impl AnalysisState {
                             | (DataType::Any, DataType::Any) => DataType::Bool,
                             
                             _ => {
-                                return Err(CompilerError::new(self.file, 201, "invalid type order operation")
+                                return Err(CompilerError::new(self.file, 224, "invalid type order operation")
                                     .highlight(SourceRange::combine(left.source_range, right.source_range))
                                         .note(format!("left side is of type {} while the right side is of type {}", global.to_string(left_type.data_type), global.to_string(right_type.data_type)))
                                     .build())
@@ -446,8 +374,29 @@ impl AnalysisState {
             },
 
             
+            Expression::UnaryOp { operator, value } => {
+                let value_type = self.analyze(global, &mut *value)?;
+
+                let is_valid = match operator {
+                    UnaryOperator::Not => matches!(value_type.data_type, DataType::Bool),
+                    UnaryOperator::Negate => matches!(value_type.data_type, DataType::Integer | DataType::Float),
+                };
+
+                if !is_valid {
+                    return Err(CompilerError::new(self.file, 225, "invalid type unary operation")
+                        .highlight(*source_range)
+                        .build());
+                }
+
+                let mut value_type = value_type;
+                value_type.source_range.start = source_range.start;
+
+                Ok(value_type)
+            },
+
+            
             Expression::Block { body } => {
-                self.analyze_block(global, body, true)
+                self.analyze_block(global, body, true, true)
             },
 
 
@@ -462,7 +411,7 @@ impl AnalysisState {
                 }
 
 
-                let body_type = self.analyze_block(global, body, true)?;
+                let body_type = self.analyze_block(global, body, true, true)?;
 
                 if let Some(else_part) = else_part {
                     let else_type = self.analyze(global, else_part)?;
@@ -497,7 +446,17 @@ impl AnalysisState {
             },
 
 
-            Expression::FunctionCall { identifier, arguments } => {
+            Expression::FunctionCall { identifier, arguments, created_by_accessing } => {
+                if *created_by_accessing {
+                    let associated_type = self.analyze(global, &mut arguments[0])?;
+                    let associated_type_index = associated_type.data_type.symbol_index(global.symbol_table);
+                    *identifier = global.symbol_table.add_combo(
+                        associated_type_index,
+                        *identifier,
+                    );
+                }
+
+                
                 let (function, absolute_identifier) = match self.get_function(global, identifier) {
                     Some(v) => v,
                     None => {
@@ -523,7 +482,13 @@ impl AnalysisState {
 
                     let mut errors = vec![];
         
-                    for (argument, expected_type) in arguments.iter_mut().zip(function.arguments.clone().iter()) {
+                    let temp = function.arguments.clone();
+                    let mut iter = arguments.iter_mut().zip(temp.iter());
+                    if *created_by_accessing {
+                        iter.next();
+                    }
+
+                    for (argument, expected_type) in iter {
                         let argument_type = match self.analyze(global, argument) {
                             Ok(v) => v,
                             Err(e) => {
@@ -663,7 +628,7 @@ impl AnalysisState {
             },
         }
     }
-
+    
     
     fn analyze_statement(&mut self, global: &mut GlobalState, statement: &mut Statement, source_range: &SourceRange) -> Result<(), Error> {
         match statement {
@@ -721,7 +686,7 @@ impl AnalysisState {
             Statement::Loop { body } => {
                 self.loop_depth += 1;
 
-                self.analyze_block(global, body, true)?;
+                self.analyze_block(global, body, true, true)?;
 
                 self.loop_depth -= 1;
 
@@ -812,6 +777,129 @@ impl AnalysisState {
             },
         } 
     }
+
+    
+    fn declaration_early_process(&mut self, global: &mut GlobalState, source_range: &SourceRange, declaration: &mut Declaration) -> Result<(), Error> {
+        match declaration {
+            Declaration::FunctionDeclaration { name, arguments, return_type, .. } => {
+                let new_name = global.symbol_table.add_combo(self.custom_path, *name);
+                self.functions.insert(*name, (new_name, self.depth));
+                *name = new_name;
+                
+                
+                global.functions.insert(*name, Function { return_type: *return_type, arguments: arguments.iter().map(|x| x.1).collect() });
+            },
+
+            
+            Declaration::StructDeclaration { name, fields } => {
+                self.declare_struct(*name, Structure {
+                    fields: fields.clone(),
+                })
+            },
+
+            
+            Declaration::Namespace { body, .. } => {
+                for i in body.iter_mut() {
+                    if let InstructionKind::Declaration(d) = &mut i.instruction_kind {
+                        self.declaration_early_process(global, &i.source_range, d)?
+                    }
+                }
+
+            },
+
+            
+            Declaration::Extern { functions, .. } => {
+                for f in functions {
+                    let new_name = global.symbol_table.add_combo(self.custom_path, f.identifier);
+                    self.functions.insert(f.identifier, (new_name, self.depth));
+                    f.identifier = new_name;
+
+                    global.functions.insert(f.identifier, Function {
+                        return_type: f.return_type,
+                        arguments: f.arguments.clone(),
+                    });
+                }
+            },
+
+            
+            Declaration::UseFile { file_name } => {
+                let path = global.symbol_table.get(*file_name);
+                let mut path = PathBuf::from(path);
+                path.set_extension("az");
+
+                let current_file_path = global.symbol_table.find_root(self.custom_path).0;
+                let current_file_path = PathBuf::from(global.symbol_table.get(current_file_path));
+                let path_local_to_file = Path::join(current_file_path.parent().unwrap(), &path);
+
+                if let Some(v) = global.symbol_table.find(path_local_to_file.to_string_lossy().to_string().as_str()) {
+                    if global.files.contains_key(&v) {
+                        self.available_files.insert(*file_name, v);
+                        *file_name = v;
+                        return Ok(())
+                    }
+                } else {
+                    let new_path = std::env::current_exe().unwrap().parent().unwrap().join("api").join(&path);
+
+                    if let Some(v) = global.symbol_table.find(new_path.to_string_lossy().to_string().as_str()) {
+                        if global.files.contains_key(&v) {
+                            self.available_files.insert(*file_name, v);
+                            *file_name = v;
+                            return Ok(())
+                        }
+                    }
+                }
+
+
+                let (file, path) = match fs::read_to_string(&path_local_to_file) {
+                    Ok(v) => (v, path_local_to_file),
+                    Err(_) => {
+                        let new_path = std::env::current_exe().unwrap().parent().unwrap().join("api").join(&path);
+                        match fs::read_to_string(&new_path) {
+                            Ok(v) => (v, new_path),
+                            Err(_) => return Err(CompilerError::new(self.file, 223, "file doesn't exist")
+                                .highlight(*source_range)
+                                    .note(format!("can't find a file named {} at any of the following paths: {}, {}",
+                                        global.symbol_table.get(*file_name),
+                                        path_local_to_file.to_string_lossy(),
+                                        new_path.to_string_lossy(),
+                                ))
+                                .build())
+                        }
+                    },
+                };
+
+                
+                let file = file.replace('\t', "    ").replace('\r', "");
+                let path = global.symbol_table.add(path.to_string_lossy().to_string());
+                self.available_files.insert(*file_name, path);
+                
+                let tokens = azurite_lexer::lex(&file, path, global.symbol_table);
+                global.files.insert(path, (AnalysisState::new(path), vec![], file));
+                *file_name = path;
+
+                let tokens = tokens?;
+                let mut instructions = azurite_parser::parse(tokens.into_iter(), path, global.symbol_table)?;
+                let mut analysis = AnalysisState::new(path);
+                analysis.start_analysis(global, &mut instructions)?;
+
+                let temp = global.files.get_mut(&path).unwrap(); 
+                temp.0 = analysis;
+                temp.1 = instructions;
+            },
+
+            
+            Declaration::ImplBlock { body, .. } => {
+                for i in body.iter_mut() {
+                    match &mut i.instruction_kind {
+                        InstructionKind::Declaration(v) => self.declaration_early_process(global, &i.source_range, v)?,
+
+                        _ => unreachable!()
+                    }
+                }
+            },
+        };
+        Ok(())
+    }
 }
 
 impl AnalysisState {
@@ -859,25 +947,25 @@ impl AnalysisState {
                 let (root, root_excluded) = symbol_table.find_root(*symbol);
 
                 if let Some(root_excluded) = root_excluded {
-                    if self.available_files.contains(&root) {
+                    if self.available_files.contains_key(&root) {
                         if let Some(v) = files.get(&root)?.0.get_function_detailed(symbol_table, files, functions, &root_excluded, false) {
                             return Some((v.0, v.1))
                         }
                     }
                 }
 
-
                 if !implicit_complete {
                     return None
                 }
                 
                 for namespace in self.available_files.iter() {
-                    if let Some(v) = files.get(namespace)?.0.get_function_detailed(symbol_table, files, functions, symbol, false) {
+                    if let Some(v) = files.get(namespace.1)?.0.get_function_detailed(symbol_table, files, functions, symbol, false) {
                         return Some((v.0, v.1))
                     }
 
                 }
-                
+
+
                 None 
             },
         }
@@ -915,7 +1003,7 @@ impl AnalysisState {
                 let (root, root_excluded) = global.symbol_table.find_root(*symbol);
                 let root_excluded = root_excluded?;
 
-                if !self.available_files.contains(&root_excluded) {
+                if !self.available_files.contains_key(&root_excluded) {
                     return None
                 }
                 

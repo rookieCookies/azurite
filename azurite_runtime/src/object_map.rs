@@ -22,13 +22,27 @@ pub enum Object {
 
 
 impl Object {
-    /// Consumes the union value and returns a string
+    /// Returns a string reference
     ///
     /// # Panics
     /// - If the union type is not a string
     #[inline]
     #[must_use]
     pub fn string(&self) -> &String {
+        match self {
+            Object::String(v) => v,
+            _ => unreachable!()
+        }
+    }
+
+    
+    /// Consumes the union value and returns a string
+    ///
+    /// # Panics
+    /// - If the union type is not a string
+    #[inline]
+    #[must_use]
+    pub fn string_mut(&mut self) -> &mut String {
         match self {
             Object::String(v) => v,
             _ => unreachable!()

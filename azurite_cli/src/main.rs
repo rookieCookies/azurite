@@ -115,7 +115,7 @@ fn compile(file: &str) -> Result<Packed, ExitCode> {
     let instant = Instant::now();
 
     let Ok(raw_data) = fs::read(file) else { eprintln!("'{file}' doesn't exist"); return Err(ExitCode::FAILURE)};
-    let file_data = String::from_utf8_lossy(&raw_data).replace('\t', "    ");
+    let file_data = String::from_utf8_lossy(&raw_data).replace('\t', "    ").replace('\r', "");
 
 
     let (result, debug_info) = azurite_compiler::compile(file.to_string(), file_data);
@@ -209,6 +209,8 @@ fn disassemble(v: Vec<u8>) {
 
                 writeln!(lock, ")")
             },
+            Bytecode::UnaryNot => writeln!(lock, "not {} {}", d.next(), d.next()),
+            Bytecode::UnaryNeg => writeln!(lock, "neg {} {}", d.next(), d.next()),
         
         };
     }

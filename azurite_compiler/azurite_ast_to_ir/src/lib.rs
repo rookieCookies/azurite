@@ -2,7 +2,7 @@ pub mod optimizations;
 
 use std::{mem::replace, fmt::{Display, Write}, collections::{HashMap, BTreeMap}};
 
-use azurite_parser::ast::{Instruction, Expression, BinaryOperator, Statement, InstructionKind, Declaration};
+use azurite_parser::ast::{Instruction, Expression, BinaryOperator, Statement, InstructionKind, Declaration, UnaryOperator};
 use common::{Data, SymbolIndex, SymbolTable};
 use rayon::prelude::{ParallelIterator, IntoParallelRefMutIterator};
 
@@ -124,6 +124,9 @@ pub enum IR {
     GreaterEquals { dst: Variable, left: Variable, right: Variable },
     LesserEquals  { dst: Variable, left: Variable, right: Variable },
 
+    UnaryNot      { dst: Variable, val:  Variable },
+    UnaryNeg      { dst: Variable, val:  Variable },
+
     Call          { dst: Variable, id: FunctionIndex,  args: Vec<Variable> },
     ExtCall       { dst: Variable, index: u32,         args: Vec<Variable> },
     
@@ -201,7 +204,7 @@ impl ConversionState {
     }
 
 
-    /// SAFETY: If the function is an extern function this will panic
+    /// PANICS: If the function is an extern function this will panic
     pub fn find_function(&mut self, symbol: SymbolIndex) -> &Function {
         self.functions.get(&symbol).unwrap()
     }
@@ -299,6 +302,8 @@ impl ConversionState {
                             if self.functions.contains_key(name) {
                                 continue
                             }
+
+                            // println!("{}", self.symbol_table.get(*name));
                             
                             let function = Function::new(*name, self.function(), arguments.len());
                             self.functions.insert(*name, function);
@@ -316,6 +321,9 @@ impl ConversionState {
                             }
                         },
                         Declaration::UseFile { .. } => (),
+                        Declaration::ImplBlock { body, datatype } => {
+                            self.declaration_process(body);
+                        },
                     }
                 },
                 _ => continue,
@@ -411,6 +419,11 @@ impl Function {
             
             Declaration::UseFile { file_name } => {
                 block.ir(IR::Call { dst: self.variable(), id: state.find_function(file_name).function_index, args: vec![] })
+            },
+
+            
+            Declaration::ImplBlock { body, .. } => {
+                self.convert_block(state, body);
             },
         }
     }
@@ -523,6 +536,19 @@ impl Function {
             },
             
             
+            Expression::UnaryOp { operator, value } => {
+                let val = self.convert(state, block, *value);
+                let dst = self.variable();
+
+                match operator {
+                    UnaryOperator::Not => block.ir(IR::UnaryNot { dst, val }),
+                    UnaryOperator::Negate => block.ir(IR::UnaryNeg { dst, val }),
+                };
+
+                dst
+            },
+
+            
             Expression::Block { body } => {
                 let body = self.convert_block(state, body);
                 let mut continue_block = Block { block_index: self.block(), instructions: vec![], ending: BlockTerminator::Return };
@@ -573,7 +599,7 @@ impl Function {
             Expression::Identifier(v) => self.variable_lookup.iter().rev().find(|x| x.0 == v).unwrap().1,
 
             
-            Expression::FunctionCall { identifier, arguments } => {
+            Expression::FunctionCall { identifier, arguments, created_by_accessing: _ } => {
                 let dst = self.variable();
                 let mut variables = Vec::with_capacity(arguments.len());
 
@@ -582,7 +608,6 @@ impl Function {
                     variables.push(argument_reg);
                 }
 
-                // dbg!(&state);
                 if let Some(v) = state.functions.get(&identifier) {
                     block.ir(IR::Call    { dst, id: v.function_index, args: variables })
                 } else if let Some(v) = state.extern_functions.get(&identifier) {
@@ -691,6 +716,8 @@ impl Function {
                     IR::AccStruct { dst, val, index }      => writeln!(lock, "accstruct, {dst} {val} {index}"),
                     IR::SetField { dst, data, index }      => writeln!(lock, "setfield {dst} {data} {index}"),
                     IR::Noop                               => writeln!(lock, "noop"),
+                    IR::UnaryNot { dst, val }              => writeln!(lock, "not {dst} {val}"),
+                    IR::UnaryNeg { dst, val }              => writeln!(lock, "neg {dst} {val}"),
                 };
             }
         

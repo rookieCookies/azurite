@@ -3,19 +3,6 @@ extern "standard_library" {
 	fn println(str)
 	
 	fn read_line(): str
-
-	fn int_to_str(int): str
-	fn int_to_float(int): float
-	fn int_to_bool(int): bool
-
-	fn float_to_str(float): str
-	fn float_to_int(float): int
-	fn float_to_bool(float): bool
-
-	fn bool_to_str(bool): str
-	fn bool_to_int(bool): int
-	fn bool_to_float(bool): float
-
 	fn parse_str_as_int(str): int
 
 	fn exit(int)
@@ -24,6 +11,43 @@ extern "standard_library" {
 	fn set_var(str, str)
 
 	fn panic(str)
+}
+
+
+impl int {
+	extern "standard_library" {
+		fn "int_to_str" to_string(self) : str
+		fn "int_to_float" to_float(self) : float
+		fn "int_to_bool" to_bool(self) : bool
+	}
+}
+
+
+impl bool {
+	extern "standard_library" {
+		fn "bool_to_str" to_string(self) : str
+		fn "bool_to_float" to_float(self) : float
+		fn "bool_to_int" to_bool(self) : int
+	}
+}
+
+
+impl float {
+	extern "standard_library" {
+		fn "float_to_str" to_string(self) : str
+		fn "float_to_bool" to_float(self) : bool
+		fn "float_to_int" to_bool(self) : int
+	}
+}
+
+
+impl str {
+	extern "standard_library" {
+		// This function returns the "self" value back
+		// to allow for chaining. It does not create a
+		// new string object
+		fn "string_append" append(self, str) : str
+	}
 }
 
 

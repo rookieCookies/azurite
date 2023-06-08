@@ -324,6 +324,28 @@ impl VM {
                         _ => unreachable!()
                     };
                 }
+
+
+                consts::UnaryNeg => {
+                    let dst = current.next();
+                    let val = current.next();
+
+                    match self.stack.reg(val) {
+                        VMData::Integer(v) => self.stack.set_reg(dst, VMData::Integer(-v)),
+                        VMData::Float(v) => self.stack.set_reg(dst, VMData::Float(-v)),
+
+                        _ => unreachable!(),
+                    }
+                }
+
+
+                consts::UnaryNot => {
+                    let dst = current.next();
+                    let val = current.next();
+
+                    let data = self.stack.reg(val).bool();
+                    self.stack.set_reg(dst, VMData::Bool(!data))
+                }
                 
                 _ => panic!("unreachable {value}"),
             };

@@ -275,6 +275,9 @@ pub enum Bytecode : u8 {
     Multiply,
     Divide,
 
+    UnaryNot,
+    UnaryNeg,
+
     Equals,
     NotEquals,
     GreaterThan,

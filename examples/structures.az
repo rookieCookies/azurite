@@ -3,23 +3,25 @@ struct Messenger {
     message: str,
 }
 
+
+struct User {
+    id: int,
+}
+
+
 impl Messenger {
-    fn new(target: User, message: str) -> Messenger {
+    fn new(target: User, message: str) : Messenger {
         Messenger {
             target: target,
             message: message,
         }
     }
 
+
     fn send(self) {
-        IO::writeln("said ".append(self.message).append(" to ").append(self.target.id.to_string()))
+        println("said ".append(self.message).append(" to ").append(self.target.id.to_string()))
     }
 }
-
-struct User {
-    id: int,
-}
-
 
 var user = User {
     id: 543

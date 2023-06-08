@@ -5,4 +5,4 @@ fn fib_recursive(n: float) : float {
     fib_recursive(n - 1.0) + fib_recursive(n - 2.0)
 }
 
-assert_info(fib_iter(10.0) == 55.0, "factorial(5.0) == 120.0")
+assert_info(fib_recursive(10.0) == 55.0, "factorial(5.0) == 120.0")

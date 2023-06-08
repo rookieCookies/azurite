@@ -300,6 +300,20 @@ impl CodeGen {
             IR::Noop => (),
 
             
+            IR::UnaryNot { dst, val } => {
+                self.emit_bytecode(Bytecode::UnaryNot);
+                self.emit_byte(dst.0 as u8);
+                self.emit_byte(val.0 as u8);
+            },
+
+            
+            IR::UnaryNeg { dst, val } => {
+                self.emit_bytecode(Bytecode::UnaryNeg);
+                self.emit_byte(dst.0 as u8);
+                self.emit_byte(val.0 as u8);
+            },
+
+            
         }
     }
 

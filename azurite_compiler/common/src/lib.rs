@@ -27,13 +27,21 @@ impl DataType {
 impl DataType {
     pub fn to_string(self, symbol_table: &SymbolTable) -> String {
         match self {
-            DataType::Integer   => "integer".to_string(),
+            DataType::Integer   => "int".to_string(),
             DataType::Float     => "float".to_string(),
-            DataType::String    => "string".to_string(),
+            DataType::String    => "str".to_string(),
             DataType::Bool      => "bool".to_string(),
             DataType::Empty     => "()".to_string(),
             DataType::Any       => "any".to_string(),
             DataType::Struct(v) => symbol_table.get(v)
+        }
+    }
+
+
+    pub fn symbol_index(self, symbol_table: &mut SymbolTable) -> SymbolIndex {
+        match self {
+            DataType::Struct(v) => v,
+            _ => symbol_table.add(self.to_string(symbol_table))
         }
     }
 }
@@ -124,6 +132,19 @@ impl SymbolTable {
     pub fn find_combo(&self, v1: SymbolIndex, v2: SymbolIndex) -> SymbolIndex {
         let mock = SymbolTableValue::Combo(v1, v2);
         SymbolIndex(self.vec.iter().enumerate().find(|x| *x.1 == mock).unwrap().0)
+    }
+
+
+    pub fn find(&self, val: &str) -> Option<SymbolIndex> {
+        for i in self.vec.iter().enumerate() {
+            if let SymbolTableValue::String(v) = i.1 {
+                if v.as_str() == val {
+                    return Some(SymbolIndex(i.0))
+                }
+            }
+        }
+
+        None
     }
 }
 

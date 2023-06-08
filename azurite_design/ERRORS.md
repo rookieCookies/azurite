@@ -118,3 +118,10 @@
 
 223) File doesn't exist
 - This error occurs when using a file that doesn't exist
+
+224) Invalid Type Order Operation
+- This error occurs when you try to perform an order operation between invalid types
+
+225) Invalid Type Unary Operation
+- This error occursh when you try to perform a unary operation on a type that doens't support the specific operation
+

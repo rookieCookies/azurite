@@ -2,7 +2,7 @@ fn hi() {
     println("Hello there!")
 }
 
-fn calculate(v1: int, v2: int) -> int {
+fn calculate(v1: int, v2: int): int {
     v1 * v2
 }
 

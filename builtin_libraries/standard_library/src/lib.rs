@@ -213,6 +213,21 @@ pub extern "C" fn to_string_bool(vm: &mut VM) -> Result {
 
 
 #[no_mangle]
+pub extern "C" fn string_append(vm: &mut VM) -> Result {
+    let other_string = vm.stack.reg(2).object();
+    let other_string = vm.objects.get(other_string as usize).string().clone();
+    
+    let string_index = vm.stack.reg(1).object();
+    let string = vm.objects.get_mut(string_index as usize).string_mut();
+    string.push_str(other_string.as_str());
+
+    vm.stack.set_reg(0, VMData::Object(string_index));
+
+    Result::Ok
+}
+
+
+#[no_mangle]
 pub extern "C" fn parse_str_as_int(vm: &mut VM) -> Result {
     let string = vm.stack.reg(1).object();
     let string = vm.objects.get(string as usize).string().trim();

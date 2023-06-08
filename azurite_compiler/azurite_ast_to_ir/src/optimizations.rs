@@ -166,6 +166,8 @@ impl Function {
                             | IR::LesserEquals { dst, .. }
                             | IR::Call { dst, ..}
                             | IR::ExtCall { dst, .. }
+                            | IR::UnaryNot { dst, .. }
+                            | IR::UnaryNeg { dst, .. }
                             | IR::Struct { dst, .. }
                             | IR::AccStruct { dst, ..  } 
                             | IR::SetField { dst, .. } => {

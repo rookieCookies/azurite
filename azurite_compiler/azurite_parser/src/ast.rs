@@ -56,6 +56,11 @@ pub enum Expression {
         left: Box<Instruction>,
         right: Box<Instruction>,
     },
+
+    UnaryOp {
+        operator: UnaryOperator,
+        value: Box<Instruction>,
+    },
     
     Block {
         body: Vec<Instruction>,
@@ -68,10 +73,12 @@ pub enum Expression {
     },
     
     Identifier(SymbolIndex),
-
+    
     FunctionCall {
         identifier: SymbolIndex,
         arguments: Vec<Instruction>,
+
+        created_by_accessing: bool,
     },
 
     StructureCreation {
@@ -105,20 +112,30 @@ pub enum Declaration {
         source_range_declaration: SourceRange,
     },
 
+
     StructDeclaration {
         name: SymbolIndex,
         fields: Vec<(SymbolIndex, SourcedDataType)>,
     },
+
 
     Namespace {
         body: Vec<Instruction>,
         identifier: SymbolIndex,
     },
 
+
+    ImplBlock {
+        body: Vec<Instruction>,
+        datatype: SourcedDataType,
+    },
+
+
     Extern {
         file: SymbolIndex,
         functions: Vec<ExternFunctionAST>,
     },
+
 
     UseFile {
         file_name: SymbolIndex,
@@ -183,6 +200,33 @@ impl BinaryOperator {
             TokenKind::LesserEquals => Some(BinaryOperator::LesserEquals),
             TokenKind::EqualsTo => Some(BinaryOperator::Equals),
             TokenKind::NotEqualsTo => Some(BinaryOperator::NotEquals),
+            _ => None
+        }
+    }
+}
+
+
+#[derive(Debug, PartialEq)]
+pub enum UnaryOperator {
+    Not,
+    Negate,
+}
+
+impl Display for UnaryOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            UnaryOperator::Not => "not",
+            UnaryOperator::Negate => "negate",
+        })
+    }
+    
+}
+
+impl UnaryOperator {
+    pub fn from_token(token: &TokenKind) -> Option<Self> {
+        match token {
+            TokenKind::Minus => Some(UnaryOperator::Negate),
+            TokenKind::Bang  => Some(UnaryOperator::Not),
             _ => None
         }
     }
