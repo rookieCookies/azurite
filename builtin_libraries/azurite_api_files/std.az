@@ -27,7 +27,7 @@ impl bool {
 	extern "standard_library" {
 		fn "bool_to_str" to_string(self) : str
 		fn "bool_to_float" to_float(self) : float
-		fn "bool_to_int" to_bool(self) : int
+		fn "bool_to_int" to_int(self) : int
 	}
 }
 
@@ -35,8 +35,8 @@ impl bool {
 impl float {
 	extern "standard_library" {
 		fn "float_to_str" to_string(self) : str
-		fn "float_to_bool" to_float(self) : bool
-		fn "float_to_int" to_bool(self) : int
+		fn "float_to_bool" to_bool(self) : bool
+		fn "float_to_int" to_int(self) : int
 	}
 }
 

@@ -1,5 +1,0 @@
-fn add_num(x: int, y: int): int {
-    x + y + 5
-}
-
-assert_info(add_num(4, 6) == 10, "add_num(4, 6) == 10")
