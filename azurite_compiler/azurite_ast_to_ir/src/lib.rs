@@ -321,7 +321,7 @@ impl ConversionState {
                             }
                         },
                         Declaration::UseFile { .. } => (),
-                        Declaration::ImplBlock { body, datatype } => {
+                        Declaration::ImplBlock { body, .. } => {
                             self.declaration_process(body);
                         },
                     }

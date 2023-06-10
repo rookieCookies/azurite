@@ -1,5 +1,9 @@
-fn add_num(x: int, y: int): int {
-    x + y + 5
+var i = 128 * 5
+while i > 0 {
+    A{v:i}
+    i = i - 1
 }
 
-assert_info(add_num(4, 6) == 10, "add_num(4, 6) == 10")
+struct A {v:int}
+
+loop{}

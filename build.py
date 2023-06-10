@@ -22,8 +22,11 @@ if not os.path.exists("azurite_libraries"):
 release_folder = os.getcwd() + "/target/release/"
 library_folder = os.getcwd() + "/azurite_libraries/"
 for filename in os.listdir(release_folder):
-    if filename.endswith(".dll") or filename.endswith(".so"):
-        shutil.copy(release_folder + filename, library_folder + filename)
+    if filename.endswith(".dll") or filename.endswith(".so") or filename.endswith("dylib"):
+        to_file = filename
+        if filename.endswith(".so") or filename.endswith("dylib"):
+            to_file = filename[3:]
+        shutil.copy(release_folder + filename, library_folder + to_file)
         continue
 
 

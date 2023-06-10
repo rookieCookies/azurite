@@ -1,14 +1,21 @@
-// #![deny(clippy::pedantic)]
 #![feature(iter_next_chunk)]
 #![feature(try_trait_v2)]
+
 mod object_map;
 mod runtime;
+mod garbage_collection;
 
 use azurite_archiver::{Packed, Data};
+use colored::Colorize;
 use object_map::ObjectMap;
-use std::{time::Instant, ops::FromResidual, convert::Infallible, ffi::CString};
+use std::{time::Instant, ops::FromResidual, convert::Infallible, ffi::CString, mem::size_of};
 
 pub use object_map::Object;
+pub use object_map::ObjectIndex;
+
+
+const _: () = assert!(size_of::<VMData>() <= 16);
+
 
 /// Runs a 'Packed' file assuming it is
 /// correctly structured
@@ -33,6 +40,22 @@ pub struct VM {
     pub(crate) constants: Vec<VMData>,
     pub stack: Stack,
     pub objects: ObjectMap,
+}
+
+
+impl VM {
+    pub fn create_object(&mut self, object: Object) -> Result<ObjectIndex, FatalError> {
+        match self.objects.put(object) {
+            Ok(v) => Ok(v),
+            Err(object) => {
+                self.run_garbage_collection();
+                match self.objects.put(object) {
+                    Ok(v) => Ok(v),
+                    Err(_) => Err(FatalError::new(String::from("out of memory"))),
+                }
+            },
+        }
+    }
 }
 
 
@@ -89,13 +112,13 @@ impl Stack {
     }
 
     #[inline(always)]
-    fn push(&mut self, amount: usize) -> Result {
+    fn push(&mut self, amount: usize) -> Status {
         self.top += amount;
         if self.top >= self.values.len() {
-            return Result::Err(FatalError::new(String::from("stack overflow")))
+            return Status::Err(FatalError::new(String::from("stack overflow")))
         }
 
-        Result::Ok
+        Status::Ok
     }
 
     #[inline(always)]
@@ -105,6 +128,8 @@ impl Stack {
 }
 
 
+
+
 /// The runtime union of stack values
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -112,7 +137,7 @@ pub enum VMData {
     Integer(i64),
     Float(f64),
     Bool(bool),
-    Object(u64),
+    Object(ObjectIndex),
     Empty,
 }
 
@@ -169,48 +194,68 @@ impl VMData {
     /// - If the union type is not an object
     #[inline(always)]
     #[must_use]
-    pub fn object(self) -> u64 {
+    pub fn object(self) -> ObjectIndex {
         match self {
             VMData::Object(v) => v,
             _ => unreachable!()
         }
+    }
+
+
+    pub fn is_integer(&self) -> bool {
+        matches!(self, VMData::Integer(_))
+    }
+    
+    
+    pub fn is_float(&self) -> bool {
+        matches!(self, VMData::Float(_))
+    }
+    
+    
+    pub fn is_bool(&self) -> bool {
+        matches!(self, VMData::Bool(_))
+    }
+
+    
+    pub fn is_object(&self) -> bool {
+        matches!(self, VMData::Object(_))
     }
 }
 
 
 #[derive(Debug)]
 #[repr(C)]
-pub enum Result {
+pub enum Status {
     Ok,
     Err(FatalError)
 }
 
 
-impl Result {
-    pub fn ok() -> Result {
-        Result::Ok
+impl Status {
+    pub fn ok() -> Status {
+        Status::Ok
     }
 
 
-    pub fn err(str: impl ToString) -> Result {
-        Result::Err(FatalError::new(str.to_string()))
+    pub fn err(str: impl ToString) -> Status {
+        Status::Err(FatalError::new(str.to_string()))
     }
 
 
     #[inline]
     pub fn is_err(&self) -> bool {
-        matches!(self, Result::Err(_))
+        matches!(self, Status::Err(_))
     }
 
 
     #[inline]
     pub fn is_ok(&self) -> bool {
-        matches!(self, Result::Ok)
+        matches!(self, Status::Ok)
     }
 }
 
 
-impl FromResidual<std::result::Result<Infallible, FatalError>> for Result {
+impl FromResidual<std::result::Result<Infallible, FatalError>> for Status {
     fn from_residual(residual: std::result::Result<Infallible, FatalError>) -> Self {
         match residual {
             Ok(_) => Self::Ok,
@@ -249,10 +294,15 @@ fn run(bytecode: &[u8], constants: Vec<u8>) {
     let mut vm = VM {
         constants: Vec::new(),
         stack: Stack::new(),
-        objects: ObjectMap::new(128),
+        objects: ObjectMap::new((1 * 1024 * 1024) / size_of::<Object>()),
     };
 
-    bytes_to_constants(&mut vm, constants);
+    if let Err(e) = bytes_to_constants(&mut vm, constants) {
+        println!(
+            "{}",
+            format!("panicked at '{}'", e.read_message().to_string_lossy()).bright_red()
+        );
+    }
     
     let start = Instant::now();
 
@@ -264,7 +314,7 @@ fn run(bytecode: &[u8], constants: Vec<u8>) {
 }
 
 
-fn bytes_to_constants(vm: &mut VM, data: Vec<u8>) {
+fn bytes_to_constants(vm: &mut VM, data: Vec<u8>) -> Result<(), FatalError> {
     let mut constants_iter = data.into_iter();
 
     while let Some(datatype) = constants_iter.next() {
@@ -285,9 +335,9 @@ fn bytes_to_constants(vm: &mut VM, data: Vec<u8>) {
 
                 let object = String::from_utf8(vec).unwrap();
                 
-                let index = vm.objects.put(object_map::Object::String(object)).unwrap();
+                let index = vm.create_object(Object::new(object))?;
 
-                VMData::Object(index as u64)
+                VMData::Object(index)
             }
 
             _ => unreachable!()
@@ -295,6 +345,7 @@ fn bytes_to_constants(vm: &mut VM, data: Vec<u8>) {
 
         vm.constants.push(constant);
     };
+    Ok(())
 }
 
 
@@ -356,5 +407,4 @@ impl<'a> Code<'a> {
         self.pointer = at;
     }
 }
-
 

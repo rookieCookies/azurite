@@ -448,7 +448,7 @@ impl Parser<'_> {
         let start = self.current_token().unwrap().source_range.start;
         self.advance();
 
-        let condition = self.comparison_expression(ParserSettings { can_parse_struct_creation: false, ..default() })?;
+        let condition = self.comparison_expression(ParserSettings { can_parse_struct_creation: false })?;
         self.advance();
 
         self.expect(&TokenKind::LeftBracket)?;
@@ -1111,7 +1111,7 @@ impl Parser<'_> {
         let start = self.current_token().unwrap().source_range.start;
         self.advance();
         
-        let condition = self.comparison_expression(ParserSettings { can_parse_struct_creation: false, ..default() })?;
+        let condition = self.comparison_expression(ParserSettings { can_parse_struct_creation: false })?;
         self.advance();
 
         self.expect(&TokenKind::LeftBracket)?;

@@ -11,6 +11,7 @@ azurite_archiver = { path = "../crates/azurite_archiver" }
 
 libloading = "*"
 colored = "*"
+rayon = "*"
 
 [features]
 afl = []
