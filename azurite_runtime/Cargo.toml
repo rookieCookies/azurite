@@ -9,9 +9,11 @@ edition = "2021"
 azurite_common = { path = "../azurite_common" }
 azurite_archiver = { path = "../crates/azurite_archiver" }
 
+untyped-arena = "*"
 libloading = "*"
 colored = "*"
 rayon = "*"
+lazy_static = "*"
 
 [features]
 afl = []

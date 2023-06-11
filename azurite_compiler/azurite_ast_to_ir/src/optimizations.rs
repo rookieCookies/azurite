@@ -152,12 +152,22 @@ impl Function {
 
                         match instruction {
                             IR::Copy { dst, .. }
+                            | IR::CastToI8 { dst, .. }
+                            | IR::CastToI16 { dst, .. }
+                            | IR::CastToI32 { dst, .. }
+                            | IR::CastToI64 { dst, .. }
+                            | IR::CastToU8 { dst, .. }
+                            | IR::CastToU16 { dst, .. }
+                            | IR::CastToU32 { dst, .. }
+                            | IR::CastToU64 { dst, .. }
+                            | IR::CastToFloat { dst, .. }
                             | IR::Unit { dst }
                             | IR::Load { dst, .. }
                             | IR::Add { dst, .. } 
                             | IR::Subtract { dst, .. } 
                             | IR::Multiply { dst, .. } 
                             | IR::Divide { dst, .. } 
+                            | IR::Modulo { dst, .. } 
                             | IR::Equals { dst, .. } 
                             | IR::NotEquals { dst, .. } 
                             | IR::GreaterThan { dst, .. } 

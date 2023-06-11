@@ -184,7 +184,14 @@ impl Parser<'_> {
         let built_string = built_string.unwrap();        
 
         let data_type = match self.symbol_table.get(built_string).as_str() {
-            "int" => DataType::Integer,
+            "i8"  => DataType::I8,
+            "i16" => DataType::I16,
+            "i32" => DataType::I32,
+            "i64" => DataType::I64,
+            "u8"  => DataType::U8,
+            "u16" => DataType::U16,
+            "u32" => DataType::U32,
+            "u64" => DataType::U64,
             "float" => DataType::Float,
             "bool" => DataType::Bool,
             "str" => DataType::String,
@@ -874,14 +881,37 @@ impl Parser<'_> {
 
     fn product_expression(&mut self, settings: ParserSettings) -> ParseResult {
          self.binary_operation(
-            Parser::unary_expression, 
-            Parser::unary_expression,
+            Parser::as_type_cast_expression,
+            Parser::as_type_cast_expression,
             settings,
             &[
                 TokenKind::Star,
                 TokenKind::Slash,
+                TokenKind::Percent,
             ],
         )       
+    }
+
+
+    fn as_type_cast_expression(&mut self, settings: ParserSettings) -> ParseResult {
+        let unary = self.unary_expression(settings)?;
+
+        if self.peek().map(|x| x.token_kind) != Some(TokenKind::Keyword(Keyword::As)) {
+            return Ok(unary)
+        }
+
+        self.advance();
+        self.advance();
+
+        let cast_type = self.parse_type()?;
+
+        Ok(Instruction { 
+            source_range: SourceRange::new(unary.source_range.start, cast_type.source_range.end),
+            instruction_kind: InstructionKind::Expression(Expression::AsCast {
+                value: Box::new(unary),
+                cast_type,
+            }),
+        })
     }
 
 
@@ -965,7 +995,7 @@ impl Parser<'_> {
                 };
                 
                 let data = match literal {
-                    Literal::Integer(i) => Data::Int(i),
+                    Literal::Integer(i) => Data::I64(i),
                     Literal::Float(f) => Data::Float(f),
                     Literal::String(s) => Data::String(s),
                     Literal::Bool(b) => Data::Bool(b),

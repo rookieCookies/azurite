@@ -3,18 +3,19 @@ extern "standard_library" {
 	fn println(str)
 	
 	fn read_line(): str
-	fn parse_str_as_int(str): int
+	fn parse_str_as_int(str): i64
 
-	fn exit(int)
+	fn exit(i32)
 
 	fn get_var(str): str
 	fn set_var(str, str)
 
 	fn panic(str)
+	fn force_gc()
 }
 
 
-impl int {
+impl i64 {
 	extern "standard_library" {
 		fn "int_to_str" to_string(self) : str
 		fn "int_to_float" to_float(self) : float
@@ -23,43 +24,101 @@ impl int {
 }
 
 
-impl bool {
-	extern "standard_library" {
-		fn "bool_to_str" to_string(self) : str
-		fn "bool_to_float" to_float(self) : float
-		fn "bool_to_int" to_bool(self) : int
-	}
-}
+// impl bool {
+// 	extern "standard_library" {
+// 		fn "bool_to_str" to_string(self) : str
+// 		fn "bool_to_float" to_float(self) : float
+// 		fn "bool_to_int" to_bool(self) : int
+// 	}
+// }
 
 
-impl float {
-	extern "standard_library" {
-		fn "float_to_str" to_string(self) : str
-		fn "float_to_bool" to_float(self) : bool
-		fn "float_to_int" to_bool(self) : int
-	}
-}
+// impl float {
+// 	extern "standard_library" {
+// 		fn "float_to_str" to_string(self) : str
+// 		fn "float_to_bool" to_float(self) : bool
+// 		fn "float_to_int" to_bool(self) : int
+// 	}
+// }
 
 
-impl str {
-	extern "standard_library" {
-		// This function returns the "self" value back
-		// to allow for chaining. It does not create a
-		// new string object
-		fn "string_append" append(self, str) : str
-	}
-}
+// impl str {
+// 	extern "standard_library" {
+// 		// This function returns the "self" value back
+// 		// to allow for chaining. It does not create a
+// 		// new string object
+// 		fn "string_append" append(self, str) : str
+// 	}
+// }
 
 
-fn assert(val: bool) {
-	if val == false {
-		panic("assert failed")
-	}
-}
+// fn assert(val: bool) {
+// 	if val == false {
+// 		panic("assert failed")
+// 	}
+// }
 
 
-fn assert_info(val: bool, string: str) {
-	if val == false {
-		panic(string)
-	}
-}
+// fn assert_info(val: bool, string: str) {
+// 	if val == false {
+// 		panic(string)
+// 	}
+// }
+
+
+// struct Duration {
+// 	secs: int,
+// 	nanos: int,
+// }
+
+// impl Duration {
+// 	fn new(secs: int, nanos: int): Duration {
+// 		var secs = secs + (nanos / 1_000_000_000)
+// 		var nanos = nanos % 1_000_000_000
+// 		Duration {
+// 			secs: secs,
+// 			nanos: nanos,
+// 		} 
+// 	}
+
+
+// 	fn from_secs(secs: int): Duration {
+// 		 Duration { secs: secs, nanos: 0 }
+// 	}
+
+
+// 	fn from_millis(millis: int): Duration {
+		
+// 	}
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

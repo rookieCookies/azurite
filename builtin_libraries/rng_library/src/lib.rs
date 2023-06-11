@@ -3,7 +3,7 @@ use azurite_runtime::{VM, VMData, Status};
 
 #[no_mangle]
 pub extern "C" fn randi(vm: &mut VM) -> Status {
-    vm.stack.set_reg(0, VMData::Integer(thread_rng().gen()));
+    vm.stack.set_reg(0, VMData::I64(thread_rng().gen()));
     Status::Ok
 }
 

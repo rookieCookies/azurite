@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, BTreeSet, BTreeMap};
 use std::env;
 
-use azurite_common::environment;
+use azurite_common::{environment, CompilationMetadata};
 
 use azurite_errors::Error;
 
@@ -17,7 +17,7 @@ use common::SymbolIndex;
 pub use common::SymbolTable;
 
 type DebugHashmap = HashMap<SymbolIndex, (String, String)>;
-type ReturnValue = Result<(Vec<u8>, Vec<Data>, SymbolTable), Error>;
+type ReturnValue = Result<(CompilationMetadata, Vec<u8>, Vec<Data>, SymbolTable), Error>;
 
 pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
     let mut symbol_table = SymbolTable::new();
@@ -95,7 +95,23 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
     }
     
     
-    let externs = ir.externs;
+    
+    let (externs, extern_counter) = {
+        let mut map = BTreeMap::new();
+        let mut max = 0;
+
+        for (_, e) in ir.extern_functions {
+            if e.function_index.0 > max {
+                max = e.function_index.0;
+            }
+
+            map.entry(e.file).or_insert_with(BTreeSet::new);
+            map.get_mut(&e.file).unwrap().insert((e.path, e.function_index.0));
+        }
+
+        (map, max)
+    };
+
     
     let constants = ir.constants;
     let mut codegen = CodeGen::new();
@@ -103,7 +119,11 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
     
     codegen.codegen(&ir.symbol_table, externs, functions);
 
-    (Ok((codegen.bytecode, constants, ir.symbol_table)), files_data)
+    let metadata = CompilationMetadata {
+        extern_count: extern_counter,
+    };
+
+    (Ok((metadata, codegen.bytecode, constants, ir.symbol_table)), files_data)
 }
 
 
@@ -113,28 +133,57 @@ pub fn convert_constants_to_bytes(constants: Vec<Data>, symbol_table: &SymbolTab
 
     for constant in constants {
         match constant {
-            Data::Int(v) => {
+            Data::Float(v) => {
                 constants_bytes.push(0);
                 constants_bytes.append(&mut v.to_le_bytes().into());
             },
             
-            Data::Float(v) => {
-                constants_bytes.push(1);
-                constants_bytes.append(&mut v.to_le_bytes().into());
-            },
-            
             Data::Bool(v) => {
-                constants_bytes.push(2);
+                constants_bytes.push(1);
                 constants_bytes.push(v.try_into().unwrap());
             },
             
             Data::String(v) => {
-                constants_bytes.push(3);
+                constants_bytes.push(2);
                 constants_bytes.append(&mut (symbol_table.get(v).as_bytes().len() as u64).to_le_bytes().to_vec());
                 constants_bytes.append(&mut symbol_table.get(v).as_bytes().to_vec());
             },
             
             Data::Empty => panic!("empty data type shouldn't be constants"),
+
+            Data::I8 (v) => {
+                constants_bytes.push(3);
+                constants_bytes.append(&mut v.to_le_bytes().into())
+            },
+            Data::I16(v) => {
+                constants_bytes.push(4);
+                constants_bytes.append(&mut v.to_le_bytes().into())
+            },
+            Data::I32(v) => {
+                constants_bytes.push(5);
+                constants_bytes.append(&mut v.to_le_bytes().into())
+            },
+            Data::I64(v) => {
+                constants_bytes.push(6);
+                constants_bytes.append(&mut v.to_le_bytes().into())
+            },
+            Data::U8 (v) => {
+                constants_bytes.push(7);
+                constants_bytes.append(&mut v.to_le_bytes().into())
+            },
+            Data::U16(v) => {
+                constants_bytes.push(8);
+                constants_bytes.append(&mut v.to_le_bytes().into())
+            },
+            Data::U32(v) => {
+                constants_bytes.push(9);
+                constants_bytes.append(&mut v.to_le_bytes().into())
+            },
+            Data::U64(v) => {
+                constants_bytes.push(10);
+                constants_bytes.append(&mut v.to_le_bytes().into())
+            },
+
         }
     }
 

@@ -1,10 +1,9 @@
 use std::cell::Cell;
-
 use crate::VMData;
 
 pub(crate) use self::lock::ObjectData;
 
-#[derive(Debug)]
+
 #[repr(C)]
 pub struct ObjectMap {
     map: Vec<Object>,

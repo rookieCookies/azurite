@@ -5,7 +5,7 @@ use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, Parall
 use crate::{VM, Object, object_map::{ObjectMap, ObjectData, ObjectIndex}, VMData};
 
 impl VM {
-    pub(crate) fn run_garbage_collection(&mut self) {
+    pub fn run_garbage_collection(&mut self) {
         self.mark();
         self.sweep();
     }
@@ -68,7 +68,7 @@ impl Object {
         self.liveliness_status.set(mark_as);
 
         match &self.data {
-            ObjectData::Struct(v) => v.fields().iter().filter(|x| x.is_object()).for_each(|x| objects.get(x.object()).mark(mark_as, objects)),
+            ObjectData::Struct(v) => v.fields().iter().filter(|x| x.is_object()).for_each(|x| objects.get(x.as_object()).mark(mark_as, objects)),
             
             | ObjectData::String(_)
             | ObjectData::Free { .. } => (),

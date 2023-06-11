@@ -49,6 +49,11 @@ pub enum Statement {
 
 #[derive(Debug, PartialEq)]
 pub enum Expression {
+    AsCast {
+        value: Box<Instruction>,
+        cast_type: SourcedDataType,
+    },
+    
     Data(SourcedData),
     
     BinaryOp {
@@ -158,6 +163,7 @@ pub enum BinaryOperator {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
 
     Equals,
     NotEquals,
@@ -174,6 +180,7 @@ impl Display for BinaryOperator {
             BinaryOperator::Subtract => "subtraction",
             BinaryOperator::Multiply => "multiplication",
             BinaryOperator::Divide   => "division",
+            BinaryOperator::Modulo   => "modulo",
 
             BinaryOperator::Equals => "equals",
             BinaryOperator::NotEquals => "not equals",
@@ -189,10 +196,11 @@ impl Display for BinaryOperator {
 impl BinaryOperator {
     pub fn from_token(token: &TokenKind) -> Option<Self> {
         match token {
-            TokenKind::Plus  => Some(BinaryOperator::Add),
-            TokenKind::Minus => Some(BinaryOperator::Subtract),
-            TokenKind::Star  => Some(BinaryOperator::Multiply),
-            TokenKind::Slash => Some(BinaryOperator::Divide),
+            TokenKind::Plus    => Some(BinaryOperator::Add),
+            TokenKind::Minus   => Some(BinaryOperator::Subtract),
+            TokenKind::Star    => Some(BinaryOperator::Multiply),
+            TokenKind::Slash   => Some(BinaryOperator::Divide),
+            TokenKind::Percent => Some(BinaryOperator::Modulo),
 
             TokenKind::RightAngle => Some(BinaryOperator::GreaterThan),
             TokenKind::LeftAngle => Some(BinaryOperator::LesserThan),

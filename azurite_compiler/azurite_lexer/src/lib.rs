@@ -27,6 +27,7 @@ pub enum TokenKind {
     LeftSquare,
     RightSquare,
 
+    Percent,
     Slash,
     Plus,
     Minus,
@@ -79,6 +80,7 @@ pub enum Keyword {
     Continue,
     Var,
     Return,
+    As,
 }
 
 
@@ -189,6 +191,7 @@ pub fn lex(
             '}' => TokenKind::RightBracket,
             '[' => TokenKind::LeftSquare,
             ']' => TokenKind::RightSquare,
+            '%' => TokenKind::Percent,
             '+' => TokenKind::Plus,
             '-' => TokenKind::Minus,
             '*' => TokenKind::Star,
@@ -325,7 +328,7 @@ impl Lexer<'_> {
             "fn" => TokenKind::Keyword(Keyword::Fn),
             "struct" => TokenKind::Keyword(Keyword::Struct),
             "impl" => TokenKind::Keyword(Keyword::Impl),
-            // "namespace" => TokenKind::Keyword(Keyword::Namespace),
+            "namespace" => TokenKind::Keyword(Keyword::Namespace),
             "using" => TokenKind::Keyword(Keyword::Using),
             "extern" => TokenKind::Keyword(Keyword::Extern),
             "if" => TokenKind::Keyword(Keyword::If),
@@ -337,6 +340,7 @@ impl Lexer<'_> {
             "break" => TokenKind::Keyword(Keyword::Break),
             "return" => TokenKind::Keyword(Keyword::Return),
             "var" => TokenKind::Keyword(Keyword::Var),
+            "as" => TokenKind::Keyword(Keyword::As),
 
             _ => {
                 let index = self.symbol_table.add(String::from(&string));

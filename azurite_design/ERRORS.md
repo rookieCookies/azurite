@@ -125,3 +125,5 @@
 225) Invalid Type Unary Operation
 - This error occursh when you try to perform a unary operation on a type that doens't support the specific operation
 
+226) Can only cast between primitives
+- This error occurs when you try to cast a value by using `as` that is not a primitive
