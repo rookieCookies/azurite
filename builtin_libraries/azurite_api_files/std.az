@@ -12,6 +12,7 @@ extern "standard_library" {
 
 	fn panic(str)
 	fn force_gc()
+
 }
 
 
@@ -21,104 +22,248 @@ impl i64 {
 		fn "int_to_float" to_float(self) : float
 		fn "int_to_bool" to_bool(self) : bool
 	}
+
+	fn abs(self): i64 { if self < 0 { -self } else { self} }
 }
 
 
-// impl bool {
-// 	extern "standard_library" {
-// 		fn "bool_to_str" to_string(self) : str
-// 		fn "bool_to_float" to_float(self) : float
-// 		fn "bool_to_int" to_bool(self) : int
-// 	}
-// }
+impl bool {
+	extern "standard_library" {
+		fn "bool_to_str" to_string(self) : str
+		fn "bool_to_float" to_float(self) : float
+		fn "bool_to_int" to_bool(self) : i64
+	}
+}
 
 
-// impl float {
-// 	extern "standard_library" {
-// 		fn "float_to_str" to_string(self) : str
-// 		fn "float_to_bool" to_float(self) : bool
-// 		fn "float_to_int" to_bool(self) : int
-// 	}
-// }
+impl float {
+	extern "standard_library" {
+		fn "float_to_str" to_string(self) : str
+		fn "float_to_bool" to_float(self) : bool
+		fn "float_to_int" to_bool(self) : i64
+	}
+}
 
 
-// impl str {
-// 	extern "standard_library" {
-// 		// This function returns the "self" value back
-// 		// to allow for chaining. It does not create a
-// 		// new string object
-// 		fn "string_append" append(self, str) : str
-// 	}
-// }
+impl str {
+	extern "standard_library" {
+		// This function returns the "self" value back
+		// to allow for chaining. It does not create a
+		// new string object
+		fn "string_append" append(self, str) : i64
+	}
+}
 
 
-// fn assert(val: bool) {
-// 	if val == false {
-// 		panic("assert failed")
-// 	}
-// }
+fn assert(val: bool) {
+	if val == false {
+		panic("assert failed")
+	}
+}
 
 
-// fn assert_info(val: bool, string: str) {
-// 	if val == false {
-// 		panic(string)
-// 	}
-// }
+fn assert_info(val: bool, string: str) {
+	if val == false {
+		panic(string)
+	}
+}
 
 
-// struct Duration {
-// 	secs: int,
-// 	nanos: int,
-// }
+// ---------------------------------------
+// 
+// Duration API
+// 
+// ---------------------------------------
 
-// impl Duration {
-// 	fn new(secs: int, nanos: int): Duration {
-// 		var secs = secs + (nanos / 1_000_000_000)
-// 		var nanos = nanos % 1_000_000_000
-// 		Duration {
-// 			secs: secs,
-// 			nanos: nanos,
-// 		} 
-// 	}
+struct Duration {
+	secs: i64,
+	nanos: u32,
+}
+
+impl Duration {
+	extern "standard_library" {
+		/// Creates a new `Duration` from the time
+		/// difference between the unix-epoch and now
+		/// using the system clock
+		fn "duration_now" now(): Duration
+	}
+
+	
+	/// Creates a new `Duration`
+	/// 
+	/// If the nano-seconds
+	/// overflow 1 billion (number of nano-seconds in a second)
+	/// it will be carried over to the next second
+	///
+	/// # Examples
+	/// ```
+	/// var duration = Duration::new(12, 0)
+	///
+	/// assert(duration.as_secs() == 12)
+	/// assert(duration.subsec_nanos() == 0)
+	/// ```
+	fn new(secs: i64, nanos: u32): Duration {
+		var secs = secs + (nanos as i64 / 1_000_000_000)
+		var nanos = nanos % 1_000_000_000
+		Duration {
+			secs: secs,
+			nanos: nanos,
+		} 
+	}
 
 
-// 	fn from_secs(secs: int): Duration {
-// 		 Duration { secs: secs, nanos: 0 }
-// 	}
+	/// Creates a new `Duration` from the given number
+	/// of whole seconds
+	/// 
+	/// # Examples
+	/// ```
+	/// var duration = Duration::from_secs(12)
+	///
+	/// assert(duration.as_secs() == 12)
+	/// assert(duration.subsec_nanos() == 0)
+	/// ```
+	fn from_secs(secs: i64): Duration {
+		 Duration { secs: secs, nanos: 0 }
+	}
 
 
-// 	fn from_millis(millis: int): Duration {
+	/// Creates a new `Duration` from the given number
+	/// of floating point seconds
+	/// 
+	/// # Examples
+	/// ```
+	/// var duration = Duration::from_secs(12.5)
+	/// 
+	/// assert(duration.as_secs() == 12)
+	/// assert(duration.subsec_nanos() == 500_000_000)
+	/// ```
+	fn from_secs_float(secs: float): Duration {
+		Duration::from_nanos((secs * 1_000_000_000.0) as u64)
 		
-// 	}
-// }
+	}
 
 
+	/// Creates a new `Duration` from the given milliseconds
+	///
+	/// # Examples
+	/// ```
+	/// var duration = Duration::from_millis(500)
+	/// 
+	/// assert(duration.as_secs() == 0)
+	/// assert(duration.subsec_nanos() == 500_000_000)
+	/// ```
+	fn from_millis(millis: i64): Duration {
+		var secs = millis / 1_000
+		var nanos = ((millis % 1_000) as u32) * 1_000_000
+		Duration { secs: secs, nanos: nanos }
+	}
 
 
+	/// Creates a new `Duration` from the given microseconds
+	///
+	/// # Examples
+	/// ```
+	/// var duration = Duration::from_micros(5_000_320)
+	/// 
+	/// assert(duration.as_secs() == 5)
+	/// assert(duration.subsec_nanos() == 320_000)
+	/// ```
+	fn from_micros(micros: i64): Duration {
+		var secs = micros / 1_000_000
+		var nanos = ((micros % 1_000_000) as u32) * 1_000
+		Duration { secs: secs, nanos: nanos }
+	}
 
 
+	/// Creates a new `Duration` from the given nanoseconds
+	///
+	/// # Examples
+	/// ```
+	/// var duration = Duration::from_nanos(69420)
+	/// 
+	/// assert(duration.as_secs() == 0)
+	/// assert(duration.subsec_nanos() == 69420)
+	/// ```
+	fn from_nanos(nanos: u64): Duration {
+		var secs = (nanos / 1_000_000_000) as i64
+		var nanos = (nanos % 1_000_000_000) as u32
+		Duration { secs: secs, nanos: nanos }
+	}
 
 
+	/// Returns true if this `Duration` spans no time
+	///
+	/// ```
+	/// assert(Duration::new(0, 0).is_zero())
+	/// ```
+	fn is_zero(self): bool {
+		if self.secs == 0 { self.nanos == 0 } else { false }
+	}
+	
+
+	/// Returns the amount of whole seconds in this `Duration`
+	fn as_secs(self): i64 { self.secs }
 
 
+	/// Returns the amount of seconds in this `Duration`
+	fn as_secs_float(self): float { self.secs as float + (self.nanos as float / 1_000_000_000.0)}
 
 
+	// Returns the amount of milliseconds in this `Duration`
+	fn as_millis(self): i64 { self.secs * 1_000 + (self.nanos / 1_000_000) as i64 }
 
 
+	// Returns the amount of microseconds in this `Duration`
+	fn as_micros(self): i64 { self.secs * 1_000_000 + (self.nanos / 1_000) as i64 }
 
 
+	// Returns the amount of nanoseconds in this `Duration`
+	fn as_nanos(self): i64 { self.secs * 1_000_000_000 + self.nanos as i64 }
 
 
+	/// Returns the amount of milliseconds
+	///
+	/// This is *not* the entire `Duration` but instead
+	/// the part without any whole seconds
+	fn subsec_millis(self): u32 { self.nanos / 1_000_000 }
 
 
+	/// Returns the amount of microseconds
+	///
+	/// This is *not* the entire `Duration` but instead
+	/// the part without any whole seconds
+	fn subsec_micros(self): u32 { self.nanos / 1_000 }
 
 
+	/// Returns the amount of nanoseconds
+	///
+	/// This is *not* the entire `Duration` but instead
+	/// the part without any whole seconds
+	fn subsec_nanos(self): u32 { self.nanos }
+	
 
+	/// Returns the time difference between two durations
+	/// This function will return a duration with a negative
+	///
+	/// # Examples
+	/// ```
+	/// var dur = Duration::new(10, 0)
+	/// var oth = Duration::new(5, 0)
+	///
+	/// assert(dur.sub(oth).as_secs() == 5)
+	/// ```
+	fn sub(self, other: Duration): Duration {
+		var duration_nanos = self.nanos as i64 - other.nanos as i64
+		var duration_secs = self.secs - other.secs
+		if duration_nanos < 0 {
+			var nanos = duration_nanos.abs()
+			var nanos = nanos % 1_000_000_000
 
+			duration_secs = duration_secs - 1
+			duration_nanos = 1_000_000_000 - nanos
+		}
 
-
-
-
-
-
+		Duration { secs: duration_secs, nanos: duration_nanos as u32 }
+	}
+}
 

@@ -187,7 +187,7 @@ pub struct Structure {
 
 
 impl Structure {
-    pub(crate) fn new(fields: Vec<VMData>) -> Self {
+    pub fn new(fields: Vec<VMData>) -> Self {
         Self {
             fields,
         }

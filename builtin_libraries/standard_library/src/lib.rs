@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use azurite_runtime::{VM, Object, VMData, FatalError, Status, ObjectIndex};
+use azurite_runtime::{VM, Object, VMData, FatalError, Status, ObjectIndex, Structure};
 
 
 #[no_mangle]
@@ -8,6 +8,37 @@ pub extern "C" fn _shutdown(_: &mut VM) -> Status {
     if std::io::stdout().lock().flush().is_err() {
         return Status::err("failed to flush stdout")
     }
+
+    Status::Ok
+}
+
+
+/*
+    This returns a `Duration` object which has
+    the following layout
+
+    struct Duration {
+    	secs: u64,
+    	nanos: u32,
+    }
+    
+*/
+#[no_mangle]
+pub extern "C" fn duration_now(vm: &mut VM) -> Status {
+    let Ok(time) = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        else { return Status::err("failed to get the epoch") };
+
+    let secs = time.as_secs();
+    let nanos = time.subsec_nanos();
+
+    let object = Object::new(Structure::new(vec![VMData::U64(secs), VMData::U32(nanos)]));
+    let object = match vm.create_object(object) {
+        Ok(v) => v,
+        Err(v) => return Status::Err(v),
+    };
+
+    vm.stack.set_reg(0, VMData::Object(object));
 
     Status::Ok
 }

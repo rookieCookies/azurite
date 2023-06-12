@@ -81,6 +81,7 @@ pub enum Keyword {
     Var,
     Return,
     As,
+    Const,
 }
 
 
@@ -328,7 +329,7 @@ impl Lexer<'_> {
             "fn" => TokenKind::Keyword(Keyword::Fn),
             "struct" => TokenKind::Keyword(Keyword::Struct),
             "impl" => TokenKind::Keyword(Keyword::Impl),
-            "namespace" => TokenKind::Keyword(Keyword::Namespace),
+            // "namespace" => TokenKind::Keyword(Keyword::Namespace),
             "using" => TokenKind::Keyword(Keyword::Using),
             "extern" => TokenKind::Keyword(Keyword::Extern),
             "if" => TokenKind::Keyword(Keyword::If),
@@ -341,6 +342,7 @@ impl Lexer<'_> {
             "return" => TokenKind::Keyword(Keyword::Return),
             "var" => TokenKind::Keyword(Keyword::Var),
             "as" => TokenKind::Keyword(Keyword::As),
+            "const" => TokenKind::Keyword(Keyword::Const),
 
             _ => {
                 let index = self.symbol_table.add(String::from(&string));

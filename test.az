@@ -1,9 +1,2 @@
-var i = 128 * 5
-while i > 0 {
-    A{v:i}
-    i = i - 1
-}
-
-struct A {v:int}
-
-loop{}
+var duration = Duration::new(2, 0)
+var oth_duration = Duration::new(2, 1_000_000_000)

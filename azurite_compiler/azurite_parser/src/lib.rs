@@ -67,10 +67,16 @@ impl Parser<'_> {
     fn parse_till(&mut self, token_kind: &TokenKind) -> Result<Vec<Instruction>, Error> {
         let mut instructions = vec![];
         let mut errors = vec![];
+
+        let mut panic_mode = false;
         
         while let Some(token) = self.current_token() {
             if &token.token_kind == token_kind || token.token_kind == TokenKind::EndOfFile {
                 break
+            }
+
+            if let TokenKind::Keyword(_) = token.token_kind {
+                panic_mode = false
             }
 
             match self.statement() {
@@ -82,8 +88,12 @@ impl Parser<'_> {
                             continue
                         }
                     }
-                    errors.push(e);
-                    continue
+
+                    if !panic_mode {
+                        panic_mode = true;
+                        errors.push(e);
+                        continue
+                    }
                 },
             }
 
@@ -788,7 +798,6 @@ impl Parser<'_> {
         self.advance();
 
         let mut body = vec![];
-        let mut errors = vec![];
         loop {
             if self.current_token().is_none() {
                 break
@@ -811,17 +820,10 @@ impl Parser<'_> {
                     .highlight(token.source_range)
                         .note("only the following are allowed: function declarations, namespaces, structure declarations".to_string())
                     .build())
-            };
+            }?;
 
-            match v {
-                Ok(v) => body.push(v),
-                Err(e) => errors.push(e),
-            };
+            body.push(v);
             self.advance();
-        }
-
-        if !errors.is_empty() {
-            return Err(errors.combine_into_error())
         }
 
         self.expect(&TokenKind::RightBracket)?;

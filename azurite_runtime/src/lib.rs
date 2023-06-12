@@ -14,6 +14,7 @@ use std::{time::Instant, ops::FromResidual, convert::Infallible, ffi::CString, m
 
 pub use object_map::Object;
 pub use object_map::ObjectIndex;
+pub use object_map::Structure;
 
 
 const _: () = assert!(size_of::<VMData>() <= 16);
