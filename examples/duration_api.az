@@ -1,3 +1,9 @@
+// `Duration::now`
+{
+	var duration = Duration::now()
+}
+
+
 // `Duration::new`
 {
 	var duration = Duration::new(12, 0)
