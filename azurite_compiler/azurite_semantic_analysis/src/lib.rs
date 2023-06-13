@@ -96,7 +96,7 @@ impl AnalysisState {
             self.available_files.insert(file_name, file_name);
             
             if !global.files.contains_key(&file_name) {
-                let file = STD_LIBRARY.replace('\t', "    ");
+                let file = STD_LIBRARY.replace('\t', "    ").replace('\r', "");
         
                 let tokens = azurite_lexer::lex(&file, file_name, global.symbol_table);
                 global.files.insert(file_name, (AnalysisState::new(file_name), vec![], file));
@@ -553,6 +553,10 @@ impl AnalysisState {
             Expression::FunctionCall { identifier, arguments, created_by_accessing } => {
                 if *created_by_accessing {
                     let associated_type = self.analyze(global, &mut arguments[0], None)?;
+                    if let DataType::Any = associated_type.data_type {
+                        return Ok(associated_type)
+                    };
+                    
                     let associated_type_index = associated_type.data_type.symbol_index(global.symbol_table);
 
                     {

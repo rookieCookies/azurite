@@ -243,7 +243,6 @@ impl Duration {
 	
 
 	/// Returns the time difference between two durations
-	/// This function will return a duration with a negative
 	///
 	/// # Examples
 	/// ```
@@ -260,6 +259,29 @@ impl Duration {
 
 			duration_secs = duration_secs - 1
 			duration_nanos = nanos + 1_000_000_000
+		}
+
+		Duration { secs: duration_secs, nanos: duration_nanos as u32 }
+	}
+
+
+	/// Returns the sum of two durations
+	///
+	/// # Examples
+	/// ```
+	/// var dur = Duration::new(10, 0)
+	/// var oth = Duration::new(5, 0)
+	///
+	/// assert(dur.add(oth).as_secs() == 15)
+	/// ```
+	fn add(self, other: Duration): Duration {
+		var duration_nanos = self.nanos as u64 + other.nanos as u64
+		var duration_secs = self.secs + other.secs
+		if duration_nanos >= 1_000_000_000 {
+			var nanos = duration_nanos
+
+			duration_secs = duration_secs + 1
+			duration_nanos = nanos - 1_000_000_000
 		}
 
 		Duration { secs: duration_secs, nanos: duration_nanos as u32 }

@@ -1,0 +1,104 @@
+// `Duration::new`
+{
+	var duration = Duration::new(12, 0)
+	assert(duration.as_secs() == 12)
+	assert(duration.subsec_nanos() == 0)
+}
+
+
+// `Duration::from_secs`
+{
+	var duration = Duration::from_secs(12)
+
+	assert(duration.as_secs() == 12)
+	assert(duration.subsec_nanos() == 0)
+}
+
+
+// `Duration::from_secs_float`
+{
+	var duration = Duration::from_secs_float(12.5)
+	
+	assert(duration.as_secs() == 12)
+	assert(duration.subsec_nanos() == 500_000_000)
+}
+
+
+// `Duration::from_millis`
+{
+	var duration = Duration::from_millis(500)
+
+	assert(duration.as_secs() == 0)
+	assert(duration.subsec_nanos() == 500_000_000)
+}
+
+
+// `Duration::from_micros`
+{
+	var duration = Duration::from_micros(5_000_320)
+	
+	assert(duration.as_secs() == 5)
+	assert(duration.subsec_nanos() == 320_000)
+}
+
+
+// `Duration::from_nanos`
+{
+	var duration = Duration::from_nanos(69420)
+	 
+	assert(duration.as_secs() == 0)
+	assert(duration.subsec_nanos() == 69420)
+}
+
+
+// `Duration::is_zero`
+{
+	var duration = Duration::new(0, 0)
+	assert(duration.is_zero())
+
+	var duration = Duration::new(1, 0)
+	assert(!duration.is_zero())
+}
+
+
+// `Duration::as_*`
+{
+	var duration = Duration::new(3, 500_000_000)
+
+	assert(duration.as_secs() == 3)
+	assert(duration.as_secs_float() == 3.5)
+	assert(duration.as_millis() == 3_500)
+	assert(duration.as_micros() == 3_500_000)
+	assert(duration.as_nanos() == 3_500_000_000)
+}
+
+
+// `Duration::subsec_*`
+{
+	var duration = Duration::new(3, 500_000_000)
+
+	assert(duration.subsec_millis() == 500)
+	assert(duration.subsec_micros() == 500_000)
+	assert(duration.subsec_nanos() == 500_000_000)
+}
+
+
+// `Duration::sub`
+{
+	var one = Duration::from_secs(10)
+	var two = Duration::from_secs(8)
+
+	assert(one.sub(two).as_secs() == 2)
+	assert(two.sub(one).as_secs() == -2)
+}
+
+
+// `Duration::add`
+{
+	var one = Duration::from_secs(10)
+	var two = Duration::from_secs(8)
+
+	assert(one.add(two).as_secs() == 18)
+	assert(two.add(one).as_secs() == 18)
+}
+

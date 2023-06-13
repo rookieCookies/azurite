@@ -94,7 +94,7 @@ impl VM {
                         for _ in 0..func_amount {
                             let index = current.u32();
                             let name = current.string();
-                            let Ok(func) = lib.get::<ExternFunction<'_>>(name.as_bytes()) else { break 'global Status::Err(FatalError::new(format!("can't find a function named {name} in {path}"))); };
+                            let Ok(func) = lib.get::<ExternFunction<'_>>(name.as_bytes()) else { break 'global Status::Err(FatalError::new(format!("can't find a function named {name:?} in {path}"))); };
 
                             if index as usize > external_funcs.len() {
                                 external_funcs.push(**func.into_raw());
