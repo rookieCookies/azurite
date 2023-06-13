@@ -4,9 +4,9 @@ pub mod variable_stack;
 
 use std::{collections::HashMap, fs, path::{PathBuf, Path}};
 
-use azurite_errors::{SourceRange, Error, CompilerError, ErrorBuilder, CombineIntoError, SourcedDataType};
+use azurite_errors::{SourceRange, Error, CompilerError, ErrorBuilder, CombineIntoError, SourcedDataType, SourcedData};
 use azurite_parser::ast::{Instruction, InstructionKind, Statement, Expression, BinaryOperator, Declaration, UnaryOperator};
-use common::{DataType, SymbolTable, SymbolIndex};
+use common::{DataType, SymbolTable, SymbolIndex, Data};
 use variable_stack::VariableStack;
 
 const STD_LIBRARY : &str = include_str!("../../../builtin_libraries/azurite_api_files/std.az");
@@ -23,6 +23,7 @@ pub struct GlobalState<'a> {
     pub files: HashMap<SymbolIndex, (AnalysisState, Vec<Instruction>, String)>,
 
     functions: HashMap<SymbolIndex, Function>,
+    structures: HashMap<SymbolIndex, Structure>,
 }
 
 
@@ -32,17 +33,17 @@ pub struct AnalysisState {
     loop_depth: usize,
 
     functions: HashMap<SymbolIndex, (SymbolIndex, usize)>,
-    structures: HashMap<SymbolIndex, (Structure, usize)>,
+    structures: HashMap<SymbolIndex, (SymbolIndex, usize)>,
 
     available_files: HashMap<SymbolIndex, SymbolIndex>,
     
     explicit_return: Option<SourcedDataType>,
 
     depth: usize,
-
     file: SymbolIndex,
-
     custom_path: SymbolIndex,
+
+    cache_pieces_vec: Vec<SymbolIndex>,
 }
 
 
@@ -66,6 +67,7 @@ impl<'a> GlobalState<'a> {
             symbol_table, 
             files: HashMap::new(),
             functions: HashMap::new(),
+            structures: HashMap::new(),
         }
     }
 }
@@ -83,6 +85,7 @@ impl AnalysisState {
             available_files: HashMap::new(),
             file,
             custom_path: file,
+            cache_pieces_vec: vec![],
 
         }
     }
@@ -111,7 +114,7 @@ impl AnalysisState {
             }
         }
         
-        self.analyze_block(global, instructions, false, true)?;
+        self.analyze_block(global, instructions, false, true, None)?;
 
         Ok(())
     }
@@ -119,14 +122,14 @@ impl AnalysisState {
 
 
 impl AnalysisState {
-    fn analyze(&mut self, global: &mut GlobalState, instruction: &mut Instruction) -> Result<SourcedDataType, Error> {
+    fn analyze(&mut self, global: &mut GlobalState, instruction: &mut Instruction, expected: Option<DataType>) -> Result<SourcedDataType, Error> {
         match &mut instruction.instruction_kind {
             InstructionKind::Statement(s) => {
                 self.analyze_statement(global, s, &instruction.source_range)?;
             },
             
             
-            InstructionKind::Expression(e) => return self.analyze_expression(global, e, &instruction.source_range),
+            InstructionKind::Expression(e) => return self.analyze_expression(global, e, &instruction.source_range, expected),
             
             
             InstructionKind::Declaration(d) => {
@@ -138,7 +141,7 @@ impl AnalysisState {
     }
     
 
-    fn analyze_block(&mut self, global: &mut GlobalState, instructions: &mut [Instruction], reset: bool, pre_declaration: bool) -> Result<SourcedDataType, Error> {
+    fn analyze_block(&mut self, global: &mut GlobalState, instructions: &mut [Instruction], reset: bool, pre_declaration: bool, expected: Option<DataType>) -> Result<SourcedDataType, Error> {
         let top = self.variable_stack.len();
 
         if reset {
@@ -156,13 +159,18 @@ impl AnalysisState {
         
         
         let mut errors = vec![];
-        let return_val = instructions.iter_mut().map(|x| match self.analyze(global, x) {
-            Ok(r) => r,
-            Err(e) => {
-                errors.push(e);
-                SourcedDataType::new(x.source_range, DataType::Any)
-            },
-        }).last().unwrap_or(SourcedDataType::new(SourceRange::new(0, 0), DataType::Empty));
+        let size = instructions.len();
+        instructions.iter_mut().take(size-1).for_each(|x| if let Err(e) = self.analyze(global, x, None) {
+            errors.push(e);
+        });
+
+        let mut return_val = SourcedDataType::new(SourceRange::new(0, 0), DataType::Empty);
+        if let Some(v) = instructions.last_mut() {
+            match self.analyze(global, v, expected) {
+                Ok(v) => return_val = v,
+                Err(v) => errors.push(v),
+            }
+        }
 
         self.variable_stack.pop(self.variable_stack.len() - top);
 
@@ -184,6 +192,7 @@ impl AnalysisState {
     fn analyze_declaration(&mut self, global: &mut GlobalState, declaration: &mut Declaration, source_range: &SourceRange) -> Result<(), Error> {
         match declaration {
             Declaration::FunctionDeclaration { arguments, return_type, body, source_range_declaration, name: _ } => {
+                self.update_type(return_type, global)?;
                 let mut analysis_state = AnalysisState::new(self.file);
 
                 analysis_state.functions = std::mem::take(&mut self.functions);
@@ -197,10 +206,12 @@ impl AnalysisState {
 
                     let mut errors = vec![];
                     
-                    for argument in arguments.iter() {
-                        if let Err(e) = analysis_state.is_valid_type(global, argument.1) {
-                            errors.push(e)
-                        }
+                    for argument in arguments.iter_mut() {
+                        if let Err(e) = analysis_state.update_type(&mut argument.1, global) {
+                            errors.push(e);
+                            analysis_state.variable_stack.push(argument.0, SourcedDataType::new(argument.1.source_range, DataType::Any));
+                            continue;
+                        };
 
                         analysis_state.variable_stack.push(argument.0, argument.1);
                     }
@@ -216,7 +227,7 @@ impl AnalysisState {
                 }
 
 
-                let body_return_type = match analysis_state.analyze_block(global, body, true, true) {
+                let body_return_type = match analysis_state.analyze_block(global, body, true, true, Some(return_type.data_type)) {
                     Ok(v) => v,
                     Err(e) => {
                         self.functions = std::mem::take(&mut analysis_state.functions);
@@ -232,7 +243,7 @@ impl AnalysisState {
                 self.structures = std::mem::take(&mut analysis_state.structures);
                 self.available_files = std::mem::take(&mut analysis_state.available_files);
 
-                if !self.is_of_type(global, *return_type, body_return_type)? {
+                if body.last().is_none() || !self.is_of_type(global, (*return_type, body.last_mut().unwrap()), body_return_type)? {
                     return Err(CompilerError::new(self.file, 211, "function body returns a different type")
                         .highlight(*source_range_declaration)
                             .note(format!("function returns {}", global.to_string(return_type.data_type)))
@@ -251,8 +262,8 @@ impl AnalysisState {
 
             Declaration::StructDeclaration { fields, .. } => {
                 let errs = fields
-                    .iter()
-                    .map(|x| self.is_valid_type(global, x.1))
+                    .iter_mut()
+                    .map(|x| self.update_type(&mut x.1, global))
                     .filter_map(|x| if let Err(x) = x { Some(x) } else { None })
                     .collect::<Vec<_>>();
 
@@ -265,18 +276,18 @@ impl AnalysisState {
 
             
             Declaration::Namespace { body, .. } => {
-                self.analyze_block(global, body, false, false)?;
+                self.analyze_block(global, body, false, false, None)?;
                 Ok(())
                 
             },
 
             
             Declaration::Extern { functions, .. } => {
-                for f in functions {
-                    self.is_valid_type(global, f.return_type)?;
+                for f in functions.iter_mut() {
+                    self.update_type(&mut f.return_type, global)?;
 
-                    for argument in &f.arguments {
-                        self.is_valid_type(global, *argument)?;
+                    for argument in f.arguments.iter_mut() {
+                        self.update_type(argument, global)?;
                     }
                 }
 
@@ -285,9 +296,13 @@ impl AnalysisState {
 
 
             Declaration::ImplBlock { body, datatype } => {
-                self.is_valid_type(global, *datatype)?;
+                self.update_type(datatype, global)?;
+                if let DataType::Struct(v) = &mut datatype.data_type {
+                    let (_, name) = self.get_struct(global, source_range, v).unwrap();
+                    *v = name;
+                }
 
-                self.analyze_block(global, body, false, false)?;
+                self.analyze_block(global, body, false, false, None)?;
 
                 Ok(())
             },
@@ -298,24 +313,108 @@ impl AnalysisState {
     }
     
 
-    fn analyze_expression(&mut self, global: &mut GlobalState, expression: &mut Expression, source_range: &SourceRange) -> Result<SourcedDataType, Error> {
+    fn analyze_expression(&mut self, global: &mut GlobalState, expression: &mut Expression, source_range: &SourceRange, expected: Option<DataType>) -> Result<SourcedDataType, Error> {
+        macro_rules! match_macro {
+            ($v: ident) => {
+                (DataType::Any, DataType::$v)
+                | (DataType::$v, DataType::Any)
+                | (DataType::$v, DataType::$v)
+            }
+        }
+
+        macro_rules! all_integer {
+            () => {
+                DataType::I8
+                | DataType::I16
+                | DataType::I32
+                | DataType::I64
+                | DataType::U8
+                | DataType::U16
+                | DataType::U32
+                | DataType::U64
+            }
+        }
+
         match expression {
-            Expression::Data(v) => Ok(SourcedDataType::from(v)),
+            Expression::AsCast { value, cast_type } => {
+                let value_type = self.analyze(global, &mut *value, expected)?;
+
+                match (value_type.data_type, cast_type.data_type){
+                    (
+                        all_integer!()
+                            | DataType::Float
+                            | DataType::Any,
+                        all_integer!()
+                            | DataType::Float
+                            | DataType::Any
+                        
+                    ) => Ok(*cast_type),
+
+                    _ => Err(CompilerError::new(self.file, 226, "can only cast beteen primitives")
+                            .highlight(*source_range)
+                                .note(format!("value is of type {}", global.to_string(value_type.data_type)))
+                            .build()
+                    ),
+                }
+            }
 
             
+            Expression::Data(v) => {
+                let expected = match expected {
+                    Some(v) => v,
+                    None => return Ok(SourcedDataType::from(v)),
+                };
+
+                macro_rules! conversion {
+                    ($i: ident) => {
+                        match (&v.data, expected) {
+                            (Data::$i(n), DataType::I8)  => if let Ok(val) = i8 ::try_from(*n) { v.data = Data::I8 (val); },
+                            (Data::$i(n), DataType::I16) => if let Ok(val) = i16::try_from(*n) { v.data = Data::I16(val); },
+                            (Data::$i(n), DataType::I32) => if let Ok(val) = i32::try_from(*n) { v.data = Data::I32(val); },
+                            (Data::$i(n), DataType::I64) => if let Ok(val) = i64::try_from(*n) { v.data = Data::I64(val); },
+                            (Data::$i(n), DataType::U8)  => if let Ok(val) = u8 ::try_from(*n) { v.data = Data::U8 (val); },
+                            (Data::$i(n), DataType::U16) => if let Ok(val) = u16::try_from(*n) { v.data = Data::U16(val); },
+                            (Data::$i(n), DataType::U32) => if let Ok(val) = u32::try_from(*n) { v.data = Data::U32(val); },
+                            (Data::$i(n), DataType::U64) => if let Ok(val) = u64::try_from(*n) { v.data = Data::U64(val); },
+
+                            _ => (),
+                            
+                        }
+                    }
+                }
+
+                conversion!(I8);
+                conversion!(I16);
+                conversion!(I32);
+                conversion!(I64);
+                conversion!(U8);
+                conversion!(U16);
+                conversion!(U32);
+                conversion!(U64);
+
+                Ok(SourcedDataType::from(v))
+            },
+            
             Expression::BinaryOp { operator, left, right } => {
-                let left_type  = self.analyze(global, left)?;
-                let right_type = self.analyze(global, right)?;
+                let left_type  = self.analyze(global, left, expected)?;
+                let right_type = self.analyze(global, right, Some(left_type.data_type))?;
 
                 let data_type = match *operator {
                     | BinaryOperator::Add
                     | BinaryOperator::Subtract
                     | BinaryOperator::Multiply
+                    | BinaryOperator::Modulo
                     | BinaryOperator::Divide => {
                         match (left_type.data_type, right_type.data_type) {
-                            | (DataType::Any, DataType::Integer)
-                            | (DataType::Integer, DataType::Any)
-                            | (DataType::Integer, DataType::Integer) => DataType::Integer,
+                            match_macro!(I8) => DataType::I8,
+                            match_macro!(I16) => DataType::I16,
+                            match_macro!(I32) => DataType::I32,
+                            match_macro!(I64) => DataType::I64,
+
+                            match_macro!(U8) => DataType::U8,
+                            match_macro!(U16) => DataType::U16,
+                            match_macro!(U32) => DataType::U32,
+                            match_macro!(U64) => DataType::U64,
 
                             | (DataType::Any, DataType::Float)
                             | (DataType::Float, DataType::Any)
@@ -335,7 +434,7 @@ impl AnalysisState {
 
                     | BinaryOperator::Equals
                     | BinaryOperator::NotEquals => {
-                        if !self.is_of_type(global, left_type, right_type)? {
+                        if !self.is_of_type(global, (left_type, left), right_type)? {
                             return Err(CompilerError::new(self.file, 202, "comparisson types differ")
                                 .highlight(SourceRange::combine(left.source_range, right.source_range))
                                     .note(format!("left side is of type {} while the right side is of type {}", global.to_string(left_type.data_type), global.to_string(right_type.data_type)))
@@ -351,9 +450,14 @@ impl AnalysisState {
                     | BinaryOperator::GreaterEquals
                     | BinaryOperator::LesserEquals => {
                         match (left_type.data_type, right_type.data_type) {
-                            | (DataType::Any, DataType::Integer)
-                            | (DataType::Integer, DataType::Any)
-                            | (DataType::Integer, DataType::Integer)
+                            | match_macro!(I8)
+                            | match_macro!(I16)
+                            | match_macro!(I32)
+                            | match_macro!(I64)
+                            | match_macro!(U8)
+                            | match_macro!(U16)
+                            | match_macro!(U32)
+                            | match_macro!(U64)
                             | (DataType::Any, DataType::Float)
                             | (DataType::Float, DataType::Any)
                             | (DataType::Float, DataType::Float)
@@ -375,11 +479,11 @@ impl AnalysisState {
 
             
             Expression::UnaryOp { operator, value } => {
-                let value_type = self.analyze(global, &mut *value)?;
+                let value_type = self.analyze(global, &mut *value, expected)?;
 
                 let is_valid = match operator {
                     UnaryOperator::Not => matches!(value_type.data_type, DataType::Bool),
-                    UnaryOperator::Negate => matches!(value_type.data_type, DataType::Integer | DataType::Float),
+                    UnaryOperator::Negate => matches!(value_type.data_type, DataType::Float) || value_type.data_type.is_signed_integer(),
                 };
 
                 if !is_valid {
@@ -396,14 +500,14 @@ impl AnalysisState {
 
             
             Expression::Block { body } => {
-                self.analyze_block(global, body, true, true)
+                self.analyze_block(global, body, true, true, expected)
             },
 
 
             Expression::IfExpression { body, condition, else_part } => {
-                let condition_type = self.analyze(global, condition)?;
+                let condition_type = self.analyze(global, condition, Some(DataType::Bool))?;
 
-                if !self.is_of_type(global, condition_type, SourcedDataType::new(SourceRange::new(0, 0), DataType::Bool))? {
+                if !self.is_of_type(global, (condition_type, condition), SourcedDataType::new(SourceRange::new(0, 0), DataType::Bool))? {
                     return Err(CompilerError::new(self.file, 203, "condition expects a boolean")
                         .highlight(condition.source_range)
                             .note(format!("is of type {}", global.to_string(condition_type.data_type)))
@@ -411,12 +515,12 @@ impl AnalysisState {
                 }
 
 
-                let body_type = self.analyze_block(global, body, true, true)?;
+                let body_type = self.analyze_block(global, body, true, true, expected)?;
 
                 if let Some(else_part) = else_part {
-                    let else_type = self.analyze(global, else_part)?;
+                    let else_type = self.analyze(global, else_part, expected)?;
 
-                    if !self.is_of_type(global, body_type, else_type)? {
+                    if body.last().is_none() || !self.is_of_type(global, (body_type, body.last_mut().unwrap()), else_type)? {
                         return Err(CompilerError::new(self.file, 204, "if expressions branches don't return the same type")
                             .highlight(body.last().map_or(*source_range, |x| x.source_range))
                                 .note(format!("is of type {}", global.to_string(body_type.data_type)))
@@ -448,12 +552,25 @@ impl AnalysisState {
 
             Expression::FunctionCall { identifier, arguments, created_by_accessing } => {
                 if *created_by_accessing {
-                    let associated_type = self.analyze(global, &mut arguments[0])?;
+                    let associated_type = self.analyze(global, &mut arguments[0], None)?;
                     let associated_type_index = associated_type.data_type.symbol_index(global.symbol_table);
-                    *identifier = global.symbol_table.add_combo(
-                        associated_type_index,
-                        *identifier,
-                    );
+
+                    {
+                        let mut pieces = &mut self.cache_pieces_vec;
+                        let mut temp = associated_type_index;
+                        while let (root, Some(v)) = global.symbol_table.find_root(temp) {
+                            temp = v;
+                            pieces.push(root);
+                        }
+
+                        pieces.push(temp);
+
+                        for i in pieces.iter().rev() {
+                            *identifier = global.symbol_table.add_combo(*i, *identifier);
+                        }
+
+                        pieces.clear();
+                    }
                 }
 
                 
@@ -489,7 +606,7 @@ impl AnalysisState {
                     }
 
                     for (argument, expected_type) in iter {
-                        let argument_type = match self.analyze(global, argument) {
+                        let argument_type = match self.analyze(global, argument, Some(expected_type.data_type)) {
                             Ok(v) => v,
                             Err(e) => {
                                 errors.push(e);
@@ -498,7 +615,7 @@ impl AnalysisState {
                         };
 
 
-                        let is_of_type = match self.is_of_type(global, *expected_type, argument_type) {
+                        let is_of_type = match self.is_of_type(global, (argument_type, argument), *expected_type) {
                             Ok(v) => v,
                             Err(e) => {
                                 errors.push(e);
@@ -526,7 +643,8 @@ impl AnalysisState {
 
             
             Expression::StructureCreation { identifier, fields, identifier_range } => {
-                let structure = self.get_struct(global, identifier_range, identifier)?;
+                let (structure, full_name) = self.get_struct(global, identifier_range, identifier)?;
+                *identifier = full_name;
                 
                 {
                     let mut hashmap = structure.fields.iter().copied().collect::<HashMap<_, _>>();
@@ -536,7 +654,7 @@ impl AnalysisState {
 
                     for given_field in fields.iter_mut() {
                         if let Some(v) = hashmap.remove(&given_field.0) {
-                            let instruction_type = match self.analyze(global, &mut given_field.1) {
+                            let instruction_type = match self.analyze(global, &mut given_field.1, Some(v.data_type)) {
                                 Ok(v) => v,
                                 Err(e) => {
                                     field_errors.push(e);
@@ -544,7 +662,7 @@ impl AnalysisState {
                                 },
                             };
 
-                            let is_same_type = match self.is_of_type(global, instruction_type, v) {
+                            let is_same_type = match self.is_of_type(global, (instruction_type, &mut given_field.1), v) {
                                 Ok(v) => v,
                                 Err(e) => {
                                     field_errors.push(e);
@@ -599,11 +717,15 @@ impl AnalysisState {
 
             
             Expression::AccessStructureData { structure, identifier, index_to } => {
-                let structure_type = self.analyze(global, structure)?;
+                let structure_type = self.analyze(global, structure, None)?;
                 
                 match structure_type.data_type {
                     DataType::Struct(v) => {
-                        let structure = self.get_struct(global, source_range, &v)?;
+                        // The getting straight from the 'global' instead of using
+                        // 'get_struct' is intentional. Any value that returns a
+                        // type which is of 'DataType::Struct' should've already
+                        // converted that to the fully qualified name.
+                        let structure = global.structures.get(&v).unwrap();
 
                         if let Some(v) = structure.fields.iter().enumerate().find(|x| x.1.0 == *identifier) {
                             *index_to = v.0;
@@ -624,7 +746,7 @@ impl AnalysisState {
 
             
             Expression::WithinNamespace { do_within, .. } => {
-                self.analyze(global, do_within)
+                self.analyze(global, do_within, None)
             },
         }
     }
@@ -633,7 +755,10 @@ impl AnalysisState {
     fn analyze_statement(&mut self, global: &mut GlobalState, statement: &mut Statement, source_range: &SourceRange) -> Result<(), Error> {
         match statement {
             Statement::DeclareVar { identifier, data, type_hint } => {
-                let data_type = match self.analyze(global, &mut *data) {
+                if let Some(v) = type_hint {
+                    self.update_type(v, global)?;
+                }
+                let data_type = match self.analyze(global, &mut *data, type_hint.map(|x| x.data_type)) {
                     Ok(v) => v,
                     Err(e) => {
                         self.variable_stack.push(*identifier, SourcedDataType::new(*source_range, DataType::Any));
@@ -643,7 +768,7 @@ impl AnalysisState {
                 
                 self.variable_stack.push(*identifier, if let Some(v) = type_hint { *v } else { data_type });
 
-                if !type_hint.map_or(Ok(true), |x| self.is_of_type(global, data_type, x))? {
+                if !type_hint.map_or(Ok(true), |x| self.is_of_type(global, (data_type, data), x))? {
                     return Err(CompilerError::new(self.file, 210, "value differs from type hint")
                         .highlight(data.source_range)
                             .note(format!("is of type {} but the type hint is {}", global.to_string(data_type.data_type), global.to_string(type_hint.unwrap().data_type)))
@@ -666,9 +791,9 @@ impl AnalysisState {
                             },
                         };
 
-                        let right_type = self.analyze(global, right)?;
+                        let right_type = self.analyze(global, right, Some(value.data_type))?;
 
-                        if !self.is_of_type(global, right_type, value)? {
+                        if !self.is_of_type(global, (right_type, right), value)? {
                             return Err(CompilerError::new(self.file, 207, "variable is of different type")
                                 .highlight(*source_range)
                                     .note(format!("{} is of type {} but the assigned value is of type {}", global.symbol_table.get(*v), global.to_string(value.data_type), global.to_string(right_type.data_type)))
@@ -686,7 +811,7 @@ impl AnalysisState {
             Statement::Loop { body } => {
                 self.loop_depth += 1;
 
-                self.analyze_block(global, body, true, true)?;
+                self.analyze_block(global, body, true, true, None)?;
 
                 self.loop_depth -= 1;
 
@@ -716,8 +841,6 @@ impl AnalysisState {
 
 
             Statement::Return(v) => {
-                let datatype = self.analyze(global, v)?;
-
                 let expected_type = match self.explicit_return {
                     Some(v) => v,
                     None =>
@@ -727,7 +850,9 @@ impl AnalysisState {
                         .build())
                 };
 
-                if !self.is_of_type(global, expected_type, datatype)? {
+                let datatype = self.analyze(global, v, Some(expected_type.data_type))?;
+
+                if !self.is_of_type(global, (datatype, v), expected_type)? {
                     return Err(CompilerError::new(self.file, 222, "invalid return type")
                         .highlight(expected_type.source_range)
                             .note(format!("defined as {}", global.to_string(expected_type.data_type)))
@@ -743,20 +868,25 @@ impl AnalysisState {
             
             
             Statement::FieldUpdate { structure, right, identifier, index_to } => {
-                let structure_type = self.analyze(global, structure)?;
+                let structure_type = self.analyze(global, structure, None)?;
                 
                 match structure_type.data_type {
                     DataType::Struct(v) => {
-                        let right_value = self.analyze(global, right)?;
-                        let structure = self.get_struct(global, source_range, &v)?;
+                        // The getting straight from the 'global' instead of using
+                        // 'get_struct' is intentional. Any value that returns a
+                        // type which is of 'DataType::Struct' should've already
+                        // converted that to the fully qualified name.
+                        let structure = global.structures.get(&v).unwrap();
 
                         if let Some(v) = structure.fields.iter().enumerate().find(|x| x.1.0 == *identifier) {
                             *index_to = v.0;
+                            let field_type = v.1.1;
+                            let right_value = self.analyze(global, right, Some(field_type.data_type))?;
 
-                            if !self.is_of_type(global, v.1.1, right_value)? {
+                            if !self.is_of_type(global, (right_value, right), field_type)? {
                                 return Err(CompilerError::new(self.file, 207, "variable is of different type")
                                     .highlight(*source_range)
-                                        .note(format!("{} is of type {} but the assigned value is of type {}", global.symbol_table.get(*identifier), global.to_string(v.1.1.data_type), global.to_string(right_value.data_type)))
+                                        .note(format!("{} is of type {} but the assigned value is of type {}", global.symbol_table.get(*identifier), global.to_string(field_type.data_type), global.to_string(right_value.data_type)))
                                     .build())
                             }
 
@@ -785,16 +915,34 @@ impl AnalysisState {
                 let new_name = global.symbol_table.add_combo(self.custom_path, *name);
                 self.functions.insert(*name, (new_name, self.depth));
                 *name = new_name;
+
+                if self.update_type(return_type, global).is_err() {
+                    return_type.data_type = DataType::Any;
+                }
                 
+                for a in arguments.iter_mut() {
+                    if self.update_type(&mut a.1, global).is_err() {
+                        a.1.data_type = DataType::Any;
+                    }
                 
-                global.functions.insert(*name, Function { return_type: *return_type, arguments: arguments.iter().map(|x| x.1).collect() });
+                    
+                }
+                let function = Function { return_type: *return_type, arguments: arguments.iter().map(|x| x.1).collect() };
+                assert!(global.functions.insert(*name, function).is_none());
             },
 
             
             Declaration::StructDeclaration { name, fields } => {
-                self.declare_struct(*name, Structure {
+                let new_name = global.symbol_table.add_combo(self.custom_path, *name);
+                self.structures.insert(*name, (new_name, self.depth));
+                *name = new_name;
+
+                let mut structure = Structure {
                     fields: fields.clone(),
-                })
+                };
+
+                structure.fields.sort_by_key(|x| x.0);
+                assert!(global.structures.insert(*name, structure).is_none());
             },
 
             
@@ -809,10 +957,15 @@ impl AnalysisState {
 
             
             Declaration::Extern { functions, .. } => {
-                for f in functions {
+                for f in functions.iter_mut() {
                     let new_name = global.symbol_table.add_combo(self.custom_path, f.identifier);
                     self.functions.insert(f.identifier, (new_name, self.depth));
                     f.identifier = new_name;
+
+                    if self.update_type(&mut f.return_type, global).is_err() {
+                        f.return_type.data_type = DataType::Any;
+                    }
+                    
 
                     global.functions.insert(f.identifier, Function {
                         return_type: f.return_type,
@@ -904,14 +1057,57 @@ impl AnalysisState {
 
 impl AnalysisState {
     #[inline]
-    pub fn is_of_type(&self, global: &GlobalState, frst: SourcedDataType, oth: SourcedDataType) -> Result<bool, Error> {
+    pub fn is_of_type(&self, global: &mut GlobalState, (frst, instr): (SourcedDataType, &mut Instruction), oth: SourcedDataType) -> Result<bool, Error> {
         self.is_valid_type(global, frst)?;
         self.is_valid_type(global, oth)?;
-        
-        Ok(frst.data_type == oth.data_type || frst.data_type == DataType::Any || oth.data_type == DataType::Any)
+
+        if frst.data_type == oth.data_type || frst.data_type == DataType::Any || oth.data_type == DataType::Any {
+            return Ok(true)
+        }
+
+        match (frst.data_type, oth.data_type) {
+            | (DataType::U8 , DataType::I16)
+            | (DataType::U8 , DataType::I32)
+            | (DataType::U8 , DataType::I64)
+            | (DataType::U8 , DataType::U8 )
+            | (DataType::U8 , DataType::U16)
+            | (DataType::U8 , DataType::U32)
+            | (DataType::U8 , DataType::U64)
+            | (DataType::U16, DataType::I32)
+            | (DataType::U16, DataType::I64)
+            | (DataType::U16, DataType::U32)
+            | (DataType::U16, DataType::U64)
+            | (DataType::U32, DataType::I64)
+            | (DataType::U32, DataType::U64) => {
+                let temp = std::mem::replace(instr, Instruction { instruction_kind: InstructionKind::Expression(
+                    Expression::Data(
+                        SourcedData::new(SourceRange::new(0, 0), Data::I8(0)),
+                    )), source_range: SourceRange::new(0, 0) });
+
+                *instr = Instruction {
+                    source_range: instr.source_range,
+                    instruction_kind: InstructionKind::Expression(Expression::AsCast { value: Box::new(temp), cast_type: oth }),
+                };
+
+                Ok(true)
+            },
+
+            _ => Ok(false)
+        }
     }
 
-    fn is_valid_type(&self, global: &GlobalState, value: SourcedDataType) -> Result<(), Error> {
+
+    fn update_type(&self, datatype: &mut SourcedDataType, global: &mut GlobalState) -> Result<(), Error> {
+        self.is_valid_type(global, *datatype)?;
+        if let DataType::Struct(v) = &mut datatype.data_type {
+            *v = self.get_struct(global, &datatype.source_range, v).unwrap().1;
+        };
+
+        Ok(())
+    }
+
+    
+    fn is_valid_type(&self, global: &mut GlobalState, value: SourcedDataType) -> Result<(), Error> {
         let v = match value.data_type {
             DataType::Struct(v) => {
                 self.get_struct(global, &value.source_range, &v)?;
@@ -974,18 +1170,16 @@ impl AnalysisState {
 
     
     fn get_function<'a>(&'a self, global: &'a mut GlobalState, symbol: &SymbolIndex) -> Option<(&'a Function, SymbolIndex)> {
+        if let Some(v) = global.functions.get(symbol) {
+            return Some((v, *symbol));
+        }
+        
         self.get_function_detailed(global.symbol_table, &global.files, &global.functions, symbol, true)
     }
 
     
-    fn declare_struct(&mut self, symbol: SymbolIndex, mut structure: Structure) {
-        structure.fields.sort_by_key(|x| x.0);
-        self.structures.insert(symbol, (structure, self.depth));
-    }
-
-    
-    fn get_struct<'a>(&'a self, global: &'a GlobalState, range: &SourceRange, symbol: &SymbolIndex) -> Result<&'a Structure, Error> {
-        match self.get_struct_option(global, symbol) {
+    fn get_struct<'a>(&'a self, global: &'a mut GlobalState, range: &SourceRange, symbol: &SymbolIndex) -> Result<(&'a Structure, SymbolIndex), Error> {
+        match self.get_struct_option(global.symbol_table, &global.files, &global.structures, symbol, true) {
             Some(v) => Ok(v),
             None => Err(CompilerError::new(self.file, 215, "structure isn't declared")
             .highlight(*range)
@@ -996,20 +1190,48 @@ impl AnalysisState {
     }
 
 
-    fn get_struct_option<'a>(&'a self, global: &'a GlobalState, symbol: &SymbolIndex) -> Option<&'a Structure> {
-        match self.structures.get(symbol).map(|x| &x.0) {
-            Some(v) => Some(v),
-            None => {
-                let (root, root_excluded) = global.symbol_table.find_root(*symbol);
-                let root_excluded = root_excluded?;
+    fn get_struct_option<'a>(
+        &self,
+        symbol_table: &mut SymbolTable,
+        files: &HashMap<SymbolIndex, (AnalysisState, Vec<Instruction>, String)>,
+        structures: &'a HashMap<SymbolIndex, Structure>,
+        symbol: &SymbolIndex,
+        implicit_complete: bool
+    ) -> Option<(&'a Structure, SymbolIndex)> {
+        if let Some(v) = structures.get(symbol) {
+            return Some((v, *symbol));
+        }
 
-                if !self.available_files.contains_key(&root_excluded) {
+        let temp = self.structures.get(symbol);
+        match temp.map(|x| (structures.get(&x.0).unwrap(), x.0)) {
+            Some((structure, absolute_ident)) => Some((structure, absolute_ident)),
+            None => {
+                let (root, root_excluded) = symbol_table.find_root(*symbol);
+
+                if let Some(root_excluded) = root_excluded {
+                    if self.available_files.contains_key(&root) {
+                        if let Some(v) = files.get(&root)?.0.get_struct_option(symbol_table, files, structures, &root_excluded, false) {
+                            return Some((v.0, v.1))
+                        }
+                    }
+                }
+
+                if !implicit_complete {
                     return None
                 }
                 
-                global.files.get(&root)?.0.get_struct_option(global, &root_excluded)
+                for namespace in self.available_files.iter() {
+                    if let Some(v) = files.get(namespace.1)?.0.get_struct_option(symbol_table, files, structures, symbol, false) {
+                        return Some((v.0, v.1))
+                    }
+
+                }
+
+
+                None 
             },
         }
+        
     }
 }
 

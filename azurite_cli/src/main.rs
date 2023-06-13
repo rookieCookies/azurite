@@ -3,11 +3,12 @@
 use std::env::Args;
 use std::fs;
 use std::io::Write;
+use std::mem::{size_of, transmute};
 use std::time::Instant;
 use std::{env, path::Path, process::ExitCode};
 
 use azurite_archiver::Packed;
-use azurite_common::{environment, prepare, Bytecode};
+use azurite_common::{environment, prepare, Bytecode, CompilationMetadata};
 use colored::Colorize;
 
 #[allow(clippy::too_many_lines)]
@@ -77,7 +78,7 @@ fn main() -> Result<(), ExitCode> {
 
             let mut data: Vec<_> = packed.into();
 
-            disassemble(std::mem::take(&mut data[0].0));
+            disassemble(std::mem::take(&mut data[1].0));
         }
         _ => invalid_usage(),
     }
@@ -120,7 +121,7 @@ fn compile(file: &str) -> Result<Packed, ExitCode> {
 
     let (result, debug_info) = azurite_compiler::compile(file.to_string(), file_data);
     
-    let (bytecode, constants, symbol_table) = match result {
+    let (metadata, bytecode, constants, symbol_table) = match result {
         Ok(v) => v,
         Err(e) => {
             print!("{}", e.build(&debug_info));
@@ -139,6 +140,7 @@ fn compile(file: &str) -> Result<Packed, ExitCode> {
     );
 
     Ok(Packed::new()
+        .with(azurite_archiver::Data(Vec::from(unsafe { transmute::<_, [u8; size_of::<CompilationMetadata>()]>(metadata) } )))
         .with(azurite_archiver::Data(bytecode))
         .with(azurite_archiver::Data(constants_bytes))
     )
@@ -187,6 +189,7 @@ fn disassemble(v: Vec<u8>) {
             Bytecode::Subtract => writeln!(lock, "sub {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::Multiply => writeln!(lock, "mul {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::Divide => writeln!(lock, "div {} {} {}", d.next(), d.next(), d.next()),
+            Bytecode::Modulo => writeln!(lock, "mod {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::Equals => writeln!(lock, "eq {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::NotEquals => writeln!(lock, "neq {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::GreaterThan => writeln!(lock, "gt {} {} {}", d.next(), d.next(), d.next()),
@@ -204,13 +207,25 @@ fn disassemble(v: Vec<u8>) {
 
                 let amount = d.next();
                 for _ in 0..amount {
-                    let _ = write!(lock, "\"{}\" ", d.string());
+                    let _ = write!(lock, "{} \"{}\" ", d.u32(), d.string());
                 }
 
                 writeln!(lock, ")")
             },
             Bytecode::UnaryNot => writeln!(lock, "not {} {}", d.next(), d.next()),
             Bytecode::UnaryNeg => writeln!(lock, "neg {} {}", d.next(), d.next()),
+
+            
+            Bytecode::CastToI8    => writeln!(lock, "castI8 {} {}", d.next(), d.next()),
+            Bytecode::CastToI16   => writeln!(lock, "castI16 {} {}", d.next(), d.next()),
+            Bytecode::CastToI32   => writeln!(lock, "castI32 {} {}", d.next(), d.next()),
+            Bytecode::CastToI64   => writeln!(lock, "castI64 {} {}", d.next(), d.next()),
+            Bytecode::CastToU8    => writeln!(lock, "castU8 {} {}", d.next(), d.next()),
+            Bytecode::CastToU16   => writeln!(lock, "castU16 {} {}", d.next(), d.next()),
+            Bytecode::CastToU32   => writeln!(lock, "castU32 {} {}", d.next(), d.next()),
+            Bytecode::CastToU64   => writeln!(lock, "castU64 {} {}", d.next(), d.next()),
+            Bytecode::CastToFloat => writeln!(lock, "castFloat {} {}", d.next(), d.next()),
+            Bytecode::CastToBool  => writeln!(lock, "castBool {} {}", d.next(), d.next()),
         
         };
     }

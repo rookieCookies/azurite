@@ -83,11 +83,11 @@ and now we can do math on it!
 // validate and print out feedback based
 //        on the users input
 
-if (input_as_integer == generated_number) {
+if input_as_integer == generated_number {
     println("congratz! you were right!")
-} else if (input_as_integer < generated_number) {
+} else if input_as_integer < generated_number {
     println("sorry! you were too low!")
-} else (input_as_integer > generated_number) {
+} else input_as_integer > generated_number {
     println("sorry! you were too high!")
 }
 ```

@@ -9,11 +9,10 @@ use rayon::prelude::{ParallelIterator, IntoParallelRefMutIterator};
 #[derive(Debug, PartialEq)]
 pub struct ConversionState {
     pub constants: Vec<Data>,
-    pub externs: Vec<ExternFunction>,
 
+    pub extern_functions: BTreeMap<SymbolIndex, ExternFunction>,
     pub functions: BTreeMap<SymbolIndex, Function>,
     
-    extern_functions: HashMap<SymbolIndex, u32>,
     function_counter: u32,
     extern_counter: u32,
     
@@ -44,8 +43,10 @@ pub struct Function {
 
 #[derive(Debug, PartialEq)]
 pub struct ExternFunction {
+    pub identifier: SymbolIndex,
+    pub function_index: FunctionIndex,
+    pub file: SymbolIndex,
     pub path: SymbolIndex,
-    pub functions: Vec<SymbolIndex>,
 }
 
 
@@ -117,6 +118,7 @@ pub enum IR {
     Subtract      { dst: Variable, left: Variable, right: Variable },
     Multiply      { dst: Variable, left: Variable, right: Variable },
     Divide        { dst: Variable, left: Variable, right: Variable },
+    Modulo        { dst: Variable, left: Variable, right: Variable },
     Equals        { dst: Variable, left: Variable, right: Variable },
     NotEquals     { dst: Variable, left: Variable, right: Variable },
     GreaterThan   { dst: Variable, left: Variable, right: Variable },
@@ -128,11 +130,25 @@ pub enum IR {
     UnaryNeg      { dst: Variable, val:  Variable },
 
     Call          { dst: Variable, id: FunctionIndex,  args: Vec<Variable> },
-    ExtCall       { dst: Variable, index: u32,         args: Vec<Variable> },
+    ExtCall       { dst: Variable, id: FunctionIndex,  args: Vec<Variable> },
     
     Struct        { dst: Variable, fields: Vec<Variable> },
     AccStruct     { dst: Variable, val: Variable, index: u8 },
     SetField      { dst: Variable, data: Variable, index: u8},
+
+
+    CastToI8      { dst: Variable, val: Variable },
+    CastToI16     { dst: Variable, val: Variable },
+    CastToI32     { dst: Variable, val: Variable },
+    CastToI64     { dst: Variable, val: Variable },
+
+    CastToU8      { dst: Variable, val: Variable },
+    CastToU16     { dst: Variable, val: Variable },
+    CastToU32     { dst: Variable, val: Variable },
+    CastToU64     { dst: Variable, val: Variable },
+
+    CastToFloat   { dst: Variable, val: Variable },
+    
 
     Noop,
 }
@@ -150,9 +166,8 @@ impl ConversionState {
             symbol_table,
             function_counter: 0,
             functions: BTreeMap::new(),
-            externs: vec![],
             extern_counter: 0,
-            extern_functions: HashMap::new(),
+            extern_functions: BTreeMap::new(),
 
         }
     }
@@ -217,9 +232,9 @@ impl ConversionState {
         FunctionIndex(self.function_counter - 1)
     }
 
-    fn extern_function(&mut self) -> u32 {
+    fn extern_function(&mut self) -> FunctionIndex {
         self.extern_counter += 1;
-        self.extern_counter - 1
+        FunctionIndex(self.extern_counter - 1)
     }
 }
 
@@ -310,18 +325,18 @@ impl ConversionState {
                         },
                         Declaration::StructDeclaration { .. } => (),
                         Declaration::Namespace { .. } => (),
-                        Declaration::Extern { functions, .. } => {
+                        Declaration::Extern { functions, file  } => {
                             for f in functions {
                                 if self.extern_functions.contains_key(&f.identifier) {
                                     continue
                                 }
                                 
                                 let t = self.extern_function();
-                                self.extern_functions.insert(f.identifier, t);
+                                self.extern_functions.insert(f.identifier, ExternFunction { identifier: f.identifier, function_index: t, file: *file, path: f.raw_name });
                             }
                         },
                         Declaration::UseFile { .. } => (),
-                        Declaration::ImplBlock { body, datatype } => {
+                        Declaration::ImplBlock { body, .. } => {
                             self.declaration_process(body);
                         },
                     }
@@ -412,9 +427,7 @@ impl Function {
             Declaration::StructDeclaration { .. } => (),
             
             
-            Declaration::Extern { file, functions } => {
-                state.externs.push(ExternFunction { path: file, functions: functions.into_iter().map(|x| x.raw_name).collect() })
-            },
+            Declaration::Extern { file, functions } => (),
 
             
             Declaration::UseFile { file_name } => {
@@ -512,6 +525,28 @@ impl Function {
                 variable
             },
 
+
+            Expression::AsCast { value, cast_type } => {
+                let dst = self.variable();
+                let val = self.convert(state, block, *value);
+
+                match cast_type.data_type {
+                    common::DataType::I8    => block.ir(IR::CastToI8 { dst, val } ),
+                    common::DataType::I16   => block.ir(IR::CastToI16 { dst, val } ),
+                    common::DataType::I32   => block.ir(IR::CastToI32 { dst, val } ),
+                    common::DataType::I64   => block.ir(IR::CastToI64 { dst, val } ),
+                    common::DataType::U8    => block.ir(IR::CastToU8 { dst, val } ),
+                    common::DataType::U16   => block.ir(IR::CastToU16 { dst, val } ),
+                    common::DataType::U32   => block.ir(IR::CastToU32 { dst, val } ),
+                    common::DataType::U64   => block.ir(IR::CastToU64 { dst, val } ),
+                    common::DataType::Float => block.ir(IR::CastToFloat { dst, val } ),
+
+                    _ => unreachable!()
+                };
+
+                dst
+            }
+
             
             Expression::BinaryOp { operator, left, right } => {
                 let left_var = self.convert(state, block, *left);
@@ -524,6 +559,7 @@ impl Function {
                     BinaryOperator::Subtract      => block.ir(IR::Subtract      { dst, left: left_var, right: right_var }),
                     BinaryOperator::Multiply      => block.ir(IR::Multiply      { dst, left: left_var, right: right_var }),
                     BinaryOperator::Divide        => block.ir(IR::Divide        { dst, left: left_var, right: right_var }),
+                    BinaryOperator::Modulo        => block.ir(IR::Modulo        { dst, left: left_var, right: right_var }),
                     BinaryOperator::Equals        => block.ir(IR::Equals        { dst, left: left_var, right: right_var }),
                     BinaryOperator::NotEquals     => block.ir(IR::NotEquals     { dst, left: left_var, right: right_var }),
                     BinaryOperator::GreaterThan   => block.ir(IR::GreaterThan   { dst, left: left_var, right: right_var }),
@@ -611,7 +647,7 @@ impl Function {
                 if let Some(v) = state.functions.get(&identifier) {
                     block.ir(IR::Call    { dst, id: v.function_index, args: variables })
                 } else if let Some(v) = state.extern_functions.get(&identifier) {
-                    block.ir(IR::ExtCall { dst, index: *v, args: variables })
+                    block.ir(IR::ExtCall { dst, id: v.function_index, args: variables })
                 } else { 
                     panic!("huh?")
                  }
@@ -701,6 +737,7 @@ impl Function {
                     IR::Subtract { dst, left, right }      => writeln!(lock, "sub {dst} {left} {right}"),
                     IR::Multiply { dst, left, right }      => writeln!(lock, "mul {dst} {left} {right}"),
                     IR::Divide { dst, left, right }        => writeln!(lock, "div {dst} {left} {right}"),
+                    IR::Modulo { dst, left, right }        => writeln!(lock, "mod {dst} {left} {right}"),
                     IR::Copy { src, dst }                  => writeln!(lock, "copy {src} {dst}"),
                     IR::Swap { v1, v2 }                    => writeln!(lock, "swap {v1} {v2}"),
                     IR::Equals { dst, left, right }        => writeln!(lock, "eq {dst} {left} {right}"),
@@ -710,7 +747,7 @@ impl Function {
                     IR::GreaterEquals { dst, left, right } => writeln!(lock, "ge {dst} {left} {right}"),
                     IR::LesserEquals { dst, left, right }  => writeln!(lock, "le {dst} {left} {right}"),
                     IR::Call { id, dst, args }             => writeln!(lock, "call {id} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
-                    IR::ExtCall { index, dst, args }       => writeln!(lock, "ecall {index} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
+                    IR::ExtCall { id: index, dst, args }       => writeln!(lock, "ecall {index} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
                     IR::Unit { dst }                       => writeln!(lock, "unit {dst}"),
                     IR::Struct { dst, fields }             => writeln!(lock, "struct {dst} ({} )", fields.iter().map(|x| format!(" {x}")).collect::<String>()),
                     IR::AccStruct { dst, val, index }      => writeln!(lock, "accstruct, {dst} {val} {index}"),
@@ -718,6 +755,16 @@ impl Function {
                     IR::Noop                               => writeln!(lock, "noop"),
                     IR::UnaryNot { dst, val }              => writeln!(lock, "not {dst} {val}"),
                     IR::UnaryNeg { dst, val }              => writeln!(lock, "neg {dst} {val}"),
+                    
+                    IR::CastToI8 { dst, val }  => writeln!(lock, "castI8 {dst} {val}"),
+                    IR::CastToI16 { dst, val } => writeln!(lock, "castI16 {dst} {val}"),
+                    IR::CastToI32 { dst, val } => writeln!(lock, "castI32 {dst} {val}"),
+                    IR::CastToI64 { dst, val } => writeln!(lock, "castI64 {dst} {val}"),
+                    IR::CastToU8 { dst, val }  => writeln!(lock, "castU8 {dst} {val}"),
+                    IR::CastToU16 { dst, val } => writeln!(lock, "castU16 {dst} {val}"),
+                    IR::CastToU32 { dst, val } => writeln!(lock, "castU32 {dst} {val}"),
+                    IR::CastToU64 { dst, val } => writeln!(lock, "castU64 {dst} {val}"),
+                    IR::CastToFloat { dst, val } => writeln!(lock, "castfloat {dst} {val}"),
                 };
             }
         

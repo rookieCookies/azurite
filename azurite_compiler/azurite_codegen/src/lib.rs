@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, BTreeMap, BTreeSet};
 
 use azurite_ast_to_ir::{IR, BlockTerminator, FunctionIndex, Function, ExternFunction};
 use azurite_common::Bytecode;
-use common::SymbolTable;
+use common::{SymbolTable, SymbolIndex};
 
 #[derive(Debug)]
 pub struct CodeGen {
@@ -13,15 +13,16 @@ pub struct CodeGen {
 }
 
 impl CodeGen {
-    pub fn codegen(&mut self, symbol_table: &SymbolTable, externs: Vec<ExternFunction>, functions: Vec<Function>) {
-        for e in externs {
+    pub fn codegen(&mut self, symbol_table: &SymbolTable, externs: BTreeMap<SymbolIndex, BTreeSet<(SymbolIndex, u32)>>, functions: Vec<Function>) {
+        for (file, functions) in externs {
             self.emit_bytecode(Bytecode::ExternFile);
-            self.bytecode.append(&mut symbol_table.get(e.path).as_bytes().to_vec());
+            self.bytecode.append(&mut symbol_table.get(file).as_bytes().to_vec());
             self.emit_byte(0);
             
-            self.emit_byte(e.functions.len().try_into().unwrap());
+            self.emit_byte(functions.len().try_into().unwrap());
 
-            for func in e.functions {
+            for (func, index) in functions {
+                self.emit_u32(index);
                 self.bytecode.append(&mut symbol_table.get(func).as_bytes().to_vec());
                 self.emit_byte(0);
             }
@@ -134,6 +135,17 @@ impl CodeGen {
     }
 
     pub fn ir(&mut self, ir: IR) {
+        macro_rules! cast_to {
+            ($v:ident, $dst: expr, $src: expr) => {
+                {
+                    self.emit_bytecode((Bytecode::$v));
+                    self.emit_byte($dst.0 as u8);
+                    self.emit_byte($src.0 as u8);
+                }
+            }
+        }
+        
+        
         match ir {
             IR::Copy { src, dst } => {
                 self.emit_bytecode(Bytecode::Copy);
@@ -171,9 +183,9 @@ impl CodeGen {
             },
 
             
-            IR::ExtCall { index, dst, args } => {
+            IR::ExtCall { id: index, dst, args } => {
                 self.emit_bytecode(Bytecode::ExtCall);
-                self.emit_u32(index);
+                self.emit_u32(index.0);
                 self.emit_byte(dst.0 as u8);
                 self.emit_byte(args.len() as u8);
 
@@ -210,6 +222,14 @@ impl CodeGen {
             
             IR::Divide { dst, left, right } => {
                 self.emit_bytecode(Bytecode::Divide);
+                self.emit_byte(dst.0 as u8);
+                self.emit_byte(left.0 as u8);
+                self.emit_byte(right.0 as u8);
+            },
+            
+            
+            IR::Modulo { dst, left, right } => {
+                self.emit_bytecode(Bytecode::Modulo);
                 self.emit_byte(dst.0 as u8);
                 self.emit_byte(left.0 as u8);
                 self.emit_byte(right.0 as u8);
@@ -314,6 +334,15 @@ impl CodeGen {
             },
 
             
+            IR::CastToI8  { dst, val } => cast_to!(CastToI8,  dst, val),
+            IR::CastToI16 { dst, val } => cast_to!(CastToI16, dst, val),
+            IR::CastToI32 { dst, val } => cast_to!(CastToI32, dst, val),
+            IR::CastToI64 { dst, val } => cast_to!(CastToI64, dst, val),
+            IR::CastToU8  { dst, val } => cast_to!(CastToU8,  dst, val),
+            IR::CastToU16 { dst, val } => cast_to!(CastToU16, dst, val),
+            IR::CastToU32 { dst, val } => cast_to!(CastToU32, dst, val),
+            IR::CastToU64 { dst, val } => cast_to!(CastToU64, dst, val),
+            IR::CastToFloat { dst, val } => cast_to!(CastToFloat, dst, val),
         }
     }
 

@@ -1,10 +1,8 @@
-using std
-
 extern "rng_library" {
-    fn randi(): int
+    fn randi(): i64
     fn randf(): float
 }
 
-fn rand_range_int(min: int, max: int): int {
-    (randf() * (max - min).to_float()).to_int() + min
+fn rand_range_int(min: i64, max: i64): i64 {
+    (randf() * (max - min) as float) as i64 + min
 }

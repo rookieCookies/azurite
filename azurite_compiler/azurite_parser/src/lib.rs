@@ -67,10 +67,16 @@ impl Parser<'_> {
     fn parse_till(&mut self, token_kind: &TokenKind) -> Result<Vec<Instruction>, Error> {
         let mut instructions = vec![];
         let mut errors = vec![];
+
+        let mut panic_mode = false;
         
         while let Some(token) = self.current_token() {
             if &token.token_kind == token_kind || token.token_kind == TokenKind::EndOfFile {
                 break
+            }
+
+            if let TokenKind::Keyword(_) = token.token_kind {
+                panic_mode = false
             }
 
             match self.statement() {
@@ -82,8 +88,12 @@ impl Parser<'_> {
                             continue
                         }
                     }
-                    errors.push(e);
-                    continue
+
+                    if !panic_mode {
+                        panic_mode = true;
+                        errors.push(e);
+                        continue
+                    }
                 },
             }
 
@@ -184,7 +194,14 @@ impl Parser<'_> {
         let built_string = built_string.unwrap();        
 
         let data_type = match self.symbol_table.get(built_string).as_str() {
-            "int" => DataType::Integer,
+            "i8"  => DataType::I8,
+            "i16" => DataType::I16,
+            "i32" => DataType::I32,
+            "i64" => DataType::I64,
+            "u8"  => DataType::U8,
+            "u16" => DataType::U16,
+            "u32" => DataType::U32,
+            "u64" => DataType::U64,
             "float" => DataType::Float,
             "bool" => DataType::Bool,
             "str" => DataType::String,
@@ -448,7 +465,7 @@ impl Parser<'_> {
         let start = self.current_token().unwrap().source_range.start;
         self.advance();
 
-        let condition = self.comparison_expression(ParserSettings { can_parse_struct_creation: false, ..default() })?;
+        let condition = self.comparison_expression(ParserSettings { can_parse_struct_creation: false })?;
         self.advance();
 
         self.expect(&TokenKind::LeftBracket)?;
@@ -781,7 +798,6 @@ impl Parser<'_> {
         self.advance();
 
         let mut body = vec![];
-        let mut errors = vec![];
         loop {
             if self.current_token().is_none() {
                 break
@@ -804,17 +820,10 @@ impl Parser<'_> {
                     .highlight(token.source_range)
                         .note("only the following are allowed: function declarations, namespaces, structure declarations".to_string())
                     .build())
-            };
+            }?;
 
-            match v {
-                Ok(v) => body.push(v),
-                Err(e) => errors.push(e),
-            };
+            body.push(v);
             self.advance();
-        }
-
-        if !errors.is_empty() {
-            return Err(errors.combine_into_error())
         }
 
         self.expect(&TokenKind::RightBracket)?;
@@ -874,14 +883,37 @@ impl Parser<'_> {
 
     fn product_expression(&mut self, settings: ParserSettings) -> ParseResult {
          self.binary_operation(
-            Parser::unary_expression, 
-            Parser::unary_expression,
+            Parser::as_type_cast_expression,
+            Parser::as_type_cast_expression,
             settings,
             &[
                 TokenKind::Star,
                 TokenKind::Slash,
+                TokenKind::Percent,
             ],
         )       
+    }
+
+
+    fn as_type_cast_expression(&mut self, settings: ParserSettings) -> ParseResult {
+        let unary = self.unary_expression(settings)?;
+
+        if self.peek().map(|x| x.token_kind) != Some(TokenKind::Keyword(Keyword::As)) {
+            return Ok(unary)
+        }
+
+        self.advance();
+        self.advance();
+
+        let cast_type = self.parse_type()?;
+
+        Ok(Instruction { 
+            source_range: SourceRange::new(unary.source_range.start, cast_type.source_range.end),
+            instruction_kind: InstructionKind::Expression(Expression::AsCast {
+                value: Box::new(unary),
+                cast_type,
+            }),
+        })
     }
 
 
@@ -965,7 +997,7 @@ impl Parser<'_> {
                 };
                 
                 let data = match literal {
-                    Literal::Integer(i) => Data::Int(i),
+                    Literal::Integer(i) => Data::I64(i),
                     Literal::Float(f) => Data::Float(f),
                     Literal::String(s) => Data::String(s),
                     Literal::Bool(b) => Data::Bool(b),
@@ -1111,7 +1143,7 @@ impl Parser<'_> {
         let start = self.current_token().unwrap().source_range.start;
         self.advance();
         
-        let condition = self.comparison_expression(ParserSettings { can_parse_struct_creation: false, ..default() })?;
+        let condition = self.comparison_expression(ParserSettings { can_parse_struct_creation: false })?;
         self.advance();
 
         self.expect(&TokenKind::LeftBracket)?;

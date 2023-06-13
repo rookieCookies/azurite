@@ -1,6 +1,14 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataType {
-    Integer,
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    
     Float,
     String,
     Bool,
@@ -12,13 +20,30 @@ pub enum DataType {
 
 
 impl DataType {
+    pub const fn is_signed_integer(self) -> bool {
+        matches!(self,
+            | Self::I8
+            | Self::I16
+            | Self::I32
+            | Self::I64
+        )
+    }
+
+    
     pub fn from(value: &Data) -> Self {
         match value {
-            Data::Int(_)    => DataType::Integer,
             Data::Float(_)  => DataType::Float,
             Data::String(_) => DataType::String,
             Data::Bool(_)   => DataType::Bool,
             Data::Empty     => DataType::Empty,
+            Data::I8(_)  => DataType::I8,
+            Data::I16(_) => DataType::I16,
+            Data::I32(_) => DataType::I32,
+            Data::I64(_) => DataType::I64,
+            Data::U8(_)  => DataType::U8,
+            Data::U16(_) => DataType::U16,
+            Data::U32(_) => DataType::U32,
+            Data::U64(_) => DataType::U64,
         }
     }
     
@@ -27,7 +52,14 @@ impl DataType {
 impl DataType {
     pub fn to_string(self, symbol_table: &SymbolTable) -> String {
         match self {
-            DataType::Integer   => "int".to_string(),
+            DataType::I8        => "i8".to_string(),
+            DataType::I16       => "i16".to_string(),
+            DataType::I32       => "i32".to_string(),
+            DataType::I64       => "i64".to_string(),
+            DataType::U8        => "u8".to_string(),
+            DataType::U16       => "u16".to_string(),
+            DataType::U32       => "u32".to_string(),
+            DataType::U64       => "u64".to_string(),
             DataType::Float     => "float".to_string(),
             DataType::String    => "str".to_string(),
             DataType::Bool      => "bool".to_string(),
@@ -49,7 +81,15 @@ impl DataType {
 
 #[derive(Debug, PartialEq)]
 pub enum Data {
-    Int   (i64),
+    I8    (i8),
+    I16   (i16),
+    I32   (i32),
+    I64   (i64),
+    U8    (u8),
+    U16   (u16),
+    U32   (u32),
+    U64   (u64),
+
     Float (f64),
     String(SymbolIndex),
     Bool  (bool),
@@ -60,11 +100,18 @@ pub enum Data {
 impl Data {
     pub fn to_string(&self, symbol_table: &SymbolTable) -> String {
         match self {
-            Data::Int(v)    => v.to_string(),
             Data::Float(v)  => v.to_string(),
             Data::String(v) => symbol_table.get(*v),
             Data::Bool(v)   => v.to_string(),
             Data::Empty     => "()".to_string(),
+            Data::I8 (v)    => v.to_string(),
+            Data::I16(v)    => v.to_string(),
+            Data::I32(v)    => v.to_string(),
+            Data::I64(v)    => v.to_string(),
+            Data::U8 (v)    => v.to_string(),
+            Data::U16(v)    => v.to_string(),
+            Data::U32(v)    => v.to_string(),
+            Data::U64(v)    => v.to_string(),
         }
     }
 }

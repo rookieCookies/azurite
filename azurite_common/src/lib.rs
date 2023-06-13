@@ -52,6 +52,13 @@ pub fn prepare() {
     }
 }
 
+
+#[repr(C)]
+pub struct CompilationMetadata {
+    pub extern_count: u32,
+}
+
+
 #[derive(PartialEq, Eq, Debug)]
 pub struct EnvironmentParameter {
     pub identifier: String,
@@ -274,6 +281,7 @@ pub enum Bytecode : u8 {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
 
     UnaryNot,
     UnaryNeg,
@@ -290,6 +298,19 @@ pub enum Bytecode : u8 {
 
     Jump,
     JumpCond,
+
+
+    CastToI8,
+    CastToI16,
+    CastToI32,
+    CastToI64,
+    CastToU8,
+    CastToU16,
+    CastToU32,
+    CastToU64,
+
+    CastToFloat,
+    CastToBool,
 }
 
 }
