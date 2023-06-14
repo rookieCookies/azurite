@@ -160,7 +160,7 @@ impl AnalysisState {
         
         let mut errors = vec![];
         let size = instructions.len();
-        instructions.iter_mut().take(size-1).for_each(|x| if let Err(e) = self.analyze(global, x, None) {
+        instructions.iter_mut().take(size.max(1)-1).for_each(|x| if let Err(e) = self.analyze(global, x, None) {
             errors.push(e);
         });
 

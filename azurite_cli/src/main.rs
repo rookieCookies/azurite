@@ -157,9 +157,13 @@ fn disassemble(v: Vec<u8>) {
     let mut lock = std::io::stdout().lock();
 
     while d.code.len() > d.top {
-        let _ = write!(lock, "{} | ", d.top);
-        let _ = match d.bytecode() {
-            Bytecode::Return => writeln!(lock, "ret"),
+        let bytecode = d.bytecode();
+        let mut is_start = bytecode != Bytecode::Push;
+        let _ = write!(lock, "{:>w$} | {}", d.top, if is_start { " - " } else { "" }, w = d.code.len().to_string().len());
+        let _ = match bytecode {
+            Bytecode::Return => {
+                writeln!(lock, "ret")
+            },
             Bytecode::Copy => writeln!(lock, "copy {} {}", d.next(), d.next()),
             Bytecode::Swap => writeln!(lock, "swap {} {}", d.next(), d.next()),
             Bytecode::Call => {
@@ -183,7 +187,9 @@ fn disassemble(v: Vec<u8>) {
                 (0..arg_count).for_each(|_| { let _ = write!(lock, " {}", d.next()); });
                 writeln!(lock, " )")
             },
-            Bytecode::Push => writeln!(lock, "push {}", d.next()),
+            Bytecode::Push => {
+                writeln!(lock, "push {}", d.next())
+            },
             Bytecode::Pop => writeln!(lock, "pop {}", d.next()),
             Bytecode::Add => writeln!(lock, "add {} {} {}", d.next(), d.next(), d.next()),
             Bytecode::Subtract => writeln!(lock, "sub {} {} {}", d.next(), d.next(), d.next()),

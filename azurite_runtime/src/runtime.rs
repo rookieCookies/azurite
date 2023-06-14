@@ -52,7 +52,8 @@ impl VM {
             } }
         }
 
-        
+
+
         let mut callstack = Vec::with_capacity(64);
 
         // SAFETY: `external_funcs` must be dropped before `libraries`

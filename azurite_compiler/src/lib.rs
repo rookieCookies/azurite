@@ -77,6 +77,7 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
 
     ir.sort();
 
+    let (externs, extern_counter) = ir.take_out_externs();
     let mut functions : Vec<_> = std::mem::take(&mut ir.functions).into_iter().map(|x| x.1).collect();
     functions.sort_unstable_by_key(|x| x.function_index.0);
 
@@ -93,24 +94,6 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
             println!("{string}");
         }
     }
-    
-    
-    
-    let (externs, extern_counter) = {
-        let mut map = BTreeMap::new();
-        let mut max = 0;
-
-        for (_, e) in ir.extern_functions {
-            if e.function_index.0 > max {
-                max = e.function_index.0;
-            }
-
-            map.entry(e.file).or_insert_with(BTreeSet::new);
-            map.get_mut(&e.file).unwrap().insert((e.path, e.function_index.0));
-        }
-
-        (map, max)
-    };
 
     
     let constants = ir.constants;

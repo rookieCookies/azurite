@@ -1,4 +1,5 @@
 use std::cell::Cell;
+
 use crate::VMData;
 
 pub(crate) use self::lock::ObjectData;
@@ -124,7 +125,7 @@ impl ObjectMap {
     pub(crate) fn new(space: usize) -> Self {
         Self {
             free: ObjectIndex::new(0),
-            map: (0..space).map(|x| Object::new(ObjectData::Free { next: ObjectIndex::new(((x + 1) % space) as u64) })).collect(),
+            map: (0..space).map(|x| Object::new(ObjectData::Free { next: ObjectIndex::new(((x + 1) % space) as u64) })).collect(),
         }
     }
 

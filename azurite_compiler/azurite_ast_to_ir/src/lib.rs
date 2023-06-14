@@ -1,6 +1,6 @@
 pub mod optimizations;
 
-use std::{mem::replace, fmt::{Display, Write}, collections::BTreeMap};
+use std::{mem::replace, fmt::{Display, Write}, collections::{BTreeMap, BTreeSet, HashMap, HashSet}, process::id};
 
 use azurite_parser::ast::{Instruction, Expression, BinaryOperator, Statement, InstructionKind, Declaration, UnaryOperator};
 use common::{Data, SymbolIndex, SymbolTable};
@@ -222,6 +222,57 @@ impl ConversionState {
     /// PANICS: If the function is an extern function this will panic
     pub fn find_function(&mut self, symbol: SymbolIndex) -> &Function {
         self.functions.get(&symbol).unwrap()
+    }
+
+
+    pub fn take_out_externs(&mut self) -> (BTreeMap<SymbolIndex, BTreeSet<(SymbolIndex, u32)>>, u32) {
+        let mut used_externs = HashMap::new();
+        let mut extern_counter = 0;
+        for f in &mut self.functions {
+            for b in &mut f.1.blocks {
+                for i in &mut b.instructions {
+                    if let IR::ExtCall { id, .. } = i {
+                        if let Some(v) = used_externs.get(id) {
+                            *id = *v;
+                            continue
+                        }
+
+                        extern_counter += 1;
+                        used_externs.insert(*id, FunctionIndex(extern_counter-1));
+                    }
+                }
+            }
+        }
+
+
+        let iter = self.extern_functions
+            .iter_mut()
+            .filter_map(|x| if let Some(v) = used_externs.get(&x.1.function_index) {
+                x.1.function_index = *v;
+                Some(x.1)
+            } else { None })
+            .collect::<Vec<_>>();
+        
+        
+        let (externs, extern_counter) = {
+            let mut map = BTreeMap::new();
+            let mut max = 0;
+
+            for e in iter {
+                if e.function_index.0 > max {
+                    max = e.function_index.0;
+                }
+
+                map.entry(e.file).or_insert_with(BTreeSet::new);
+                map.get_mut(&e.file).unwrap().insert((e.path, e.function_index.0));
+            }
+
+            (map, max)
+        };
+        
+        
+
+        (externs, extern_counter)
     }
 }
 
