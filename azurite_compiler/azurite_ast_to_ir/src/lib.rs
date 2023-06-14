@@ -1,6 +1,6 @@
 pub mod optimizations;
 
-use std::{mem::replace, fmt::{Display, Write}, collections::{HashMap, BTreeMap}};
+use std::{mem::replace, fmt::{Display, Write}, collections::BTreeMap};
 
 use azurite_parser::ast::{Instruction, Expression, BinaryOperator, Statement, InstructionKind, Declaration, UnaryOperator};
 use common::{Data, SymbolIndex, SymbolTable};
@@ -427,7 +427,7 @@ impl Function {
             Declaration::StructDeclaration { .. } => (),
             
             
-            Declaration::Extern { file, functions } => (),
+            Declaration::Extern { .. } => (),
 
             
             Declaration::UseFile { file_name } => {

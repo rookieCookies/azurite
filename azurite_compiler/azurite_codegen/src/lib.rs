@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet, BTreeMap, BTreeSet};
+use std::collections::{HashMap, BTreeMap, BTreeSet};
 
-use azurite_ast_to_ir::{IR, BlockTerminator, FunctionIndex, Function, ExternFunction};
+use azurite_ast_to_ir::{IR, BlockTerminator, FunctionIndex, Function};
 use azurite_common::Bytecode;
 use common::{SymbolTable, SymbolIndex};
 

@@ -1,4 +1,4 @@
-use std::{sync::atomic::AtomicU64, time::Instant};
+use std::sync::atomic::AtomicU64;
 
 use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 

@@ -269,7 +269,7 @@ fn run(metadata: CompilationMetadata, bytecode: &[u8], constants: Vec<u8>) {
     let mut vm = VM {
         constants: Vec::new(),
         stack: Stack::new(),
-        objects: ObjectMap::new((1 * 1024 * 1024) / size_of::<Object>()),
+        objects: ObjectMap::new((8 * 1024 * 1024) / size_of::<Object>()),
         metadata,
     };
 

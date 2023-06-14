@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, BTreeSet, BTreeMap};
+use std::collections::{HashMap, BTreeSet, BTreeMap};
 use std::env;
 
 use azurite_common::{environment, CompilationMetadata};

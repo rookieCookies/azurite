@@ -49,6 +49,8 @@ pub enum TokenKind {
     GreaterEquals,
     EqualsTo,
     NotEqualsTo,
+    LogicalOr,
+    LogicalAnd,
     
     EndOfFile,
 }
@@ -188,6 +190,14 @@ pub fn lex(
             ')' => TokenKind::RightParenthesis,
             '<' => lexer.next_matches('=', TokenKind::LesserEquals, TokenKind::LeftAngle),
             '>' => lexer.next_matches('=', TokenKind::GreaterEquals, TokenKind::RightAngle),
+            '&' if lexer.peek() == Some('&') => {
+                lexer.advance();
+                TokenKind::LogicalAnd
+            },
+            '|' if lexer.peek() == Some('|') => {
+                lexer.advance();
+                TokenKind::LogicalOr
+            },
             '{' => TokenKind::LeftBracket,
             '}' => TokenKind::RightBracket,
             '[' => TokenKind::LeftSquare,

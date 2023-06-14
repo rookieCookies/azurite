@@ -13,6 +13,22 @@ impl VM {
     #[allow(clippy::too_many_lines)]
     #[inline(never)]
     pub(crate) fn run(&mut self, mut current: Code) -> Status {
+        macro_rules! all_integer_types {
+            ($f: ident) => {
+                (
+                    i8 ::$f,
+                    i16::$f,
+                    i32::$f,
+                    i64::$f,
+                    u8 ::$f,
+                    u16::$f,
+                    u32::$f,
+                    u64::$f
+                )
+            }
+        }
+
+        
         macro_rules! cast_to {
             ($t: ty, $variant: ident) => { {
                 let dst = current.next();
@@ -132,14 +148,7 @@ impl VM {
                 consts::Add => self.binary_operation(
                     &mut current,
                     VM::arithmetic_operation,
-                    i8 ::wrapping_add,
-                    i16::wrapping_add,
-                    i32::wrapping_add,
-                    i64::wrapping_add,
-                    u8 ::wrapping_add,
-                    u16::wrapping_add,
-                    u32::wrapping_add,
-                    u64::wrapping_add,
+                    all_integer_types!(wrapping_add),
                     f64::add,
                 ),
 
@@ -147,14 +156,7 @@ impl VM {
                 consts::Subtract => self.binary_operation(
                     &mut current,
                     VM::arithmetic_operation,
-                    i8 ::wrapping_sub,
-                    i16::wrapping_sub,
-                    i32::wrapping_sub,
-                    i64::wrapping_sub,
-                    u8 ::wrapping_sub,
-                    u16::wrapping_sub,
-                    u32::wrapping_sub,
-                    u64::wrapping_sub,
+                    all_integer_types!(wrapping_sub),
                     f64::sub,
                 ),
 
@@ -162,14 +164,7 @@ impl VM {
                 consts::Multiply => self.binary_operation(
                     &mut current,
                     VM::arithmetic_operation,
-                    i8 ::wrapping_mul,
-                    i16::wrapping_mul,
-                    i32::wrapping_mul,
-                    i64::wrapping_mul,
-                    u8 ::wrapping_mul,
-                    u16::wrapping_mul,
-                    u32::wrapping_mul,
-                    u64::wrapping_mul,
+                    all_integer_types!(wrapping_mul),
                     f64::mul,
                 ),
 
@@ -177,14 +172,7 @@ impl VM {
                 consts::Modulo => self.binary_operation(
                     &mut current,
                     VM::arithmetic_operation,
-                    i8 ::wrapping_rem,
-                    i16::wrapping_rem,
-                    i32::wrapping_rem,
-                    i64::wrapping_rem,
-                    u8 ::wrapping_rem,
-                    u16::wrapping_rem,
-                    u32::wrapping_rem,
-                    u64::wrapping_rem,
+                    all_integer_types!(wrapping_rem),
                     f64::rem_euclid,
                 ),
 
@@ -226,10 +214,10 @@ impl VM {
                 }
 
 
-                consts::GreaterThan   => self.binary_operation(&mut current, VM::comparisson_operation, i8::gt, i16::gt, i32::gt, i64::gt, u8::gt, u16::gt, u32::gt, u64::gt, f64::gt),
-                consts::LesserThan    => self.binary_operation(&mut current, VM::comparisson_operation, i8::lt, i16::lt, i32::lt, i64::lt, u8::lt, u16::lt, u32::lt, u64::lt, f64::lt),
-                consts::GreaterEquals => self.binary_operation(&mut current, VM::comparisson_operation, i8::ge, i16::ge, i32::ge, i64::ge, u8::ge, u16::ge, u32::ge, u64::ge, f64::ge),
-                consts::LesserEquals  => self.binary_operation(&mut current, VM::comparisson_operation, i8::le, i16::le, i32::le, i64::le, u8::le, u16::le, u32::le, u64::le, f64::le),
+                consts::GreaterThan   => self.binary_operation(&mut current, VM::comparisson_operation, all_integer_types!(gt), f64::gt),
+                consts::LesserThan    => self.binary_operation(&mut current, VM::comparisson_operation, all_integer_types!(lt), f64::lt),
+                consts::GreaterEquals => self.binary_operation(&mut current, VM::comparisson_operation, all_integer_types!(ge), f64::ge),
+                consts::LesserEquals  => self.binary_operation(&mut current, VM::comparisson_operation, all_integer_types!(le), f64::le),
 
 
                 consts::Equals => {
@@ -499,6 +487,7 @@ impl VM {
 }
 
 #[allow(clippy::inline_always)]
+#[allow(clippy::type_complexity)]
 impl VM {
     #[inline(always)]
     fn binary_operation<A, B, C, D, E, F, G, H, I>(
@@ -507,14 +496,16 @@ impl VM {
 
         operation_func: fn(&mut VM, (u8, u8, u8), A, B, C, D, E, F, G, H, I),
 
-        i8_func:  A,
-        i16_func: B,
-        i32_func: C,
-        i64_func: D,
-        u8_func:  E,
-        u16_func: F,
-        u32_func: G,
-        u64_func: H,
+        (
+            i8_func ,
+            i16_func,
+            i32_func,
+            i64_func,
+            u8_func ,
+            u16_func,
+            u32_func,
+            u64_func,
+        ): (A, B, C, D, E, F, G, H),
 
         float_func: I,
     ) {
@@ -537,6 +528,7 @@ impl VM {
     }
 
     #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
     fn arithmetic_operation(
         &mut self,
         (dst, v1, v2): (u8, u8, u8),
@@ -571,6 +563,7 @@ impl VM {
     }
 
     #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
     fn comparisson_operation(
         &mut self,
         (dst, v1, v2): (u8, u8, u8),

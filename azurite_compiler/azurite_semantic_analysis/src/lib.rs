@@ -560,7 +560,7 @@ impl AnalysisState {
                     let associated_type_index = associated_type.data_type.symbol_index(global.symbol_table);
 
                     {
-                        let mut pieces = &mut self.cache_pieces_vec;
+                        let pieces = &mut self.cache_pieces_vec;
                         let mut temp = associated_type_index;
                         while let (root, Some(v)) = global.symbol_table.find_root(temp) {
                             temp = v;
