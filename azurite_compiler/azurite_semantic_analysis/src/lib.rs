@@ -243,14 +243,17 @@ impl AnalysisState {
                 self.structures = std::mem::take(&mut analysis_state.structures);
                 self.available_files = std::mem::take(&mut analysis_state.available_files);
 
-                if body.last().is_none() || !self.is_of_type(global, (*return_type, body.last_mut().unwrap()), body_return_type)? {
+                if (body.last().is_none() && return_type.data_type != DataType::Empty) ||
+                    (body.last().is_some() && !self.is_of_type(global, (body_return_type, body.last_mut().unwrap()), *return_type)?) {
+                    
+                    dbg!(&return_type, &body_return_type);
                     return Err(CompilerError::new(self.file, 211, "function body returns a different type")
                         .highlight(*source_range_declaration)
                             .note(format!("function returns {}", global.to_string(return_type.data_type)))
 
                         .empty_line()
                         
-                        .highlight(body.last().map_or(SourceRange::new(source_range.start + source_range_declaration.end, source_range.end - source_range_declaration.end), |x| x.source_range))
+                        .highlight(body.last().map_or(SourceRange::new(source_range_declaration.end, source_range.end), |x| x.source_range))
                             .note(format!("but the body returns {}", global.to_string(body_return_type.data_type)))
                         
                         .build())
@@ -915,10 +918,17 @@ impl AnalysisState {
     
     fn declaration_early_process(&mut self, global: &mut GlobalState, source_range: &SourceRange, declaration: &mut Declaration) -> Result<(), Error> {
         match declaration {
-            Declaration::FunctionDeclaration { name, arguments, return_type, .. } => {
+            Declaration::FunctionDeclaration { name, arguments, return_type, source_range_declaration, .. } => {
                 let new_name = global.symbol_table.add_combo(self.custom_path, *name);
                 self.functions.insert(*name, (new_name, self.depth));
                 *name = new_name;
+                
+                if global.functions.contains_key(&name) {
+                    return Err(CompilerError::new(self.file, 227, "duplicate function definition")
+                        .highlight(*source_range_declaration)
+                            .note("this function is already defined".to_string())
+                        .build())
+                }
 
                 if self.update_type(return_type, global).is_err() {
                     return_type.data_type = DataType::Any;
@@ -932,7 +942,7 @@ impl AnalysisState {
                     
                 }
                 let function = Function { return_type: *return_type, arguments: arguments.iter().map(|x| x.1).collect() };
-                assert!(global.functions.insert(*name, function).is_none());
+                global.functions.insert(*name, function);
             },
 
             

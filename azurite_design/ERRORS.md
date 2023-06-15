@@ -127,3 +127,6 @@
 
 226) Can only cast between primitives
 - This error occurs when you try to cast a value by using `as` that is not a primitive
+
+227) Duplicate function definition
+- This error occurs when you have functions of the same name inside the same scope
