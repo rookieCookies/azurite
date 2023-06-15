@@ -13,26 +13,29 @@ let's look at the most basic example! the good ol' hello world
 ```
 println("hello world!")
 ```
-oh. that's i?  
+oh. that's it?  
 <br>
 okay maybe let's look at a more complicated example, how about.. a guessing game?
 ```
 using rand
 
-var secret_number = randi_range(0, 10)
+// generate & store a random number
+var generated_number = rand_range_int(0, 100)
 
-loop {
-	var input = read_line()
-	var number = parse_str_as_int(input)
-	
-	if (number > secret_number) {
-		println("Too big :/")
-	} else if (number < secret_number) {
-		println("Too small :/")
-	} else {
-		println("Perfect!")
-		break
-	}	
+// get the users input for the guess
+println("please enter a number")
+var input = read_line()
+var input_as_integer = parse_str_as_int(input)
+
+// validate and print out feedback based
+//        on the users input
+
+if (input_as_integer == generated_number) {
+    println("congratz! you were right!")
+} else if input_as_integer < generated_number {
+    println("sorry! you were too low!")
+} else if input_as_integer > generated_number {
+    println("sorry! you were too high!")
 }
 ```
 maybe a bit too much? don't worry [i gotchu](./pages/MAKING_A_GUESSING_GAME.md)
