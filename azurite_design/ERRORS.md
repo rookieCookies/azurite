@@ -130,3 +130,6 @@
 
 227) Duplicate function definition
 - This error occurs when you have functions of the same name inside the same scope
+
+228) Duplicate structure definition
+- This error occurs when you have structures of the same name inside the same scope

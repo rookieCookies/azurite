@@ -63,10 +63,12 @@ impl VM {
 }
 
 
+const STACK_SIZE : usize = 1024 * 1024 / size_of::<VMData>();
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct Stack {
-    values: [VMData; 50],
+    values: [VMData; STACK_SIZE],
     stack_offset: usize,
     top: usize,
 }
@@ -76,7 +78,7 @@ pub struct Stack {
 impl Stack {
     fn new() -> Self {
         Self {
-            values: [VMData::Empty; 50],
+            values: [VMData::Empty; STACK_SIZE],
             stack_offset: 0,
             top: 1,
         }

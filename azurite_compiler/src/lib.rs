@@ -1,4 +1,4 @@
-use std::collections::{HashMap, BTreeSet, BTreeMap};
+use std::collections::HashMap;
 use std::env;
 
 use azurite_common::{environment, CompilationMetadata};
@@ -68,7 +68,7 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
     ir.sort();
 
     #[cfg(not(features = "afl"))]
-    if env::var(environment::RELEASE_MODE).unwrap_or("0".to_string()) == *"1" {
+    if env::var(environment::RAW_MODE).unwrap_or("0".to_string()) != *"1" {
         ir.optimize();
     }
 

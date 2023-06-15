@@ -90,7 +90,7 @@ fn main() -> Result<(), ExitCode> {
 fn parse_environments(mut arguments: Args) {
     while let Some(i) = arguments.next() {
         match i.as_str() {
-            "--release"    => env::set_var(environment::RELEASE_MODE, "1"),
+            "--raw"        => env::set_var(environment::RAW_MODE, "1"),
             "--dump-ir"    => env::set_var(environment::DUMP_IR, "1"),
             "--dump-ir-to" => env::set_var(environment::DUMP_IR_FILE, match arguments.next() {
                 Some(v) => v.to_string(),
@@ -158,7 +158,7 @@ fn disassemble(v: Vec<u8>) {
 
     while d.code.len() > d.top {
         let bytecode = d.bytecode();
-        let mut is_start = bytecode != Bytecode::Push;
+        let is_start = bytecode != Bytecode::Push;
         let _ = write!(lock, "{:>w$} | {}", d.top, if is_start { " - " } else { "" }, w = d.code.len().to_string().len());
         let _ = match bytecode {
             Bytecode::Return => {

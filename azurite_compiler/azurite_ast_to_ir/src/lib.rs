@@ -1,6 +1,6 @@
 pub mod optimizations;
 
-use std::{mem::replace, fmt::{Display, Write}, collections::{BTreeMap, BTreeSet, HashMap, HashSet}, process::id};
+use std::{mem::replace, fmt::{Display, Write}, collections::{BTreeMap, BTreeSet, HashMap}};
 
 use azurite_parser::ast::{Instruction, Expression, BinaryOperator, Statement, InstructionKind, Declaration, UnaryOperator};
 use common::{Data, SymbolIndex, SymbolTable};
@@ -237,8 +237,10 @@ impl ConversionState {
                             continue
                         }
 
+                        used_externs.insert(*id, FunctionIndex(extern_counter));
+                        *id = FunctionIndex(extern_counter);
+
                         extern_counter += 1;
-                        used_externs.insert(*id, FunctionIndex(extern_counter-1));
                     }
                 }
             }

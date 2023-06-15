@@ -1,4 +1,4 @@
-use std::{process::ExitCode, io::Write, path::PathBuf};
+use std::{process::{ExitCode, Command}, io::Write, path::PathBuf};
 
 use directories::ProjectDirs;
 use include_dir::{include_dir, Dir};
@@ -26,7 +26,7 @@ fn main() -> ExitCode {
 
     let mut input_string = String::new();
 
-    print!("installation directory (continue for default): ");
+    print!("installation directory: ");
     std::io::stdout().flush().unwrap();
     if std::io::stdin().read_line(&mut input_string).is_err() {
         eprintln!("failed to read stdin");
@@ -34,6 +34,7 @@ fn main() -> ExitCode {
     }
 
     input_string = input_string.trim().to_string();
+    println!("installing to {input_string}");
 
     
     let dir = if input_string.is_empty() {
@@ -58,12 +59,20 @@ fn main() -> ExitCode {
     {
         println!("- unwrapping the command line tool");
 
+        #[cfg(target_os = "windows")]
         let cli_path = dir.join("azurite.exe");
-        if std::fs::write(cli_path, AZURITE_CLI_BINARY).is_err() {
+        #[cfg(not(target_os = "windows"))]
+        let cli_path = dir.join("azurite");
+        if std::fs::write(&cli_path, AZURITE_CLI_BINARY).is_err() {
             eprintln!("failed to unwrap the command line tool");
             return ExitCode::FAILURE;
         }
 
+        #[cfg(not(target_os = "windows"))]
+        if !Command::new("chmod").arg("+x").arg(cli_path).status().unwrap().success() {
+            eprintln!("failed to convert the command line tool to a unix executable");
+            return ExitCode::FAILURE
+        }
 
         println!("successfully unwrapped the command line tool");
     }
@@ -122,33 +131,33 @@ fn main() -> ExitCode {
     }
 
 
-    print!("should the command line tool be appended to the PATH variable (y/n): ");
-    let add_to_path;
+    // print!("should the command line tool be appended to the PATH variable (y/n): ");
+    // let add_to_path;
 
-    loop {
-        input_string.clear();
-        std::io::stdout().flush().unwrap();
-        if std::io::stdin().read_line(&mut input_string).is_err() {
-            eprintln!("failed to read stdin");
-            return ExitCode::FAILURE;
-        }
+    // loop {
+    //     input_string.clear();
+    //     std::io::stdout().flush().unwrap();
+    //     if std::io::stdin().read_line(&mut input_string).is_err() {
+    //         eprintln!("failed to read stdin");
+    //         return ExitCode::FAILURE;
+    //     }
 
-        if input_string.as_str().trim() == "y" {
-            add_to_path = true;
-            break
-        } else if input_string.as_str().trim() == "n" {
-            add_to_path = false;
-            break
-        } else {
-            println!("{input_string} is not a valid input");
-        }
-    }
+    //     if input_string.as_str().trim() == "y" {
+    //         add_to_path = true;
+    //         break
+    //     } else if input_string.as_str().trim() == "n" {
+    //         add_to_path = false;
+    //         break
+    //     } else {
+    //         println!("{input_string} is not a valid input");
+    //     }
+    // }
 
 
-    if add_to_path && set_env::append("PATH", dir.to_str().unwrap()).is_err() {
-        eprintln!("unable to append to the PATH variable");
-        return ExitCode::FAILURE;
-    }
+    // if add_to_path && set_env::append("PATH", dir.to_str().unwrap()).is_err() {
+    //     eprintln!("unable to append to the PATH variable");
+    //     return ExitCode::FAILURE;
+    // }
 
     println!("thanks for installing azurite!");
     

@@ -150,10 +150,30 @@ impl AnalysisState {
         }
         // Declarations
         if pre_declaration {
+            let mut errors = vec![];
             for x in instructions.iter_mut() {
                 if let InstructionKind::Declaration(d) = &mut x.instruction_kind {
-                    self.declaration_early_process(global, &x.source_range, d)?
+                    if let Err(e) = self.declaration_early_process(global, &x.source_range, d) {
+                        errors.push(e);
+                    }
                 }
+            }
+
+
+            for x in instructions.iter_mut() {
+                if let InstructionKind::Declaration(Declaration::StructDeclaration { name, fields }) = &mut x.instruction_kind {
+                    for field in fields.iter_mut() {
+                        if self.update_type(&mut field.1, global).is_err() {
+                            field.1.data_type = DataType::Any;
+                        }
+                    }
+
+                    global.structures.get_mut(name).unwrap().fields = fields.clone();
+                }
+            }
+
+            if !errors.is_empty() {
+                return Err(errors.combine_into_error())
             }
         }
         
@@ -285,17 +305,7 @@ impl AnalysisState {
             },
 
             
-            Declaration::Extern { functions, .. } => {
-                for f in functions.iter_mut() {
-                    self.update_type(&mut f.return_type, global)?;
-
-                    for argument in f.arguments.iter_mut() {
-                        self.update_type(argument, global)?;
-                    }
-                }
-
-                Ok(())
-            },
+            Declaration::Extern { .. } => Ok(()),
 
 
             Declaration::ImplBlock { body, datatype } => {
@@ -923,7 +933,7 @@ impl AnalysisState {
                 self.functions.insert(*name, (new_name, self.depth));
                 *name = new_name;
                 
-                if global.functions.contains_key(&name) {
+                if global.functions.contains_key(name) {
                     return Err(CompilerError::new(self.file, 227, "duplicate function definition")
                         .highlight(*source_range_declaration)
                             .note("this function is already defined".to_string())
@@ -946,13 +956,20 @@ impl AnalysisState {
             },
 
             
-            Declaration::StructDeclaration { name, fields } => {
+            Declaration::StructDeclaration { name, .. } => {
                 let new_name = global.symbol_table.add_combo(self.custom_path, *name);
                 self.structures.insert(*name, (new_name, self.depth));
                 *name = new_name;
+                
+                if global.functions.contains_key(name) {
+                    return Err(CompilerError::new(self.file, 228, "duplicate struct definition")
+                        .highlight(*source_range)
+                            .note("this structure is already defined".to_string())
+                        .build())
+                }
 
                 let mut structure = Structure {
-                    fields: fields.clone(),
+                    fields: vec![],
                 };
 
                 structure.fields.sort_by_key(|x| x.0);
@@ -980,6 +997,13 @@ impl AnalysisState {
                         f.return_type.data_type = DataType::Any;
                     }
                     
+
+                    for argument in f.arguments.iter_mut() {
+                        if self.update_type(argument, global).is_err() {
+                            argument.data_type = DataType::Any;
+                        }
+                    }
+
 
                     global.functions.insert(f.identifier, Function {
                         return_type: f.return_type,

@@ -4,7 +4,7 @@ use colored::Colorize;
 
 
 pub mod environment {
-    pub const RELEASE_MODE : &str = "AZURITE_COMPILER_RELEASE_MODE";
+    pub const RAW_MODE : &str = "AZURITE_COMPILER_RAW_MODE";
     
     pub const DUMP_IR      : &str = "AZURITE_COMPILER_DUMP_IR";
     pub const DUMP_IR_FILE : &str = "AZURITE_COMPILER_DUMP_IR_FILE";
