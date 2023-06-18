@@ -3,12 +3,11 @@
 use std::env::Args;
 use std::fs;
 use std::io::Write;
-use std::mem::{size_of, transmute};
 use std::time::Instant;
 use std::{env, path::Path, process::ExitCode};
 
 use azurite_archiver::Packed;
-use azurite_common::{environment, prepare, Bytecode, CompilationMetadata};
+use azurite_common::{environment, prepare, Bytecode};
 use colored::Colorize;
 
 #[allow(clippy::too_many_lines)]
@@ -140,7 +139,7 @@ fn compile(file: &str) -> Result<Packed, ExitCode> {
     );
 
     Ok(Packed::new()
-        .with(azurite_archiver::Data(Vec::from(unsafe { transmute::<_, [u8; size_of::<CompilationMetadata>()]>(metadata) } )))
+        .with(azurite_archiver::Data(Vec::from(metadata.to_bytes())))
         .with(azurite_archiver::Data(bytecode))
         .with(azurite_archiver::Data(constants_bytes))
     )

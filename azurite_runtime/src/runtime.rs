@@ -1,18 +1,14 @@
 use azurite_common::consts;
 use colored::Colorize;
-use libloading::{Library, Symbol};
+use libloading::Library;
 
-use crate::{object_map::{Object, Structure}, Code, FatalError, Status, VMData, VM};
+use crate::{object_map::{Object, Structure}, Code, FatalError, Status, VMData, VM, ExternFunction};
 use std::ops::{Add, Mul, Sub};
 
-type ExternFunction<'a> = Symbol<'a, ExternFunctionRaw>;
-type ExternFunctionRaw = unsafe extern "C" fn(&mut VM) -> Status;
-
-
-impl VM {
+impl VM<'_> {
     #[allow(clippy::too_many_lines)]
     #[inline(never)]
-    pub(crate) fn run(&mut self, mut current: Code) -> Status {
+    pub(crate) fn run(&mut self) -> Status {
         macro_rules! all_integer_types {
             ($f: ident) => {
                 (
@@ -31,8 +27,8 @@ impl VM {
         
         macro_rules! cast_to {
             ($t: ty, $variant: ident) => { {
-                let dst = current.next();
-                let val = current.next();
+                let dst = self.current.next();
+                let val = self.current.next();
 
                 let v = match self.stack.reg(val) {
                     VMData::I8 (v)   => v as $t,
@@ -54,19 +50,12 @@ impl VM {
 
 
 
-        let mut callstack = Vec::with_capacity(64);
-
-        // SAFETY: `external_funcs` must be dropped before `libraries`
-        let mut libraries = vec![];
-        let mut external_funcs : Vec<ExternFunctionRaw> = Vec::with_capacity(self.metadata.extern_count as usize);
-
         let result: Status = 'global: loop {
-            let value = current.next();
+            let value = self.current.next();
 
-            // println!("{} {:?}\n\t{:?}", current.pointer, azurite_common::Bytecode::from_u8(value).unwrap(), self.stack.values.iter().take(self.stack.top).collect::<Vec<_>>());
             match value {
                 consts::ExternFile => {
-                    let path = current.string();
+                    let path = self.current.string();
 
                     #[cfg(target_os = "windows")]
                     let path = format!("{path}.dll");
@@ -84,39 +73,38 @@ impl VM {
                     )))]
                     compile_error!("this platform is not supported");
 
-                    let func_amount = current.next();
+                    let func_amount = self.current.next();
 
                     unsafe {
                         // let Ok(lib) = Library::new(&path) else { break Err(format!("can't find a runtime library file named {path}")); };
                         let lib = match Library::new(&path) {
                             Ok(v) => v,
                             Err(_) => {
-                                let new_path = std::env::current_exe()
-                                    .unwrap()
-                                    .parent()
-                                    .unwrap()
-                                    .join("runtime")
-                                    .join(&path);
+                                let new_path = {
+                                    let Ok(p) = std::env::current_exe() else { break Status::err("can't get the path for the runtime executable") };
+                                    let Some(p) = p.parent() else { break Status::err("can't get the parent of the path of the current executable") };
+
+                                    p
+                                        .join("runtime")
+                                        .join(&path)
+                                };
+                                
                                 match Library::new(&new_path) {
                                     Ok(v) => v,
-                                    Err(_) => {
-                                        break Status::Err(FatalError::new(format!(
-                                            "can't find a runtime library file named {path}"
-                                        )))
-                                    }
+                                    Err(_) => break Status::Err(FatalError::new(format!("can't find a runtime library file named {path}")))
                                 }
                             }
                         };
 
                         for _ in 0..func_amount {
-                            let index = current.u32();
-                            let name = current.string();
-                            let Ok(func) = lib.get::<ExternFunction<'_>>(name.as_bytes()) else { break 'global Status::Err(FatalError::new(format!("can't find a function named {name:?} in {path}"))); };
+                            let index = self.current.u32();
+                            let name = self.current.string();
+                            let Ok(func) = lib.get::<ExternFunction<'_>>(name.as_bytes()) else { break 'global Status::err(format!("can't find a function named {name:?} in {path}")); };
 
-                            if index as usize > external_funcs.len() {
-                                external_funcs.push(**func.into_raw());
+                            if index as usize > self.externs.len() {
+                                self.externs.push(**func.into_raw());
                             } else {
-                                external_funcs.insert(index as usize, **func.into_raw());
+                                self.externs.insert(index as usize, **func.into_raw());
                             }
                         }
 
@@ -124,14 +112,14 @@ impl VM {
                             x(self);
                         }
 
-                        libraries.push(lib);
+                        self.libraries.push(lib);
                     }
                 }
 
 
                 consts::Copy => {
-                    let dst = current.next();
-                    let src = current.next();
+                    let dst = self.current.next();
+                    let src = self.current.next();
 
                     let data = self.stack.reg(src);
                     self.stack.set_reg(dst, data);
@@ -139,15 +127,14 @@ impl VM {
 
                 
                 consts::Swap => {
-                    let v1 = current.next();
-                    let v2 = current.next();
+                    let v1 = self.current.next();
+                    let v2 = self.current.next();
 
                     self.stack.values.swap(v1 as usize, v2 as usize);
                 }
 
 
                 consts::Add => self.binary_operation(
-                    &mut current,
                     VM::arithmetic_operation,
                     all_integer_types!(wrapping_add),
                     f64::add,
@@ -155,7 +142,6 @@ impl VM {
 
                 
                 consts::Subtract => self.binary_operation(
-                    &mut current,
                     VM::arithmetic_operation,
                     all_integer_types!(wrapping_sub),
                     f64::sub,
@@ -163,7 +149,6 @@ impl VM {
 
                 
                 consts::Multiply => self.binary_operation(
-                    &mut current,
                     VM::arithmetic_operation,
                     all_integer_types!(wrapping_mul),
                     f64::mul,
@@ -171,7 +156,6 @@ impl VM {
 
                 
                 consts::Modulo => self.binary_operation(
-                    &mut current,
                     VM::arithmetic_operation,
                     all_integer_types!(wrapping_rem),
                     f64::rem_euclid,
@@ -191,9 +175,9 @@ impl VM {
                         } 
                     }
                     
-                    let dst = current.next();
-                    let v1 = current.next();
-                    let v2 = current.next();
+                    let dst = self.current.next();
+                    let v1 = self.current.next();
+                    let v2 = self.current.next();
 
                     let val = match (self.stack.reg(v1), self.stack.reg(v2)) {
                         (VMData::I8(v1),  VMData::I8(v2))  => integer_division!(I8,  v1, v2),
@@ -215,16 +199,16 @@ impl VM {
                 }
 
 
-                consts::GreaterThan   => self.binary_operation(&mut current, VM::comparisson_operation, all_integer_types!(gt), f64::gt),
-                consts::LesserThan    => self.binary_operation(&mut current, VM::comparisson_operation, all_integer_types!(lt), f64::lt),
-                consts::GreaterEquals => self.binary_operation(&mut current, VM::comparisson_operation, all_integer_types!(ge), f64::ge),
-                consts::LesserEquals  => self.binary_operation(&mut current, VM::comparisson_operation, all_integer_types!(le), f64::le),
+                consts::GreaterThan   => self.binary_operation(VM::comparisson_operation, all_integer_types!(gt), f64::gt),
+                consts::LesserThan    => self.binary_operation(VM::comparisson_operation, all_integer_types!(lt), f64::lt),
+                consts::GreaterEquals => self.binary_operation(VM::comparisson_operation, all_integer_types!(ge), f64::ge),
+                consts::LesserEquals  => self.binary_operation(VM::comparisson_operation, all_integer_types!(le), f64::le),
 
 
                 consts::Equals => {
-                    let dst = current.next();
-                    let v1 = current.next();
-                    let v2 = current.next();
+                    let dst = self.current.next();
+                    let v1 = self.current.next();
+                    let v2 = self.current.next();
 
                     let value = self.stack.reg(v1) == self.stack.reg(v2);
                     self.stack.set_reg(dst, VMData::Bool(value));
@@ -232,9 +216,9 @@ impl VM {
 
 
                 consts::NotEquals => {
-                    let dst = current.next();
-                    let v1 = current.next();
-                    let v2 = current.next();
+                    let dst = self.current.next();
+                    let v1 = self.current.next();
+                    let v2 = self.current.next();
 
                     let value = self.stack.reg(v1) != self.stack.reg(v2);
                     self.stack.set_reg(dst, VMData::Bool(value));
@@ -242,8 +226,8 @@ impl VM {
 
 
                 consts::LoadConst => {
-                    let dst = current.next();
-                    let data_index = current.next();
+                    let dst = self.current.next();
+                    let data_index = self.current.next();
 
                     let data = self.constants[data_index as usize];
                     self.stack.set_reg(dst, data);
@@ -251,37 +235,35 @@ impl VM {
 
 
                 consts::Jump => {
-                    let jump_at = current.u32();
+                    let jump_at = self.current.u32();
 
-                    current.goto(jump_at as usize);
+                    self.current.goto(jump_at as usize);
                 }
 
 
                 consts::JumpCond => {
-                    let condition = current.next();
-                    let if_true = current.u32();
-                    let if_false = current.u32();
+                    let condition = self.current.next();
+                    let if_true = self.current.u32();
+                    let if_false = self.current.u32();
 
                     let val = self.stack.reg(condition).as_bool();
 
                     if val {
-                        current.goto(if_true as usize);
+                        self.current.goto(if_true as usize);
                     } else {
-                        current.goto(if_false as usize);
+                        self.current.goto(if_false as usize);
                     }
                 }
 
 
                 consts::Return => {
-                    if callstack.is_empty() {
-                        return Status::Ok;
-                    }
+                    let Some(current) = self.callstack.pop() else { break Status::Ok };
 
                     let ret_val = self.stack.reg(0);
-                    let ret_reg = current.return_to;
+                    let ret_reg = self.current.return_to;
 
-                    current = callstack.pop().unwrap();
-                    self.stack.set_stack_offset(current.offset);
+                    self.current = current;
+                    self.stack.set_stack_offset(self.current.offset);
 
                     self.stack.set_reg(ret_reg, ret_val);
                     self.stack.pop(1);
@@ -289,9 +271,9 @@ impl VM {
 
 
                 consts::Call => {
-                    let goto = current.u32();
-                    let dst = current.next();
-                    let arg_count = current.next() as usize;
+                    let goto = self.current.u32();
+                    let dst = self.current.next();
+                    let arg_count = self.current.next() as usize;
 
                     if let Status::Err(e) = self.stack.push(arg_count + 1) {
                         break Status::Err(e);
@@ -299,24 +281,23 @@ impl VM {
 
                     let temp = self.stack.top - arg_count - self.stack.stack_offset;
                     for v in 0..arg_count {
-                        let reg = self.stack.reg(current.next());
-                        self.stack.set_reg((temp + v).try_into().unwrap(), reg);
+                        let reg = self.stack.reg(self.current.next());
+                        self.stack.set_reg(convert_usize_to_u8(temp + v), reg);
                     }
 
-                    let mut code = Code::new(current.code, self.stack.top - arg_count - 1, dst);
+                    let mut code = Code::new(self.current.code, self.stack.top - arg_count - 1, dst);
                     code.goto(goto as usize);
 
-                    callstack.push(current);
-                    current = code;
+                    self.callstack.push(std::mem::replace(&mut self.current, code));
 
-                    self.stack.set_stack_offset(current.offset);
+                    self.stack.set_stack_offset(self.current.offset);
                 }
 
 
                 consts::ExtCall => {
-                    let index = current.u32();
-                    let dst = current.next();
-                    let arg_count = current.next() as usize;
+                    let index = self.current.u32();
+                    let dst = self.current.next();
+                    let arg_count = self.current.next() as usize;
 
                     if let Status::Err(e) = self.stack.push(arg_count + 1) {
                         break Status::Err(e);
@@ -324,13 +305,13 @@ impl VM {
 
                     let temp = self.stack.top - arg_count - self.stack.stack_offset;
                     for v in 0..arg_count {
-                        let reg = self.stack.reg(current.next());
-                        self.stack.set_reg((temp + v).try_into().unwrap(), reg);
+                        let reg = self.stack.reg(self.current.next());
+                        self.stack.set_reg(convert_usize_to_u8(temp + v), reg);
                     }
 
                     self.stack.set_stack_offset(self.stack.top - arg_count - 1);
 
-                    let function = external_funcs[index as usize];
+                    let function = self.externs[index as usize];
                     let result = unsafe { function(self) };
 
                     
@@ -339,7 +320,7 @@ impl VM {
                     }
 
                     let ret_val = self.stack.reg(0);
-                    self.stack.set_stack_offset(current.offset);
+                    self.stack.set_stack_offset(self.current.offset);
 
                     self.stack.set_reg(dst, ret_val);
                     self.stack.pop(arg_count + 1);
@@ -347,7 +328,7 @@ impl VM {
 
 
                 consts::Push => {
-                    let amount = current.next();
+                    let amount = self.current.next();
                     if let Status::Err(e) = self.stack.push(amount as usize) {
                         break Status::Err(e);
                     }
@@ -355,7 +336,7 @@ impl VM {
 
 
                 consts::Pop => {
-                    let amount = current.next();
+                    let amount = self.current.next();
                     self.stack.pop(amount as usize);
                 }
 
@@ -363,18 +344,18 @@ impl VM {
                 consts::Unit => {
                     #[cfg(debug_assertions)]
                     {
-                        let reg = current.next();
+                        let reg = self.current.next();
                         self.stack.set_reg(reg, VMData::Empty);
                     }
                 }
 
 
                 consts::Struct => {
-                    let dst = current.next();
-                    let amount = current.next();
+                    let dst = self.current.next();
+                    let amount = self.current.next();
 
                     let vec = (0..amount)
-                        .map(|_| self.stack.reg(current.next()))
+                        .map(|_| self.stack.reg(self.current.next()))
                         .collect();
 
                     let index = match self.create_object(Object::new(Structure::new(vec))) {
@@ -387,9 +368,9 @@ impl VM {
 
 
                 consts::AccStruct => {
-                    let dst = current.next();
-                    let struct_at = current.next();
-                    let index = current.next();
+                    let dst = self.current.next();
+                    let struct_at = self.current.next();
+                    let index = self.current.next();
 
                     let val = self.stack.reg(struct_at);
                     let obj = match val {
@@ -406,9 +387,9 @@ impl VM {
 
 
                 consts::SetField => {
-                    let struct_at = current.next();
-                    let data = current.next();
-                    let index = current.next();
+                    let struct_at = self.current.next();
+                    let data = self.current.next();
+                    let index = self.current.next();
 
                     let data = self.stack.reg(data);
 
@@ -424,8 +405,8 @@ impl VM {
 
 
                 consts::UnaryNeg => {
-                    let dst = current.next();
-                    let val = current.next();
+                    let dst = self.current.next();
+                    let val = self.current.next();
 
                     match self.stack.reg(val) {
                         VMData::I8 (v)  => self.stack.set_reg(dst, VMData::I8(-v)),
@@ -440,8 +421,8 @@ impl VM {
 
 
                 consts::UnaryNot => {
-                    let dst = current.next();
-                    let val = current.next();
+                    let dst = self.current.next();
+                    let val = self.current.next();
 
                     let data = self.stack.reg(val).as_bool();
                     self.stack.set_reg(dst, VMData::Bool(!data))
@@ -463,6 +444,8 @@ impl VM {
         };
 
 
+        self.externs.clear();
+        let libraries = std::mem::take(&mut self.libraries);
         for library in libraries {
             unsafe {
                 let shutdown: ExternFunction = match library.get(b"_shutdown") {
@@ -489,13 +472,11 @@ impl VM {
 
 #[allow(clippy::inline_always)]
 #[allow(clippy::type_complexity)]
-impl VM {
+impl<'a> VM<'a> {
     #[inline(always)]
     fn binary_operation<A, B, C, D, E, F, G, H, I>(
         &mut self,
-        code: &mut Code,
-
-        operation_func: fn(&mut VM, (u8, u8, u8), A, B, C, D, E, F, G, H, I),
+        operation_func: fn(&mut VM<'a>, (u8, u8, u8), A, B, C, D, E, F, G, H, I),
 
         (
             i8_func ,
@@ -510,9 +491,9 @@ impl VM {
 
         float_func: I,
     ) {
-        let dst = code.next();
-        let v1 = code.next();
-        let v2 = code.next();
+        let dst = self.current.next();
+        let v1  = self.current.next();
+        let v2  = self.current.next();
 
         operation_func(self, (dst, v1, v2),
             i8_func,
@@ -597,4 +578,10 @@ impl VM {
 
         self.stack.set_reg(dst, val);
     }
+}
+
+
+#[inline(always)]
+fn convert_usize_to_u8(v: usize) -> u8 {
+    v.try_into().expect("usize overflows a u8")
 }

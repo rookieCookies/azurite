@@ -1,13 +1,21 @@
-use std::sync::atomic::AtomicU64;
+use std::{sync::atomic::AtomicU64, time::Instant};
 
 use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
 use crate::{VM, Object, object_map::{ObjectMap, ObjectData, ObjectIndex}, VMData};
 
-impl VM {
+impl VM<'_> {
     pub fn run_garbage_collection(&mut self) {
+        self.debug.last_gc_time = std::time::SystemTime::now();
+        self.debug.total_gc_count += 1;
+        let instant = Instant::now();
+        
         self.mark();
         self.sweep();
+
+        let elapsed = instant.elapsed();
+        self.debug.last_gc_duration = elapsed;
+        
     }
 
 
@@ -41,7 +49,7 @@ impl VM {
     }
 
 
-    pub fn memory_usage(&mut self) -> usize {
+    pub fn memory_usage(&self) -> usize {
        self.objects.raw()
             .iter()
             .map(|obj| {

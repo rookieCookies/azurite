@@ -48,6 +48,33 @@ impl ConversionState {
                 break
             }
         }
+
+        
+        let mut used_consts = HashMap::new();
+        let mut constant_counter = 0;
+        for f in self.functions.iter_mut() {
+            for b in f.1.blocks.iter_mut() {
+                for i in b.instructions.iter_mut() {
+                    if let IR::Load { data, .. } = i {
+                        if let Some(v) = used_consts.get(data) {
+                            *data = *v;
+                        }
+
+                        used_consts.insert(*data, constant_counter);
+                        *data = constant_counter;
+                        
+                        constant_counter += 1;
+                    }
+                }
+            }
+        }
+
+
+        for d in (0..self.constants.len()).rev() {
+            if !used_consts.contains_key(&(d as u32)) {
+                self.constants.remove(d);
+            }
+        }
     }
 }
 

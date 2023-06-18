@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, convert::TryInto};
 use std::env;
 
 use azurite_common::{environment, CompilationMetadata};
@@ -98,12 +98,14 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
     
     let constants = ir.constants;
     let mut codegen = CodeGen::new();
+    let library_count = externs.len().try_into().unwrap();
 
     
     codegen.codegen(&ir.symbol_table, externs, functions);
 
     let metadata = CompilationMetadata {
         extern_count: extern_counter,
+        library_count,
     };
 
     (Ok((metadata, codegen.bytecode, constants, ir.symbol_table)), files_data)

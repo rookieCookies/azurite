@@ -239,7 +239,7 @@ impl Parser<'_> {
                     let start = current_token.source_range.start;
                     self.advance();
 
-                    let expression = self.expression()?;
+                    let expression = self.expression(default())?;
                     
                     Ok(Instruction {
                         source_range: SourceRange::new(start, expression.source_range.end),
@@ -259,7 +259,7 @@ impl Parser<'_> {
 
 
                 
-                _ => self.expression(),
+                _ => self.expression(default()),
             },
 
             _ => self.var_update(),
@@ -434,7 +434,7 @@ impl Parser<'_> {
         self.expect(&TokenKind::Equals)?;
 
         self.advance();
-        let expression = self.expression()?;
+        let expression = self.expression(default())?;
         
         Ok(Instruction {
             source_range: SourceRange::new(start, expression.source_range.end),
@@ -518,7 +518,7 @@ impl Parser<'_> {
     
 
     fn var_update(&mut self) -> ParseResult {
-        let left = self.expression()?;
+        let left = self.expression(default())?;
 
         if self.peek().is_none() || self.peek().unwrap().token_kind != TokenKind::Equals {
             return Ok(left)
@@ -527,7 +527,7 @@ impl Parser<'_> {
         self.advance(); // =
         self.advance();
 
-        let right = self.expression()?;
+        let right = self.expression(default())?;
 
         match left.instruction_kind {
             InstructionKind::Expression(Expression::Identifier(_)) => {
@@ -849,9 +849,62 @@ impl Parser<'_> {
 }
 
 impl Parser<'_> {
-    fn expression(&mut self) -> ParseResult {
-        self.comparison_expression(default())
+    fn expression(&mut self, settings: ParserSettings) -> ParseResult {
+        self.logical_and_expression(settings)
     }
+
+
+    fn logical_and_expression(&mut self, settings: ParserSettings) -> ParseResult {
+        let expr = self.logical_or_expression(settings)?;
+        if self.peek().map(|x| x.token_kind) != Some(TokenKind::LogicalAnd) {
+            return Ok(expr)
+        }
+
+        self.advance();
+        self.advance();
+
+        let oth_expr = self.logical_and_expression(settings)?;
+        let source_range = SourceRange::combine(expr.source_range, oth_expr.source_range);
+
+        Ok(Instruction { 
+            source_range,
+            instruction_kind: InstructionKind::Expression(Expression::IfExpression {
+                body: vec![oth_expr],
+                condition: Box::new(expr),
+                else_part: Some(Box::new(Instruction {
+                    instruction_kind: InstructionKind::Expression(Expression::Data(SourcedData::new(source_range, Data::Bool(false)))),
+                    source_range,
+                }))
+            }),
+        })
+    }
+
+    
+    fn logical_or_expression(&mut self, settings: ParserSettings) -> ParseResult {
+        let expr = self.comparison_expression(settings)?;
+        if self.peek().map(|x| x.token_kind) != Some(TokenKind::LogicalOr) {
+            return Ok(expr)
+        }
+
+        self.advance();
+        self.advance();
+
+        let oth_expr = self.logical_or_expression(settings)?;
+        let source_range = SourceRange::combine(expr.source_range, oth_expr.source_range);
+
+        Ok(Instruction { 
+            source_range,
+            instruction_kind: InstructionKind::Expression(Expression::IfExpression {
+                body: vec![Instruction {
+                    instruction_kind: InstructionKind::Expression(Expression::Data(SourcedData::new(source_range, Data::Bool(true)))),
+                    source_range,
+                }],
+                condition: Box::new(expr),
+                else_part: Some(Box::new(oth_expr))
+            }),
+        })
+    }
+    
 
     fn comparison_expression(&mut self, settings: ParserSettings) -> ParseResult {
         self.binary_operation(
@@ -1055,7 +1108,7 @@ impl Parser<'_> {
                     })
                 }
 
-                let expr = self.expression()?;
+                let expr = self.expression(default())?;
                 self.advance();
                 
                 self.expect(&TokenKind::RightParenthesis)?;
@@ -1143,7 +1196,7 @@ impl Parser<'_> {
         let start = self.current_token().unwrap().source_range.start;
         self.advance();
         
-        let condition = self.comparison_expression(ParserSettings { can_parse_struct_creation: false })?;
+        let condition = self.expression(ParserSettings { can_parse_struct_creation: false })?;
         self.advance();
 
         self.expect(&TokenKind::LeftBracket)?;
@@ -1200,7 +1253,7 @@ impl Parser<'_> {
                 break
             }
             
-            let expression = self.expression()?;
+            let expression = self.expression(default())?;
 
             self.advance();
             
@@ -1250,7 +1303,7 @@ impl Parser<'_> {
             self.expect(&TokenKind::Colon)?;
             self.advance();
             
-            let expression = self.expression()?;
+            let expression = self.expression(default())?;
 
             self.advance();
             
@@ -1274,7 +1327,7 @@ impl Parser<'_> {
         self.expect(&TokenKind::DoubleColon)?;
         self.advance();
 
-        let mut expression = self.expression()?;
+        let mut expression = self.expression(default())?;
 
         expression.source_range.start = start;
         match &mut expression.instruction_kind {

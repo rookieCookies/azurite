@@ -1,4 +1,4 @@
-use std::{env, fmt::Display, fs, process::ExitCode, vec::IntoIter};
+use std::{env, fmt::Display, fs, process::ExitCode, vec::IntoIter, mem::size_of};
 
 use colored::Colorize;
 
@@ -56,6 +56,25 @@ pub fn prepare() {
 #[repr(C)]
 pub struct CompilationMetadata {
     pub extern_count: u32,
+    pub library_count: u32,
+}
+
+
+impl CompilationMetadata {
+    pub fn to_bytes(self) -> [u8; size_of::<Self>()] {
+        let extern_count : [u8; 4] = self.extern_count.to_le_bytes();
+        let library_count : [u8; 4] = self.library_count.to_le_bytes();
+
+        [extern_count, library_count].concat().try_into().unwrap()
+    }
+
+
+    pub fn from_bytes(bytes: [u8; size_of::<Self>()]) -> Self {
+        Self {
+            extern_count: u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
+            library_count: u32::from_le_bytes(bytes[4..8].try_into().unwrap()),
+        }
+    }
 }
 
 

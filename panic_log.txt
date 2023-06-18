@@ -1,0 +1,49 @@
+ - - - - - - - - - - - - - PANIC INFO - - - - - - - - - - - - - 
+time: 1687066507333
+
+file: azurite_runtime/src/runtime.rs
+line: 277
+column: 21
+message: explicit panic
+
+ - - - - - - - - - - - - -  VM STATE  - - - - - - - - - - - - - 
+
+constants:
+	size: 2
+	capacity: 4
+	values:
+		0 - I64(5)
+		1 - Object(ObjectIndex { index: 0 })
+
+heap:
+	total memory capacity: 8000000b/8000kb/8mb/0gb
+	total memory usage: 43b/0kb/0mb/0gb
+	last gc time: nan
+	last gc duration: 0
+	total gc count: 0
+	objects:
+		-- default objects are excluded --
+		0 - live: false data: String("hi?")
+
+stack:
+	size: 1024
+	stack offset: 0
+	top: 1
+	values:
+		0 - Empty
+
+callstack:
+	current - ip: 34 ret: 0 saved stack offset: 0
+
+dyn libraries
+	loaded libs: 1
+	loaded ext funcs: 1
+	loaded libs matches expected: true
+	loaded ext funcs matches expected: false
+
+compilation metadata:
+	library count: 1
+	extern count: 0
+
+bytecode:
+[7, 115, 116, 97, 110, 100, 97, 114, 100, 95, 108, 105, 98, 114, 97, 114, 121, 0, 1, 0, 0, 0, 0, 112, 114, 105, 110, 116, 108, 110, 0, 5, 0, 3, 43, 0, 0, 0, 0, 0, 6, 0, 0, 5, 4, 24, 1, 0, 24, 2, 1, 4, 0, 0, 0, 0, 0, 1, 2, 6, 4, 0]
