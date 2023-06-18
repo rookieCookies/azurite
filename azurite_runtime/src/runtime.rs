@@ -49,7 +49,6 @@ impl VM<'_> {
         }
 
 
-
         let result: Status = 'global: loop {
             let value = self.current.next();
 
@@ -75,45 +74,45 @@ impl VM<'_> {
 
                     let func_amount = self.current.next();
 
-                    unsafe {
-                        // let Ok(lib) = Library::new(&path) else { break Err(format!("can't find a runtime library file named {path}")); };
-                        let lib = match Library::new(&path) {
-                            Ok(v) => v,
-                            Err(_) => {
-                                let new_path = {
-                                    let Ok(p) = std::env::current_exe() else { break Status::err("can't get the path for the runtime executable") };
-                                    let Some(p) = p.parent() else { break Status::err("can't get the parent of the path of the current executable") };
+                    // let Ok(lib) = Library::new(&path) else { break Err(format!("can't find a runtime library file named {path}")); };
+                    let lib = match unsafe { Library::new(&path) } {
+                        Ok(v) => v,
+                        Err(_) => {
+                            let new_path = {
+                                let Ok(p) = std::env::current_exe() else { break Status::err("can't get the path for the runtime executable") };
+                                let Some(p) = p.parent() else { break Status::err("can't get the parent of the path of the current executable") };
 
-                                    p
-                                        .join("runtime")
-                                        .join(&path)
-                                };
-                                
-                                match Library::new(&new_path) {
-                                    Ok(v) => v,
-                                    Err(_) => break Status::Err(FatalError::new(format!("can't find a runtime library file named {path}")))
-                                }
-                            }
-                        };
-
-                        for _ in 0..func_amount {
-                            let index = self.current.u32();
-                            let name = self.current.string();
-                            let Ok(func) = lib.get::<ExternFunction<'_>>(name.as_bytes()) else { break 'global Status::err(format!("can't find a function named {name:?} in {path}")); };
-
-                            if index as usize > self.externs.len() {
-                                self.externs.push(**func.into_raw());
-                            } else {
-                                self.externs.insert(index as usize, **func.into_raw());
+                                p
+                                    .join("runtime")
+                                    .join(&path)
+                            };
+                            
+                            match unsafe { Library::new(&new_path) } {
+                                Ok(v) => v,
+                                Err(_) => break Status::Err(FatalError::new(format!("can't find a runtime library file named {path}")))
                             }
                         }
+                    };
 
-                        if let Ok(x) = lib.get::<ExternFunction<'_>>(b"_init") {
-                            x(self);
+
+                    for _ in 0..func_amount {
+                        let index = self.current.u32();
+                        let name = self.current.string();
+                        let Ok(func) = (unsafe { lib.get::<ExternFunction<'_>>(name.as_bytes()) }) else { break 'global Status::err(format!("can't find a function named {name:?} in {path}")); };
+
+                        if index as usize > self.externs.len() {
+                            self.externs.push(**unsafe { func.into_raw() });
+                        } else {
+                            self.externs.insert(index as usize, **unsafe { func.into_raw() });
                         }
-
-                        self.libraries.push(lib);
                     }
+
+                    if let Ok(x) = unsafe { lib.get::<ExternFunction<'_>>(b"_init") } {
+                        unsafe { x(self) };
+                    }
+
+                    // std::mem::forget(lib);
+                    self.libraries.push(lib);
                 }
 
 

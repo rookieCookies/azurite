@@ -43,16 +43,19 @@ type ExternFunctionRaw = unsafe extern "C" fn(&mut VM) -> Status;
 ///
 /// # Panics
 /// - If the 'Packed' value is not correct
-pub fn run_packed(packed: Packed) {
+pub fn run_packed(packed: Packed) -> Result<(), &'static str> {
     let mut files : Vec<Data> = packed.into();
 
-    let constants = files.pop().unwrap();
-    let bytecode = files.pop().unwrap();
-    let metadata = CompilationMetadata::from_bytes(files.pop().unwrap().0.try_into().unwrap());
+    let Some(constants) = files.pop() else { return Err("the file isn't a valid azurite file") };
+    let Some(bytecode)  = files.pop() else { return Err("the file isn't a valid azurite file") };
+    let Some(metadata)  = files.pop() else { return Err("the file isn't a valid azurite file") };
+    let Ok(metadata)    = metadata.0.try_into() else { return Err("the file isn't a valid azurite file")};
+    let metadata        = CompilationMetadata::from_bytes(metadata);
 
     assert!(files.is_empty());
 
     run(metadata, &bytecode.0, constants.0);
+    Ok(())
 }
 
 
@@ -201,7 +204,7 @@ impl<'a> Code<'a> {
             bytes.push(val);
         }
 
-        String::from_utf8(bytes).unwrap()
+        String::from_utf8(bytes).expect("string in the bytecode which is tried as a string isn't valid utf-8")
     }
     
 
