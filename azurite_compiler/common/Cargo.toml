@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 # azurite_errors = { path = "../azurite_errors" }
 itertools = "*"
+istd = { git = "https://github.com/rookieCookies/istd" }

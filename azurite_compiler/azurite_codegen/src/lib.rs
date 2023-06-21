@@ -16,14 +16,14 @@ impl CodeGen {
     pub fn codegen(&mut self, symbol_table: &SymbolTable, externs: BTreeMap<SymbolIndex, BTreeSet<(SymbolIndex, u32)>>, functions: Vec<Function>) {
         for (file, functions) in externs {
             self.emit_bytecode(Bytecode::ExternFile);
-            self.bytecode.append(&mut symbol_table.get(file).as_bytes().to_vec());
+            self.bytecode.append(&mut symbol_table.get(&file).as_bytes().to_vec());
             self.emit_byte(0);
             
             self.emit_byte(functions.len().try_into().unwrap());
 
             for (func, index) in functions {
                 self.emit_u32(index);
-                self.bytecode.append(&mut symbol_table.get(func).as_bytes().to_vec());
+                self.bytecode.append(&mut symbol_table.get(&func).as_bytes().to_vec());
                 self.emit_byte(0);
             }
         }

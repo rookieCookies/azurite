@@ -795,7 +795,7 @@ impl Function {
 
 impl Function {
     pub fn pretty_print(&self, state: &ConversionState, lock: &mut impl Write) {
-        let _ = writeln!(lock, "fn {} ({})", self.function_index, state.symbol_table.get(self.identifier));
+        let _ = writeln!(lock, "fn {} ({})", self.function_index, state.symbol_table.get(&self.identifier));
         for block in &self.blocks {
             let _ = writeln!(lock, "  bb{}:", block.block_index.0);
             for ir in &block.instructions {

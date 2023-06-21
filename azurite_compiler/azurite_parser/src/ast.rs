@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use azurite_lexer::TokenKind;
-use common::{SymbolIndex, SourcedDataType, SourceRange, SourcedData, generic_map::GenericIndex};
+use common::{SymbolIndex, SourcedDataType, SourceRange, SourcedData};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Instruction {

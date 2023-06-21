@@ -1,9 +1,9 @@
 use std::fmt::Write;
 
-use generic_map::{GenericIndex, GenericMap};
+#[macro_use]
+extern crate istd;
 
-pub mod generic_map;
-
+index_map!(GenericMap, GenericIndex, Vec<DataType>);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct SourceRange {
@@ -24,7 +24,7 @@ impl SourceRange {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SourcedDataType {
     pub source_range: SourceRange,
     pub data_type: DataType,
@@ -55,7 +55,7 @@ impl SourcedData {
 
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DataType {
     I8,
     I16,
@@ -77,7 +77,7 @@ pub enum DataType {
 
 
 impl DataType {
-    pub const fn is_signed_integer(self) -> bool {
+    pub const fn is_signed_integer(&self) -> bool {
         matches!(self,
             | Self::I8
             | Self::I16
@@ -107,7 +107,7 @@ impl DataType {
 }
 
 impl DataType {
-    pub fn to_string(self, symbol_table: &SymbolTable) -> String {
+    pub fn to_string(&self, symbol_table: &SymbolTable) -> String {
         match self {
             DataType::I8           => "i8".to_string(),
             DataType::I16          => "i16".to_string(),
@@ -146,7 +146,7 @@ impl DataType {
     }
 
 
-    pub fn identifier(self, symbol_table: &SymbolTable) -> String {
+    pub fn identifier(&self, symbol_table: &SymbolTable) -> String {
         match self {
             DataType::I8           => "i8".to_string(),
             DataType::I16          => "i16".to_string(),
@@ -167,9 +167,9 @@ impl DataType {
     }
 
 
-    pub fn symbol_index(self, symbol_table: &mut SymbolTable) -> SymbolIndex {
+    pub fn symbol_index(&self, symbol_table: &mut SymbolTable) -> SymbolIndex {
         match self {
-            DataType::Struct(v) => v,
+            DataType::Struct(v) => *v,
             _ => symbol_table.add(self.identifier(symbol_table))
         }
     }
@@ -198,7 +198,7 @@ impl Data {
     pub fn to_string(&self, symbol_table: &SymbolTable) -> String {
         match self {
             Data::Float(v)  => v.to_string(),
-            Data::String(v) => symbol_table.get(*v),
+            Data::String(v) => symbol_table.get(v),
             Data::Bool(v)   => v.to_string(),
             Data::Empty     => "()".to_string(),
             Data::I8 (v)    => v.to_string(),
@@ -252,10 +252,10 @@ impl SymbolTable {
     }
 
 
-    pub fn get(&self, index: SymbolIndex) -> String {
+    pub fn get(&self, index: &SymbolIndex) -> String {
         match &self.vec[index.0] {
             SymbolTableValue::String(v) => v.to_owned(),
-            SymbolTableValue::Combo(v1, v2) => format!("{}::{}", self.get(*v1), self.get(*v2)),
+            SymbolTableValue::Combo(v1, v2) => format!("{}::{}", self.get(v1), self.get(v2)),
         }
     }
 

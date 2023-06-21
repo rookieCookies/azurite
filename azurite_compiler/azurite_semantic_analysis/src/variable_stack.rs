@@ -14,7 +14,7 @@ impl VariableStack {
 
 
     pub(crate) fn find(&self, str: SymbolIndex) -> Option<SourcedDataType> {
-        self.values.iter().rev().find_map(|x| if x.0 == str { Some(x.1) } else { None })
+        self.values.iter().rev().find_map(|x| if x.0 == str { Some(x.1.clone()) } else { None })
     }
 
     pub(crate) fn pop(&mut self, amount: usize) {

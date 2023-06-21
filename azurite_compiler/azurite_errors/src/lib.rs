@@ -3,7 +3,7 @@ mod utils;
 use std::{fmt::Write, collections::HashMap};
 
 use colored::{Color, Colorize};
-use common::{SymbolIndex, SourceRange, DataType, Data};
+use common::{SymbolIndex, SourceRange};
 
 
 const ORANGE: Color = Color::TrueColor {

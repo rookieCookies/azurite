@@ -1,11 +1,9 @@
 pub mod ast;
 
-use std::{iter::Peekable, vec::IntoIter};
-
 use ast::{Instruction, BinaryOperator, InstructionKind, Expression, Statement, Declaration, ExternFunctionAST, UnaryOperator};
 use azurite_lexer::{Token, TokenKind, Keyword, Literal};
 use azurite_errors::{Error, CompilerError, ErrorBuilder, CombineIntoError};
-use common::{DataType, Data, SymbolTable, SourcedData, SourceRange, SymbolIndex, SourcedDataType, generic_map::GenericMap};
+use common::{DataType, Data, SymbolTable, SourcedData, SourceRange, SymbolIndex, SourcedDataType};
 
 type ParseResult = Result<Instruction, Error>;
 
@@ -193,7 +191,7 @@ impl Parser<'_> {
         let built_string = built_string.unwrap();        
 
 
-        let data_type = match self.symbol_table.get(built_string).as_str() {
+        let data_type = match self.symbol_table.get(&built_string).as_str() {
             "i8"  => DataType::I8,
             "i16" => DataType::I16,
             "i32" => DataType::I32,
@@ -207,7 +205,7 @@ impl Parser<'_> {
             "str" => DataType::String,
             
             _ => {
-                let generics = self.parse_generics_for_expression()?;
+                let _ = self.parse_generics_for_expression()?;
                 DataType::Struct(built_string)
             }
         };
@@ -441,9 +439,9 @@ impl Parser<'_> {
             };
 
             
-            if let Some(v) = impl_type {
+            if let Some(v) = &impl_type {
                 if arguments.is_empty() && identifier == self_kw {
-                    arguments.push((self_kw, v));
+                    arguments.push((self_kw, v.clone()));
                     self.advance();
                     continue;
                 }
@@ -734,7 +732,7 @@ impl Parser<'_> {
     }
 
 
-    fn extern_block(&mut self, impl_type: Option<SourcedDataType>) -> ParseResult {
+    fn extern_block(&mut self, mut impl_type: Option<SourcedDataType>) -> ParseResult {
         self.expect(&TokenKind::Keyword(Keyword::Extern))?;
         let start = self.current_token().unwrap().source_range.start;
         self.advance();
@@ -793,10 +791,11 @@ impl Parser<'_> {
                 let mut data_type = self.parse_type()?;
                 self.advance();
 
-                if let Some(v) = impl_type {
+                if impl_type.is_some() {
                     let symbol_index = data_type.data_type.symbol_index(self.symbol_table);
                     if symbol_index == self_kw {
-                        data_type = v;
+                        data_type = impl_type.unwrap();
+                        impl_type = None;
                     }
                 }
 
@@ -895,9 +894,9 @@ impl Parser<'_> {
 
             let v = match token.token_kind {
                 TokenKind::Keyword(Keyword::Namespace) => self.namespace_declaration(),
-                TokenKind::Keyword(Keyword::Fn) => self.function_declaration(Some(impl_type)),
+                TokenKind::Keyword(Keyword::Fn) => self.function_declaration(Some(impl_type.clone())),
                 TokenKind::Keyword(Keyword::Struct) => self.struct_declaration(),
-                TokenKind::Keyword(Keyword::Extern) => self.extern_block(Some(impl_type)),
+                TokenKind::Keyword(Keyword::Extern) => self.extern_block(Some(impl_type.clone())),
 
                 
                 _ => Err(CompilerError::new(self.file, 105, "invalid statement in impl block")

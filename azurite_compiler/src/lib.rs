@@ -25,12 +25,12 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
     
     let tokens = match lex(&data, file_name, &mut symbol_table) {
         Ok(v) => v,
-        Err(e) => return (Err(e), HashMap::from([(file_name, (symbol_table.get(file_name), data.to_string()))])),
+        Err(e) => return (Err(e), HashMap::from([(file_name, (symbol_table.get(&file_name), data.to_string()))])),
     };
 
     let mut instructions = match parse(tokens, file_name, &mut symbol_table) {
         Ok(v) => v,
-        Err(e) => return (Err(e), HashMap::from([(file_name, (symbol_table.get(file_name), data.to_string()))])),
+        Err(e) => return (Err(e), HashMap::from([(file_name, (symbol_table.get(&file_name), data.to_string()))])),
     };
     
     
@@ -40,8 +40,8 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
     match analysis.start_analysis(&mut global_state, &mut instructions) {
         Ok(v) => v,
         Err(e) => {
-            let mut temp : DebugHashmap = global_state.files.into_iter().map(|x| (x.0, (symbol_table.get(x.0), x.1.2))).collect();
-            temp.insert(file_name, (symbol_table.get(file_name), data));
+            let mut temp : DebugHashmap = global_state.files.into_iter().map(|x| (x.0, (symbol_table.get(&x.0), x.1.2))).collect();
+            temp.insert(file_name, (symbol_table.get(&file_name), data));
             return (Err(e), temp)
         },
     };
@@ -55,7 +55,7 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
             map(|x| 
                 (
                     (x.0, x.1.1),
-                    (x.0, (global_state.symbol_table.get(x.0), x.1.2))
+                    (x.0, (global_state.symbol_table.get(&x.0), x.1.2))
                 )
             ).unzip();
     
@@ -130,8 +130,8 @@ pub fn convert_constants_to_bytes(constants: Vec<Data>, symbol_table: &SymbolTab
             
             Data::String(v) => {
                 constants_bytes.push(2);
-                constants_bytes.append(&mut (symbol_table.get(v).as_bytes().len() as u64).to_le_bytes().to_vec());
-                constants_bytes.append(&mut symbol_table.get(v).as_bytes().to_vec());
+                constants_bytes.append(&mut (symbol_table.get(&v).as_bytes().len() as u64).to_le_bytes().to_vec());
+                constants_bytes.append(&mut symbol_table.get(&v).as_bytes().to_vec());
             },
             
             Data::Empty => panic!("empty data type shouldn't be constants"),
