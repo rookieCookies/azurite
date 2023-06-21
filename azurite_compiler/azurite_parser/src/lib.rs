@@ -4,17 +4,16 @@ use std::{iter::Peekable, vec::IntoIter};
 
 use ast::{Instruction, BinaryOperator, InstructionKind, Expression, Statement, Declaration, ExternFunctionAST, UnaryOperator};
 use azurite_lexer::{Token, TokenKind, Keyword, Literal};
-use azurite_errors::{Error, SourceRange, CompilerError, ErrorBuilder, CombineIntoError, SourcedDataType, SourcedData};
-use common::{DataType, Data, SymbolTable, SymbolIndex};
+use azurite_errors::{Error, CompilerError, ErrorBuilder, CombineIntoError};
+use common::{DataType, Data, SymbolTable, SourcedData, SourceRange, SymbolIndex, SourcedDataType, generic_map::GenericMap};
 
 type ParseResult = Result<Instruction, Error>;
 
 const SELF_KW : &str = "self";
 
 struct Parser<'a> {
-    tokens: Peekable<IntoIter<Token>>,
-
-    current: Option<Token>,
+    tokens: Vec<Token>,
+    index: usize,
 
     symbol_table: &'a mut SymbolTable,
     file: SymbolIndex,
@@ -46,16 +45,16 @@ fn default<T: Default>() -> T {
 // Parser
 // 
 pub fn parse(
-    tokens: IntoIter<Token>, 
+    tokens: Vec<Token>, 
     file: SymbolIndex, 
-    symbol_table: &mut SymbolTable
+    symbol_table: &mut SymbolTable,
 ) -> Result<Vec<Instruction>, Error> {
 
     let mut parser = Parser {
-        tokens: tokens.peekable(),
-        current: None,
+        tokens,
         symbol_table,
         file,
+        index: 0,
     };
 
     parser.advance();
@@ -90,7 +89,7 @@ impl Parser<'_> {
                     }
 
                     if !panic_mode {
-                        panic_mode = true;
+                        // panic_mode = true;
                         errors.push(e);
                         continue
                     }
@@ -116,19 +115,19 @@ impl Parser<'_> {
 
 impl Parser<'_> {    
     fn advance(&mut self) -> Option<&Token> {
-        self.current = self.tokens.next();
+        self.index += 1;
 
         self.current_token()
     }
 
 
     fn peek(&mut self) -> Option<&Token> {
-        self.tokens.peek()
+        self.tokens.get(self.index)
     }
 
 
     fn current_token(&self) -> Option<&Token> {
-        self.current.as_ref()
+        self.tokens.get(self.index - 1)
     }
 
 
@@ -193,6 +192,7 @@ impl Parser<'_> {
 
         let built_string = built_string.unwrap();        
 
+
         let data_type = match self.symbol_table.get(built_string).as_str() {
             "i8"  => DataType::I8,
             "i16" => DataType::I16,
@@ -206,10 +206,93 @@ impl Parser<'_> {
             "bool" => DataType::Bool,
             "str" => DataType::String,
             
-            _ => DataType::Struct(built_string)
+            _ => {
+                let generics = self.parse_generics_for_expression()?;
+                DataType::Struct(built_string)
+            }
         };
 
         Ok(SourcedDataType::new(SourceRange::new(source.start, self.current_token().unwrap().source_range.end), data_type))
+    }
+
+
+    fn parse_generics_for_declaration(&mut self) -> Result<Vec<SymbolIndex>, Error> {
+        if self.expect(&TokenKind::LeftSquare).is_ok() {
+            self.advance();
+
+            let mut generics_vec = vec![];
+            loop {
+                if self.expect(&TokenKind::RightSquare).is_ok() {
+                    break
+                }
+            
+                if !generics_vec.is_empty() {
+                    self.expect(&TokenKind::Comma)?;
+                    self.advance();
+                }
+
+                if self.expect(&TokenKind::RightSquare).is_ok() {
+                    break
+                }
+            
+
+                let identifier = match self.expect_identifier() {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+
+                self.advance();
+
+                generics_vec.push(identifier);
+            }
+
+            self.expect(&TokenKind::RightSquare)?;
+            self.advance();
+
+            Ok(generics_vec)
+            
+        } else { Ok(vec![]) }
+        
+    }
+
+    
+    fn parse_generics_for_expression(&mut self) -> Result<Vec<SourcedDataType>, Error> {
+        if self.expect(&TokenKind::LeftSquare).is_ok() {
+            self.advance();
+
+            let mut generics_vec = vec![];
+            loop {
+                if self.expect(&TokenKind::RightSquare).is_ok() {
+                    break
+                }
+            
+                if !generics_vec.is_empty() {
+                    self.expect(&TokenKind::Comma)?;
+                    self.advance();
+                }
+
+                if self.expect(&TokenKind::RightSquare).is_ok() {
+                    break
+                }
+            
+
+                let identifier = match self.parse_type() {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+
+                self.advance();
+
+                generics_vec.push(identifier);
+            }
+
+            self.expect(&TokenKind::RightSquare)?;
+            self.advance();
+
+            Ok(generics_vec)
+            
+        } else { Ok(vec![]) }
+        
     }
 }
 
@@ -270,14 +353,14 @@ impl Parser<'_> {
     fn struct_declaration(&mut self) -> ParseResult {
         self.expect(&TokenKind::Keyword(Keyword::Struct))?;
         let start = self.current_token().unwrap().source_range.start;
-
         self.advance();
         
         let identifier = self.expect_identifier()?;
-
         self.advance();
+
+        let generics = self.parse_generics_for_declaration()?;        
+
         self.expect(&TokenKind::LeftBracket)?;
-        
         self.advance();
 
         let mut fields = vec![];
@@ -315,7 +398,7 @@ impl Parser<'_> {
         self.expect(&TokenKind::RightBracket)?;
 
         Ok(Instruction {
-            instruction_kind: InstructionKind::Declaration(Declaration::StructDeclaration { name: identifier, fields }),
+            instruction_kind: InstructionKind::Declaration(Declaration::StructDeclaration { name: identifier, fields, generics }),
             source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end)
         })
         
@@ -325,12 +408,13 @@ impl Parser<'_> {
     fn function_declaration(&mut self, impl_type: Option<SourcedDataType>) -> ParseResult {
         self.expect(&TokenKind::Keyword(Keyword::Fn))?;
         let start = self.current_token().unwrap().source_range.start;
-
         self.advance();
 
         let identifier = self.expect_identifier()?;
-
         self.advance();
+
+        let generics = self.parse_generics_for_declaration()?;
+
         self.expect(&TokenKind::LeftParenthesis)?;
         self.advance();
 
@@ -405,6 +489,7 @@ impl Parser<'_> {
                 arguments,
                 return_type,
                 body,
+                generics,
                 source_range_declaration: SourceRange::new(start, declaration_end),
             }),
             source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end)
@@ -641,8 +726,6 @@ impl Parser<'_> {
             namespace_rename(self.symbol_table, identifier, i)
         }
 
-        dbg!(&self.symbol_table);
-        
 
         Ok(Instruction {
             instruction_kind: InstructionKind::Declaration(Declaration::Namespace { body, identifier }),
@@ -663,6 +746,7 @@ impl Parser<'_> {
                         .note("..because of the `extern` keyword before".to_string())
                     .build())
         };
+
         self.advance();
 
         self.expect(&TokenKind::LeftBracket)?;
@@ -830,7 +914,7 @@ impl Parser<'_> {
 
 
         let identifier = {
-            let temp = impl_type.data_type.to_string(self.symbol_table);
+            let temp = impl_type.data_type.identifier(self.symbol_table);
             self.symbol_table.add(temp)
         };
 
@@ -1021,7 +1105,7 @@ impl Parser<'_> {
 
             let mut function_call = self.function_call()?;
             match &mut function_call.instruction_kind {
-                InstructionKind::Expression(Expression::FunctionCall { identifier: _, arguments, created_by_accessing }) => {
+                InstructionKind::Expression(Expression::FunctionCall { identifier: _, arguments, created_by_accessing, .. }) => {
                     arguments.insert(0, atom);
                     *created_by_accessing = true;
                 }
@@ -1075,8 +1159,19 @@ impl Parser<'_> {
                 };
 
                 
-                if let Some(v) = self.peek().map(|x| x.token_kind) {
-                    if v == TokenKind::LeftParenthesis  {
+                if let Some(mut v) = self.peek().map(|x| x.token_kind) {
+                    if v == TokenKind::LeftSquare {
+                        let index = self.index;
+
+                        self.advance();
+                        self.parse_generics_for_expression()?;
+                        v = self.current_token().unwrap().token_kind;
+
+                        self.index = index;
+                    }
+
+
+                    if v == TokenKind::LeftParenthesis {
                         return self.function_call()
                     }
 
@@ -1233,8 +1328,10 @@ impl Parser<'_> {
     fn function_call(&mut self) -> ParseResult {
         let identifier = self.expect_identifier()?;
         let start = self.current_token().unwrap().source_range.start;
-
         self.advance();
+
+        let generics = self.parse_generics_for_expression()?;
+        
         self.expect(&TokenKind::LeftParenthesis)?;
         self.advance();
 
@@ -1267,6 +1364,7 @@ impl Parser<'_> {
                 identifier,
                 arguments,
                 created_by_accessing: false,
+                generics,
             }),
             source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
         })
@@ -1278,6 +1376,8 @@ impl Parser<'_> {
         let start = self.current_token().unwrap().source_range.start;
         let identifier_range = self.current_token().unwrap().source_range;
         self.advance();
+
+        let generics = self.parse_generics_for_expression()?;
         
         self.expect(&TokenKind::LeftBracket)?;
         self.advance();
@@ -1311,9 +1411,9 @@ impl Parser<'_> {
         }
 
         self.expect(&TokenKind::RightBracket)?;
-        
+
         Ok(Instruction {
-            instruction_kind: InstructionKind::Expression(Expression::StructureCreation { identifier, fields, identifier_range }),
+            instruction_kind: InstructionKind::Expression(Expression::StructureCreation { identifier, fields, identifier_range, generics }),
             source_range: SourceRange { start, end: self.current_token().unwrap().source_range.end }
         })
     }

@@ -154,11 +154,12 @@ impl VM<'_> {
                 ),
 
                 
-                consts::Modulo => self.binary_operation(
-                    VM::arithmetic_operation,
-                    all_integer_types!(wrapping_rem),
-                    f64::rem_euclid,
-                ),
+                // consts::Modulo => self.binary_operation(
+                //     VM::arithmetic_operation,
+                //     all_integer_types!(wrapping_rem),
+                //     f64::rem_euclid,
+                // ),
+                consts::Modulo => panic!(),
 
                 
                 consts::Divide => {

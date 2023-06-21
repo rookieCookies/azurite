@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use common::Data;
+
 use crate::{ConversionState, Function, Block, BlockIndex, BlockTerminator, IR, FunctionIndex};
 
 impl ConversionState {
@@ -70,11 +72,16 @@ impl ConversionState {
         }
 
 
-        for d in (0..self.constants.len()).rev() {
-            if !used_consts.contains_key(&(d as u32)) {
-                self.constants.remove(d);
-            }
+        let mut vec = used_consts.into_iter().collect::<Vec<(u32, u32)>>();
+        vec.sort_unstable_by_key(|x| x.1);
+
+        let mut new_constants = Vec::with_capacity(self.constants.len());
+        let mut old_constants = std::mem::take(&mut self.constants);
+        for i in vec {
+            new_constants.push(std::mem::replace(&mut old_constants[i.0 as usize], Data::I8(i8::MAX)));
         }
+
+        self.constants = new_constants;
     }
 }
 

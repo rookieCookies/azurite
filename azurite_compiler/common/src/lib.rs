@@ -1,3 +1,60 @@
+use std::fmt::Write;
+
+use generic_map::{GenericIndex, GenericMap};
+
+pub mod generic_map;
+
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct SourceRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+
+impl SourceRange {
+    pub fn new(start: usize, end: usize) -> Self { Self { start, end } }
+
+    pub fn combine(start: SourceRange, end: SourceRange) -> Self {
+        Self {
+            start: start.start,
+            end: end.end,
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SourcedDataType {
+    pub source_range: SourceRange,
+    pub data_type: DataType,
+}
+
+impl SourcedDataType {
+    pub fn new(source_range: SourceRange, data_type: DataType) -> Self { Self { source_range, data_type } }
+}
+
+
+impl SourcedDataType {
+    pub fn from(value: &SourcedData) -> Self {
+        Self::new(value.source_range, DataType::from(&value.data))
+    }
+    
+}
+
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct SourcedData {
+    pub source_range: SourceRange,
+    pub data: Data,
+}
+
+impl SourcedData {
+    pub fn new(source_range: SourceRange, data_type: Data) -> Self { Self { source_range, data: data_type } }
+}
+
+
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataType {
     I8,
@@ -52,34 +109,74 @@ impl DataType {
 impl DataType {
     pub fn to_string(self, symbol_table: &SymbolTable) -> String {
         match self {
-            DataType::I8        => "i8".to_string(),
-            DataType::I16       => "i16".to_string(),
-            DataType::I32       => "i32".to_string(),
-            DataType::I64       => "i64".to_string(),
-            DataType::U8        => "u8".to_string(),
-            DataType::U16       => "u16".to_string(),
-            DataType::U32       => "u32".to_string(),
-            DataType::U64       => "u64".to_string(),
-            DataType::Float     => "float".to_string(),
-            DataType::String    => "str".to_string(),
-            DataType::Bool      => "bool".to_string(),
-            DataType::Empty     => "()".to_string(),
-            DataType::Any       => "any".to_string(),
+            DataType::I8           => "i8".to_string(),
+            DataType::I16          => "i16".to_string(),
+            DataType::I32          => "i32".to_string(),
+            DataType::I64          => "i64".to_string(),
+            DataType::U8           => "u8".to_string(),
+            DataType::U16          => "u16".to_string(),
+            DataType::U32          => "u32".to_string(),
+            DataType::U64          => "u64".to_string(),
+            DataType::Float        => "float".to_string(),
+            DataType::String       => "str".to_string(),
+            DataType::Bool         => "bool".to_string(),
+            DataType::Empty        => "()".to_string(),
+            DataType::Any          => "any".to_string(),
+            DataType::Struct(v)    => symbol_table.get(v),
+            // DataType::Struct(v) => {
+            //     let mut string = symbol_table.get(v);
+
+            //     let generics = generic_map.get(g);
+            //     if !generics.is_empty() {
+            //         write!(string, "[");
+            //         for gen in generics.iter().enumerate() {
+            //             if gen.0 != 0 {
+            //                 write!(string, ", ");
+            //             }
+
+            //             write!(string, "{}", gen.1.data_type.to_string(symbol_table, generic_map));
+            //         }
+
+            //         write!(string, "]");
+            //     }
+
+            //     string
+            // }
+        }
+    }
+
+
+    pub fn identifier(self, symbol_table: &SymbolTable) -> String {
+        match self {
+            DataType::I8           => "i8".to_string(),
+            DataType::I16          => "i16".to_string(),
+            DataType::I32          => "i32".to_string(),
+            DataType::I64          => "i64".to_string(),
+            DataType::U8           => "u8".to_string(),
+            DataType::U16          => "u16".to_string(),
+            DataType::U32          => "u32".to_string(),
+            DataType::U64          => "u64".to_string(),
+            DataType::Float        => "float".to_string(),
+            DataType::String       => "str".to_string(),
+            DataType::Bool         => "bool".to_string(),
+            DataType::Empty        => "()".to_string(),
+            DataType::Any          => "any".to_string(),
             DataType::Struct(v) => symbol_table.get(v)
         }
+        
     }
 
 
     pub fn symbol_index(self, symbol_table: &mut SymbolTable) -> SymbolIndex {
         match self {
             DataType::Struct(v) => v,
-            _ => symbol_table.add(self.to_string(symbol_table))
+            _ => symbol_table.add(self.identifier(symbol_table))
         }
     }
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Data {
     I8    (i8),
     I16   (i16),
@@ -214,4 +311,25 @@ impl SymbolIndex {
 enum SymbolTableValue {
     String(String),
     Combo(SymbolIndex, SymbolIndex)
+}
+
+
+const GENERIC_SYMBOL : &str = "@";
+
+
+pub fn get_generic_args_symbol(symbol_table: &mut SymbolTable) -> SymbolIndex {
+    if let Some(v) =  symbol_table.find(GENERIC_SYMBOL) { v }
+    else { symbol_table.add(GENERIC_SYMBOL.to_string()) }
+}
+
+
+pub fn generic_declaration_suffix(symbol_table: &mut SymbolTable, generics: &[DataType]) -> SymbolIndex {
+    let mut declaration_suffix = get_generic_args_symbol(symbol_table);
+    
+    for i in generics {
+        let symbol = i.symbol_index(symbol_table);
+        declaration_suffix = symbol_table.add_combo(declaration_suffix, symbol);
+    }
+
+    declaration_suffix
 }

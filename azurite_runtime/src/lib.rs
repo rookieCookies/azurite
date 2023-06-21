@@ -406,7 +406,7 @@ fn run(metadata: CompilationMetadata, bytecode: &[u8], constants: Vec<u8>) {
         println!("a panic occurred in the runtime while running this program");
         vm.clear_poison();
         let vm = vm.into_inner().unwrap();
-        let log = generate_panic_log(&vm);
+        let log = generate_panic_log(&vm, false);
         let mut write_to_stdout = true;
         if let Ok(current_dir) = env::current_dir() {
             let path = current_dir.join("panic_log.txt");
@@ -432,9 +432,27 @@ fn run(metadata: CompilationMetadata, bytecode: &[u8], constants: Vec<u8>) {
     let end = start.elapsed();
     println!("it took {}ms {}ns, result {:?}", end.as_millis(), end.as_nanos(), vm.stack.reg(0));
 
-    // if let Status::Exit(v) = v {
-    //     std::process::exit(v)
-    // }
+
+    if env::var(azurite_common::environment::PANIC_LOG).unwrap_or("0".to_string()) == "1" {
+        let log = generate_panic_log(&vm, true);
+        let mut write_to_stdout = true;
+        if let Ok(current_dir) = env::current_dir() {
+            let path = current_dir.join("panic_log.txt");
+            write_to_stdout = std::fs::write(&path, log.as_bytes()).is_err(); 
+            if !write_to_stdout {
+                println!("the log file is located at {}", path.to_string_lossy());
+            }
+            
+        }
+
+        if write_to_stdout {
+            println!("failed to write to a log file, printing to stdout");
+            let mut lock = std::io::stdout().lock();
+            std::io::Write::write_all(&mut lock, log.as_bytes()).unwrap();
+            std::io::Write::flush(&mut lock).unwrap();
+        }
+        
+    }
     
 
 }
@@ -500,20 +518,22 @@ impl Default for VMDebugInfo {
 }
 
 
-fn generate_panic_log(vm: &VM) -> String {
+fn generate_panic_log(vm: &VM, forced: bool) -> String {
     let mut string = String::new();
-    let lock = PANIC_INFO.lock().unwrap();
-    let panic_info = lock.as_ref().unwrap();
 
-    let _ = writeln!(string, " - - - - - - - - - - - - - PANIC INFO - - - - - - - - - - - - - ");
-    let _ = writeln!(string, "time: {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-    let _ = writeln!(string);
-    let _ = writeln!(string, "file: {}", panic_info.0.0);
-    let _ = writeln!(string, "line: {}", panic_info.0.1);
-    let _ = writeln!(string, "column: {}", panic_info.0.2);
-    let _ = writeln!(string, "message: {}", &panic_info.1);
-    let _ = writeln!(string);
-    
+    if !forced {
+        let lock = PANIC_INFO.lock().unwrap();
+        let panic_info = lock.as_ref().unwrap();
+
+        let _ = writeln!(string, " - - - - - - - - - - - - - PANIC INFO - - - - - - - - - - - - - ");
+        let _ = writeln!(string, "time: {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+        let _ = writeln!(string);
+        let _ = writeln!(string, "file: {}", panic_info.0.0);
+        let _ = writeln!(string, "line: {}", panic_info.0.1);
+        let _ = writeln!(string, "column: {}", panic_info.0.2);
+        let _ = writeln!(string, "message: {}", &panic_info.1);
+        let _ = writeln!(string);
+    }
     
     let _ = writeln!(string, " - - - - - - - - - - - - -  VM STATE  - - - - - - - - - - - - - ");
     let _ = writeln!(string);

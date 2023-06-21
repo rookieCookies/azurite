@@ -1,3 +1,11 @@
-var x = 5
-var y = "hi?"
-println(y)
+fn hello_world[T](v: T): T {
+	struct Container {
+		val: T
+	}
+
+	var x = Container { val: v }
+	
+	x.val
+}
+
+hello_world[i32](69)

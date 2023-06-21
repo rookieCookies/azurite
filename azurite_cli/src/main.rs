@@ -40,7 +40,7 @@ fn main() -> Result<(), ExitCode> {
             } else { Some(compile(&file)?) }) else { eprintln!("not a valid azurite file"); return Err(ExitCode::FAILURE)};
 
             println!("{} {file}", "Running..".bright_green().bold());
-            azurite_runtime::run_packed(compiled);
+            azurite_runtime::run_packed(compiled).unwrap();
         }
 
         
@@ -96,6 +96,7 @@ fn parse_environments(mut arguments: Args) {
                 None => break,
             }),
             "--no-std"     => env::set_var(environment::NO_STD, "1"),
+            "--panic-log"  => env::set_var(environment::PANIC_LOG, "1"),
             "--" => (),
             _ => {
                 println!("unexpected argument {i}");

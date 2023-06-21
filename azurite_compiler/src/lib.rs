@@ -24,12 +24,11 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
     let file_name = symbol_table.add(file_name[..file_name.len()-3].to_string());
     
     let tokens = match lex(&data, file_name, &mut symbol_table) {
-
         Ok(v) => v,
         Err(e) => return (Err(e), HashMap::from([(file_name, (symbol_table.get(file_name), data.to_string()))])),
     };
 
-    let mut instructions = match parse(tokens.into_iter(), file_name, &mut symbol_table) {
+    let mut instructions = match parse(tokens, file_name, &mut symbol_table) {
         Ok(v) => v,
         Err(e) => return (Err(e), HashMap::from([(file_name, (symbol_table.get(file_name), data.to_string()))])),
     };
@@ -56,14 +55,15 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
             map(|x| 
                 (
                     (x.0, x.1.1),
-                    (x.0, (symbol_table.get(x.0), x.1.2))
+                    (x.0, (global_state.symbol_table.get(x.0), x.1.2))
                 )
             ).unzip();
     
 
+    let templates = global_state.template_functions.into_iter().flat_map(|x| x.1.generated_funcs).collect();
     let mut ir = ConversionState::new(symbol_table);
 
-    ir.generate(file_name, files);
+    ir.generate(file_name, files, templates);
 
     ir.sort();
 

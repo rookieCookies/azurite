@@ -1,23 +1,22 @@
 use std::fmt::Display;
 
-use azurite_errors::{SourceRange, SourcedData, SourcedDataType};
 use azurite_lexer::TokenKind;
-use common::SymbolIndex;
+use common::{SymbolIndex, SourcedDataType, SourceRange, SourcedData, generic_map::GenericIndex};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Instruction {
     pub instruction_kind: InstructionKind,
     pub source_range: SourceRange,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum InstructionKind {
     Statement   (Statement),
     Expression  (Expression),
     Declaration (Declaration),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Statement {
     DeclareVar {
         identifier: SymbolIndex,
@@ -47,7 +46,7 @@ pub enum Statement {
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     AsCast {
         value: Box<Instruction>,
@@ -82,6 +81,7 @@ pub enum Expression {
     FunctionCall {
         identifier: SymbolIndex,
         arguments: Vec<Instruction>,
+        generics: Vec<SourcedDataType>,
 
         created_by_accessing: bool,
     },
@@ -90,6 +90,7 @@ pub enum Expression {
         identifier: SymbolIndex,
         identifier_range: SourceRange,
         fields: Vec<(SymbolIndex, Instruction)>,
+        generics: Vec<SourcedDataType>,
     },
 
     AccessStructureData {
@@ -106,13 +107,14 @@ pub enum Expression {
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Declaration {
     FunctionDeclaration {
         name: SymbolIndex,
         arguments: Vec<(SymbolIndex, SourcedDataType)>,
         return_type: SourcedDataType,
         body: Vec<Instruction>,
+        generics: Vec<SymbolIndex>,
         
         source_range_declaration: SourceRange,
     },
@@ -121,6 +123,7 @@ pub enum Declaration {
     StructDeclaration {
         name: SymbolIndex,
         fields: Vec<(SymbolIndex, SourcedDataType)>,
+        generics: Vec<SymbolIndex>,
     },
 
 
@@ -148,7 +151,7 @@ pub enum Declaration {
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ExternFunctionAST {
     pub raw_name: SymbolIndex,
     pub identifier: SymbolIndex,
@@ -157,7 +160,7 @@ pub struct ExternFunctionAST {
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum BinaryOperator {
     Add,
     Subtract,
@@ -214,7 +217,7 @@ impl BinaryOperator {
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum UnaryOperator {
     Not,
     Negate,

@@ -1,5 +1,4 @@
-use azurite_errors::SourcedDataType;
-use common::SymbolIndex;
+use common::{SymbolIndex, SourcedDataType};
 
 #[derive(Debug, PartialEq)]
 pub struct VariableStack {

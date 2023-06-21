@@ -173,7 +173,7 @@ impl ConversionState {
     }
 
 
-    pub fn generate(&mut self, root_index: SymbolIndex, mut files: Vec<(SymbolIndex, Vec<Instruction>)>) {
+    pub fn generate(&mut self, root_index: SymbolIndex, mut files: Vec<(SymbolIndex, Vec<Instruction>)>, templates: Vec<Instruction>) {
         files.sort_by_key(|x| x.0);
         let init_function = self.symbol_table.add(String::from("::init"));
         let mut function = Function::new(init_function, self.function(), 0);
@@ -184,6 +184,14 @@ impl ConversionState {
             self.declaration_process(&file.1);
         }
         
+        
+        for t in &templates {
+            assert!(matches!(t.instruction_kind, InstructionKind::Declaration(Declaration::FunctionDeclaration { .. })));
+        }
+
+        function.generate(self, templates);
+        function.blocks.clear();
+        function.block_counter = 0;
 
         for file in files {
             let function = self.functions.get(&file.0).unwrap().function_index;
@@ -193,6 +201,7 @@ impl ConversionState {
             let result = self.functions.insert(file.0, function);
             assert!(result.is_some());
         }
+
 
 
         let vec = Vec::from([IR::Call { dst: Variable(0), id: self.find_function(root_index).function_index, args: vec![] }]);
@@ -366,13 +375,16 @@ impl ConversionState {
             match &instruction.instruction_kind {
                 InstructionKind::Declaration(d) => {
                     match d {
-                        Declaration::FunctionDeclaration { name, arguments, .. } => {
+                        Declaration::FunctionDeclaration { name, arguments, generics, .. } => {
                             if self.functions.contains_key(name) {
                                 continue
                             }
 
-                            // println!("{}", self.symbol_table.get(*name));
-                            
+                            if !generics.is_empty() {
+                                continue
+                            }
+
+                           
                             let function = Function::new(*name, self.function(), arguments.len());
                             self.functions.insert(*name, function);
                         },
@@ -447,7 +459,11 @@ impl Function {
 
     fn declaration(&mut self, state: &mut ConversionState, block: &mut Block, declaration: Declaration) {
         match declaration {
-            Declaration::FunctionDeclaration { arguments, body, name, .. } => {
+            Declaration::FunctionDeclaration { arguments, body, name, generics, .. } => {
+                if !generics.is_empty() {
+                    return
+                }
+                
                 let function_index = state.find_function(name).function_index;
 
                 
@@ -688,7 +704,7 @@ impl Function {
             Expression::Identifier(v) => self.variable_lookup.iter().rev().find(|x| x.0 == v).unwrap().1,
 
             
-            Expression::FunctionCall { identifier, arguments, created_by_accessing: _ } => {
+            Expression::FunctionCall { identifier, arguments, created_by_accessing: _, generics: _ } => {
                 let dst = self.variable();
                 let mut variables = Vec::with_capacity(arguments.len());
 

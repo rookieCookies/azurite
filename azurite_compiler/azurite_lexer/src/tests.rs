@@ -1,8 +1,7 @@
 #![allow(unused)]
 use std::fmt::Debug;
 
-use azurite_errors::SourceRange;
-use common::SymbolTable;
+use common::{SymbolTable, SourceRange};
 
 use crate::{lex, Token, TokenKind, Literal};
 

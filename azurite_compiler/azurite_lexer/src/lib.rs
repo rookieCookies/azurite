@@ -1,7 +1,7 @@
 use std::str::Chars;
 
-use azurite_errors::{CompilerError, ErrorBuilder, Error, SourceRange, CombineIntoError};
-use common::{SymbolTable, SymbolIndex};
+use azurite_errors::{CompilerError, ErrorBuilder, Error, CombineIntoError};
+use common::{SymbolTable, SymbolIndex, SourceRange};
 
 mod tests;
 

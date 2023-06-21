@@ -25,6 +25,7 @@ pub struct ObjectIndex {
     pub(crate) index: u64,
 }
 
+
 impl ObjectIndex {
     pub(crate) fn new(index: u64) -> Self { Self { index } }
 }

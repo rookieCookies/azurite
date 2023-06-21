@@ -3,7 +3,7 @@ mod utils;
 use std::{fmt::Write, collections::HashMap};
 
 use colored::{Color, Colorize};
-use common::{SymbolIndex, DataType, Data};
+use common::{SymbolIndex, SourceRange, DataType, Data};
 
 
 const ORANGE: Color = Color::TrueColor {
@@ -11,56 +11,6 @@ const ORANGE: Color = Color::TrueColor {
     g: 160,
     b: 100,
 };
-
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct SourceRange {
-    pub start: usize,
-    pub end: usize,
-}
-
-
-impl SourceRange {
-    pub fn new(start: usize, end: usize) -> Self { Self { start, end } }
-
-    pub fn combine(start: SourceRange, end: SourceRange) -> Self {
-        Self {
-            start: start.start,
-            end: end.end,
-        }
-    }
-}
-
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SourcedDataType {
-    pub source_range: SourceRange,
-    pub data_type: DataType,
-}
-
-impl SourcedDataType {
-    pub fn new(source_range: SourceRange, data_type: DataType) -> Self { Self { source_range, data_type } }
-}
-
-
-impl SourcedDataType {
-    pub fn from(value: &SourcedData) -> Self {
-        Self::new(value.source_range, DataType::from(&value.data))
-    }
-    
-}
-
-
-#[derive(Debug, PartialEq)]
-pub struct SourcedData {
-    pub source_range: SourceRange,
-    pub data: Data,
-}
-
-impl SourcedData {
-    pub fn new(source_range: SourceRange, data_type: Data) -> Self { Self { source_range, data: data_type } }
-}
-
 
 // Error Creation
 
