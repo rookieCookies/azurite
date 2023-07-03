@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{fmt::Write, rc::Rc};
 
 #[macro_use]
 extern crate istd;
@@ -55,7 +55,7 @@ impl SourcedData {
 
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
     I8,
     I16,
@@ -72,7 +72,7 @@ pub enum DataType {
     Empty,
     Any,
     
-    Struct(SymbolIndex),
+    Struct(SymbolIndex, Rc<[SourcedDataType]>),
 }
 
 
@@ -107,7 +107,7 @@ impl DataType {
 }
 
 impl DataType {
-    pub fn to_string(&self, symbol_table: &SymbolTable) -> String {
+    pub fn to_string(&self, symbol_table: &mut SymbolTable) -> String {
         match self {
             DataType::I8           => "i8".to_string(),
             DataType::I16          => "i16".to_string(),
@@ -122,26 +122,26 @@ impl DataType {
             DataType::Bool         => "bool".to_string(),
             DataType::Empty        => "()".to_string(),
             DataType::Any          => "any".to_string(),
-            DataType::Struct(v)    => symbol_table.get(v),
-            // DataType::Struct(v) => {
-            //     let mut string = symbol_table.get(v);
+            // DataType::Struct(v)    => symbol_table.get(v),
+            DataType::Struct(v, generics) => {
+                let string = symbol_table.get_name_without_generics(*v);
+                let mut string = symbol_table.get(&string);
 
-            //     let generics = generic_map.get(g);
-            //     if !generics.is_empty() {
-            //         write!(string, "[");
-            //         for gen in generics.iter().enumerate() {
-            //             if gen.0 != 0 {
-            //                 write!(string, ", ");
-            //             }
+                if !generics.is_empty() {
+                    write!(string, "[");
+                    for gen in generics.iter().enumerate() {
+                        if gen.0 != 0 {
+                            write!(string, ", ");
+                        }
 
-            //             write!(string, "{}", gen.1.data_type.to_string(symbol_table, generic_map));
-            //         }
+                        write!(string, "{}", gen.1.data_type.to_string(symbol_table));
+                    }
 
-            //         write!(string, "]");
-            //     }
+                    write!(string, "]");
+                }
 
-            //     string
-            // }
+                string
+            }
         }
     }
 
@@ -161,7 +161,7 @@ impl DataType {
             DataType::Bool         => "bool".to_string(),
             DataType::Empty        => "()".to_string(),
             DataType::Any          => "any".to_string(),
-            DataType::Struct(v) => symbol_table.get(v)
+            DataType::Struct(v, _) => symbol_table.get(v)
         }
         
     }
@@ -169,7 +169,7 @@ impl DataType {
 
     pub fn symbol_index(&self, symbol_table: &mut SymbolTable) -> SymbolIndex {
         match self {
-            DataType::Struct(v) => *v,
+            DataType::Struct(v, _) => *v,
             _ => symbol_table.add(self.identifier(symbol_table))
         }
     }
@@ -290,6 +290,34 @@ impl SymbolTable {
 
         None
     }
+
+
+    pub fn add_generics(&mut self, symbol: SymbolIndex, generics: &[SourcedDataType]) -> SymbolIndex {
+        if generics.is_empty() {
+            return symbol
+        }
+
+        let generics_symbol = generic_declaration_suffix(self, generics);
+        self.add_combo(symbol, generics_symbol)
+    }
+
+
+    pub fn get_name_without_generics(&mut self, symbol: SymbolIndex) -> SymbolIndex {
+        let (mut base_name, mut left) = self.find_root(symbol);
+
+        while let Some(l) = left {
+            let (root, root_excluded) = self.find_root(l);
+
+            if root == get_generic_args_symbol_start(self) {
+                break
+            }
+
+            base_name = self.find_combo(base_name, root);
+            left = root_excluded;
+        }
+
+        base_name
+    }
 }
 
 impl Default for SymbolTable {
@@ -314,22 +342,32 @@ enum SymbolTableValue {
 }
 
 
-const GENERIC_SYMBOL : &str = "@";
+const GENERIC_START_SYMBOL : &str = "@<";
+const GENERIC_END_SYMBOL : &str = ">@";
 
 
-pub fn get_generic_args_symbol(symbol_table: &mut SymbolTable) -> SymbolIndex {
-    if let Some(v) =  symbol_table.find(GENERIC_SYMBOL) { v }
-    else { symbol_table.add(GENERIC_SYMBOL.to_string()) }
+pub fn get_generic_args_symbol_start(symbol_table: &mut SymbolTable) -> SymbolIndex {
+    if let Some(v) =  symbol_table.find(GENERIC_START_SYMBOL) { v }
+    else { symbol_table.add(GENERIC_START_SYMBOL.to_string()) }
 }
 
 
-pub fn generic_declaration_suffix(symbol_table: &mut SymbolTable, generics: &[DataType]) -> SymbolIndex {
-    let mut declaration_suffix = get_generic_args_symbol(symbol_table);
+fn get_generic_args_symbol_end(symbol_table: &mut SymbolTable) -> SymbolIndex {
+    if let Some(v) =  symbol_table.find(GENERIC_END_SYMBOL) { v }
+    else { symbol_table.add(GENERIC_END_SYMBOL.to_string()) }
+}
+
+
+pub fn generic_declaration_suffix(symbol_table: &mut SymbolTable, generics: &[SourcedDataType]) -> SymbolIndex {
+    let mut declaration_suffix = get_generic_args_symbol_start(symbol_table);
     
     for i in generics {
-        let symbol = i.symbol_index(symbol_table);
+        let symbol = i.data_type.symbol_index(symbol_table);
         declaration_suffix = symbol_table.add_combo(declaration_suffix, symbol);
     }
+
+    let end = get_generic_args_symbol_end(symbol_table);
+    declaration_suffix = symbol_table.add_combo(declaration_suffix, end);
 
     declaration_suffix
 }

@@ -133,3 +133,8 @@
 
 228) Duplicate structure definition
 - This error occurs when you have structures of the same name inside the same scope
+
+229) Structure has no generic parameters
+230) Structure exists but it has generic parameters
+231) Function has no generic parameters
+232) Function exists but it has generic parameters

@@ -205,8 +205,16 @@ impl Parser<'_> {
             "str" => DataType::String,
             
             _ => {
-                let _ = self.parse_generics_for_expression()?;
-                DataType::Struct(built_string)
+                let g = if self.peek().map(|x| x.token_kind) == Some(TokenKind::LeftSquare) {
+                    self.advance();
+                    let v = self.parse_generics_for_expression()?;
+                    self.index -= 1;
+                    v
+                } else { vec![] };
+                let index = self.symbol_table.add_generics(built_string, &g);
+                println!("HELO {}", self.symbol_table.get(&index));
+
+                DataType::Struct(index, g.into())
             }
         };
 
@@ -461,7 +469,7 @@ impl Parser<'_> {
 
 
         self.expect(&TokenKind::RightParenthesis)?;
-        
+
         self.advance();
 
         let return_type = if self.expect(&TokenKind::Colon).is_ok() {
@@ -1363,7 +1371,7 @@ impl Parser<'_> {
                 identifier,
                 arguments,
                 created_by_accessing: false,
-                generics,
+                generics: generics.into(),
             }),
             source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
         })
@@ -1412,7 +1420,7 @@ impl Parser<'_> {
         self.expect(&TokenKind::RightBracket)?;
 
         Ok(Instruction {
-            instruction_kind: InstructionKind::Expression(Expression::StructureCreation { identifier, fields, identifier_range, generics }),
+            instruction_kind: InstructionKind::Expression(Expression::StructureCreation { identifier, fields, identifier_range, generics: generics.into() }),
             source_range: SourceRange { start, end: self.current_token().unwrap().source_range.end }
         })
     }

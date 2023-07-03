@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
 use azurite_lexer::TokenKind;
 use common::{SymbolIndex, SourcedDataType, SourceRange, SourcedData};
@@ -81,7 +81,7 @@ pub enum Expression {
     FunctionCall {
         identifier: SymbolIndex,
         arguments: Vec<Instruction>,
-        generics: Vec<SourcedDataType>,
+        generics: Rc<[SourcedDataType]>,
 
         created_by_accessing: bool,
     },
@@ -90,7 +90,7 @@ pub enum Expression {
         identifier: SymbolIndex,
         identifier_range: SourceRange,
         fields: Vec<(SymbolIndex, Instruction)>,
-        generics: Vec<SourcedDataType>,
+        generics: Rc<[SourcedDataType]>,
     },
 
     AccessStructureData {

@@ -1,13 +1,8 @@
-fn hello_world[T, A](v: T, e: A): T {
-	struct Container {
-		val: T
-	}
-
-	var x = Container { val: v }
-
-	if false { hello_world[A, T](e, v) }
-	
-	x.val
+struct Array[T] {
+	value: i32
 }
 
-hello_world[i32, u8](69, 255)
+
+fn get[T](array: Array[i32]): T { array.value }
+
+get[i32](6)
