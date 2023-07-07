@@ -11,4 +11,6 @@ azurite_lexer = { path = "../azurite_lexer" }
 azurite_errors = { path = "../azurite_errors" }
 common = { path = "../common" }
 
+azurite_common = { path = "../../azurite_common" }
+
 hashbrown = "*"

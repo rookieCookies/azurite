@@ -21,16 +21,15 @@ impl VM<'_> {
 
     fn mark(&mut self) {
         for object in 0..self.stack.top {
-            match self.stack.values[object] {
-                crate::VMData::Object(index) => self.objects.get(index).mark(true, &self.objects),
-                _ => continue,
-            };
+            let val = self.stack.values[object];
+            if val.is_object() {
+                self.objects.get(val.as_object()).mark(true, &self.objects);
+            }
         }
 
-        for object in &self.constants {
-            match object {
-                crate::VMData::Object(index) => self.objects.get(*index).mark(true, &self.objects),
-                _ => continue,
+        for val in &self.constants {
+            if val.is_object() {
+                self.objects.get(val.as_object()).mark(true, &self.objects);
             }
         }
     }
@@ -73,7 +72,9 @@ impl VM<'_> {
 
 impl Object {
     fn mark(&self, mark_as: bool, objects: &ObjectMap) {
-        self.liveliness_status.set(mark_as);
+        if self.liveliness_status.replace(mark_as) {
+            return
+        }
 
         match &self.data {
             ObjectData::Struct(v) => v.fields().iter().filter(|x| x.is_object()).for_each(|x| objects.get(x.as_object()).mark(mark_as, objects)),

@@ -14,6 +14,7 @@ use libloading::Symbol;
 use object_map::ObjectData;
 use object_map::ObjectMap;
 use std::env;
+use std::fmt::Debug;
 use std::fmt::Write;
 use std::panic::catch_unwind;
 use std::sync::Mutex;
@@ -107,7 +108,7 @@ pub struct Stack {
 impl Stack {
     fn new() -> Self {
         Self {
-            values: [VMData::Empty; STACK_SIZE],
+            values: [VMData::new_unit(); STACK_SIZE],
             stack_offset: 0,
             top: 1,
         }
@@ -227,22 +228,139 @@ impl<'a> Code<'a> {
 }
 
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct VMData {
+    tag: u64,
+    data: RawVMData,
+}
+
+
+macro_rules! def_new_vmdata_func {
+    ($ident: ident, $field: ident, $ty: ty, $const: ident) => {
+        pub fn $ident(val: $ty) -> Self {
+            Self::new(Self::$const, RawVMData { $field: val })
+        }
+    }
+}
+impl VMData {
+    pub const TAG_UNIT : u64 = 0;
+    pub const TAG_U8: u64 = 1;
+    pub const TAG_U16: u64 = 2;
+    pub const TAG_U32: u64 = 3;
+    pub const TAG_U64: u64 = 4;
+    pub const TAG_I8: u64 = 5;
+    pub const TAG_I16: u64 = 6;
+    pub const TAG_I32: u64 = 7;
+    pub const TAG_I64: u64 = 8;
+    pub const TAG_FLOAT: u64 = 9;
+    pub const TAG_BOOL: u64 = 10;
+
+
+    pub fn new(tag: u64, data: RawVMData) -> Self {
+        Self {
+            tag,
+            data,
+        }
+    }
+    
+
+    #[inline(always)]
+    pub fn tag(self) -> u64 {
+        self.tag
+    }
+    
+
+    pub fn new_unit() -> Self {
+        Self::new(Self::TAG_UNIT, RawVMData { as_unit: () })
+    }
+
+
+    pub fn new_object(val: ObjectIndex) -> Self {
+        // assert!(tag > 256, "object typeid is within the reserved area");
+        Self::new(257, RawVMData { as_object: val })
+    }
+
+
+    def_new_vmdata_func!(new_i8, as_i8, i8, TAG_I8);
+    def_new_vmdata_func!(new_i16, as_i16, i16, TAG_I16);
+    def_new_vmdata_func!(new_i32, as_i32, i32, TAG_I32);
+    def_new_vmdata_func!(new_i64, as_i64, i64, TAG_I64);
+    def_new_vmdata_func!(new_u8, as_u8, u8, TAG_U8);
+    def_new_vmdata_func!(new_u16, as_u16, u16, TAG_U16);
+    def_new_vmdata_func!(new_u32, as_u32, u32, TAG_U32);
+    def_new_vmdata_func!(new_u64, as_u64, u64, TAG_U64);
+    def_new_vmdata_func!(new_float, as_float, f64, TAG_FLOAT);
+    def_new_vmdata_func!(new_bool, as_bool, bool, TAG_BOOL);
+}
+
+
+impl PartialEq for VMData {
+    fn eq(&self, other: &Self) -> bool {
+        if self.tag != other.tag {
+            return false
+        }
+
+        match self.tag {
+            Self::TAG_I8 => self.as_i8() == other.as_i8(),
+            Self::TAG_I16 => self.as_i16() == other.as_i16(),
+            Self::TAG_I32 => self.as_i32() == other.as_i32(),
+            Self::TAG_I64 => self.as_i64() == other.as_i64(),
+            Self::TAG_U8  => self.as_u8 () == other.as_u8 (),
+            Self::TAG_U16 => self.as_u16() == other.as_u16(),
+            Self::TAG_U32 => self.as_u32() == other.as_u32(),
+            Self::TAG_U64 => self.as_u64() == other.as_u64(),
+            Self::TAG_FLOAT => self.as_float() == other.as_float(),
+            Self::TAG_UNIT => true,
+            Self::TAG_BOOL => self.as_bool() == other.as_bool(),
+            _ if self.tag > 256 => self.as_object() == other.as_object(),
+            _ => panic!("reserved"),
+        }
+    }
+}
+
+
+impl Debug for VMData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "VMData {{ tag: {}, data: {} }}",
+            self.tag,
+            match self.tag {
+                Self::TAG_UNIT => "()".to_string(),
+                Self::TAG_I8 => self.as_i8().to_string(),
+                Self::TAG_I16 => self.as_i16().to_string(),
+                Self::TAG_I32 => self.as_i32().to_string(),
+                Self::TAG_I64 => self.as_i64().to_string(),
+                Self::TAG_U8 => self.as_u8().to_string(),
+                Self::TAG_U16 => self.as_u16().to_string(),
+                Self::TAG_U32 => self.as_u32().to_string(),
+                Self::TAG_U64 => self.as_u64().to_string(),
+                Self::TAG_FLOAT => self.as_float().to_string(),
+                Self::TAG_BOOL => self.as_bool().to_string(),
+
+                _ if self.is_object() => self.as_object().to_string(),
+                _ => "reserved".to_string(),
+            }
+        )
+    }
+}
+
+
 /// The runtime union of stack values
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum VMData {
-    I8(i8),
-    I16(i16),
-    I32(i32),
-    I64(i64),
-    U8(u8),
-    U16(u16),
-    U32(u32),
-    U64(u64),
-    Float(f64),
-    Bool(bool),
-    Object(ObjectIndex),
-    Empty,
+#[derive(Clone, Copy)]
+pub union RawVMData {
+    as_unit: (),
+    as_i8: i8,
+    as_i16: i16,
+    as_i32: i32,
+    as_i64: i64,
+    as_u8: u8,
+    as_u16: u16,
+    as_u32: u32,
+    as_u64: u64,
+    as_float: f64,
+    as_bool: bool,
+    as_object: ObjectIndex,
 }
 
 
@@ -251,8 +369,8 @@ macro_rules! enum_variant_function {
         #[inline(always)]
         #[must_use]
         pub fn $getter(self) -> $ty {
-            match self {
-                VMData::$variant(v) => v,
+            match self.tag {
+                Self::$variant => unsafe { self.data.$getter },
                 _ => unreachable!()
             }
         }
@@ -261,7 +379,7 @@ macro_rules! enum_variant_function {
         #[inline(always)]
         #[must_use]
         pub fn $is(self) -> bool {
-            matches!(self, VMData::$variant(_))
+            self.tag == Self::$variant
         }
     }
 }
@@ -269,18 +387,32 @@ macro_rules! enum_variant_function {
 
 #[allow(clippy::inline_always)]
 impl VMData {
-    enum_variant_function!(as_i8 , is_i8 , I8 , i8);
-    enum_variant_function!(as_i16, is_i16, I16, i16);
-    enum_variant_function!(as_i32, is_i32, I32, i32);
-    enum_variant_function!(as_i64, is_i64, I64, i64);
-    enum_variant_function!(as_u8 , is_u8 , U8 , u8);
-    enum_variant_function!(as_u16, is_u16, U16, u16);
-    enum_variant_function!(as_u32, is_u32, U32, u32);
-    enum_variant_function!(as_u64, is_u64, U64, u64);
+    enum_variant_function!(as_i8 , is_i8 , TAG_I8 , i8);
+    enum_variant_function!(as_i16, is_i16, TAG_I16, i16);
+    enum_variant_function!(as_i32, is_i32, TAG_I32, i32);
+    enum_variant_function!(as_i64, is_i64, TAG_I64, i64);
+    enum_variant_function!(as_u8 , is_u8 , TAG_U8 , u8);
+    enum_variant_function!(as_u16, is_u16, TAG_U16, u16);
+    enum_variant_function!(as_u32, is_u32, TAG_U32, u32);
+    enum_variant_function!(as_u64, is_u64, TAG_U64, u64);
 
-    enum_variant_function!(as_float, is_float, Float, f64);
-    enum_variant_function!(as_bool, is_bool, Bool, bool);
-    enum_variant_function!(as_object, is_object, Object, ObjectIndex);
+    enum_variant_function!(as_float, is_float, TAG_FLOAT, f64);
+    enum_variant_function!(as_bool, is_bool, TAG_BOOL, bool);
+
+
+    #[inline(always)]
+    #[must_use]
+    pub fn is_object(self) -> bool {
+        self.tag > 256
+    }
+
+    pub fn as_object(self) -> ObjectIndex {
+        if !self.is_object() {
+            unreachable!()
+        }
+
+        unsafe { self.data.as_object }
+    }
 }
 
 
@@ -463,9 +595,9 @@ fn bytes_to_constants(vm: &mut VM, data: Vec<u8>) -> Result<(), FatalError> {
 
     while let Some(datatype) = constants_iter.next() {
         let constant = match datatype {
-            0 => VMData::Float(f64::from_le_bytes(constants_iter.next_chunk::<8>().unwrap())),
+            0 => VMData::new_float(f64::from_le_bytes(constants_iter.next_chunk::<8>().unwrap())),
 
-            1 => VMData::Bool(constants_iter.next().unwrap() == 1),
+            1 => VMData::new_bool(constants_iter.next().unwrap() == 1),
 
             2 => {
                 let length = u64::from_le_bytes(constants_iter.next_chunk::<8>().unwrap());
@@ -479,17 +611,17 @@ fn bytes_to_constants(vm: &mut VM, data: Vec<u8>) -> Result<(), FatalError> {
                 
                 let index = vm.create_object(Object::new(object))?;
 
-                VMData::Object(index)
+                VMData::new_object(index)
             }
 
-            3  => VMData::I8 (i8 ::from_le_bytes(constants_iter.next_chunk::<1>().unwrap())),
-            4  => VMData::I16(i16::from_le_bytes(constants_iter.next_chunk::<2>().unwrap())),
-            5  => VMData::I32(i32::from_le_bytes(constants_iter.next_chunk::<4>().unwrap())),
-            6  => VMData::I64(i64::from_le_bytes(constants_iter.next_chunk::<8>().unwrap())),
-            7  => VMData::U8 (u8 ::from_le_bytes(constants_iter.next_chunk::<1>().unwrap())),
-            8  => VMData::U16(u16::from_le_bytes(constants_iter.next_chunk::<2>().unwrap())),
-            9  => VMData::U32(u32::from_le_bytes(constants_iter.next_chunk::<4>().unwrap())),
-            10 => VMData::U64(u64::from_le_bytes(constants_iter.next_chunk::<8>().unwrap())),
+            3  => VMData::new_i8 (i8 ::from_le_bytes(constants_iter.next_chunk::<1>().unwrap())),
+            4  => VMData::new_i16(i16::from_le_bytes(constants_iter.next_chunk::<2>().unwrap())),
+            5  => VMData::new_i32(i32::from_le_bytes(constants_iter.next_chunk::<4>().unwrap())),
+            6  => VMData::new_i64(i64::from_le_bytes(constants_iter.next_chunk::<8>().unwrap())),
+            7  => VMData::new_u8 (u8 ::from_le_bytes(constants_iter.next_chunk::<1>().unwrap())),
+            8  => VMData::new_u16(u16::from_le_bytes(constants_iter.next_chunk::<2>().unwrap())),
+            9  => VMData::new_u32(u32::from_le_bytes(constants_iter.next_chunk::<4>().unwrap())),
+            10 => VMData::new_u64(u64::from_le_bytes(constants_iter.next_chunk::<8>().unwrap())),
 
             _ => unreachable!()
         };

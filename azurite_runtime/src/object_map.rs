@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::{cell::Cell, fmt::Display};
 
 use crate::VMData;
 
@@ -28,6 +28,13 @@ pub struct ObjectIndex {
 
 impl ObjectIndex {
     pub(crate) fn new(index: u64) -> Self { Self { index } }
+}
+
+
+impl Display for ObjectIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[@{}]", self.index)
+    }
 }
 
 

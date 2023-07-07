@@ -16,6 +16,11 @@ members = [
 
     "afl",
     "crates/azurite_archiver",
+
+    
+    # "builtin_libraries/standard_library",
+    "builtin_libraries/standard_library",
+    "builtin_libraries/rng_library",
 ]
 
 [profile.release]

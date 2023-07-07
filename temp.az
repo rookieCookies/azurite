@@ -1,6 +1,4 @@
-struct Hey[T] { value: T }
-
-fn hi[T](val: Hey[T]): T { val.value }
-
-var value : Hey[i32] = Hey[i32] { value: 69 }
-hi[i32](value)
+var x = 5
+var y = 3
+var z = 2
+z

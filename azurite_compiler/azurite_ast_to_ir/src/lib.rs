@@ -799,6 +799,10 @@ impl Function {
         for block in &self.blocks {
             let _ = writeln!(lock, "  bb{}:", block.block_index.0);
             for ir in &block.instructions {
+                if matches!(ir, IR::Noop) {
+                    continue
+                }
+
                 let _ = write!(lock, "    ");
                 let _ = match ir {
                     IR::Load { dst, data }                 => writeln!(lock, "load {dst} {}", state.constants[*data as usize].to_string(&state.symbol_table)),
@@ -821,7 +825,7 @@ impl Function {
                     IR::Struct { dst, fields }             => writeln!(lock, "struct {dst} ({} )", fields.iter().map(|x| format!(" {x}")).collect::<String>()),
                     IR::AccStruct { dst, val, index }      => writeln!(lock, "accstruct, {dst} {val} {index}"),
                     IR::SetField { dst, data, index }      => writeln!(lock, "setfield {dst} {data} {index}"),
-                    IR::Noop                               => writeln!(lock, "noop"),
+                    IR::Noop                               => continue,
                     IR::UnaryNot { dst, val }              => writeln!(lock, "not {dst} {val}"),
                     IR::UnaryNeg { dst, val }              => writeln!(lock, "neg {dst} {val}"),
                     

@@ -1,4 +1,4 @@
-use azurite_common::consts;
+use azurite_common::{consts, Bytecode};
 use colored::Colorize;
 use libloading::Library;
 
@@ -30,16 +30,17 @@ impl VM<'_> {
                 let dst = self.current.next();
                 let val = self.current.next();
 
-                let v = match self.stack.reg(val) {
-                    VMData::I8 (v)   => v as $t,
-                    VMData::I16(v)   => v as $t,
-                    VMData::I32(v)   => v as $t,
-                    VMData::I64(v)   => v as $t,
-                    VMData::U8 (v)   => v as $t,
-                    VMData::U16(v)   => v as $t,
-                    VMData::U32(v)   => v as $t,
-                    VMData::U64(v)   => v as $t,
-                    VMData::Float(v) => v as $t,
+                let reg = self.stack.reg(val);
+                let v = match reg.tag {
+                    VMData::TAG_I8    => reg.as_i8() as $t,
+                    VMData::TAG_I16   => reg.as_i16() as $t,
+                    VMData::TAG_I32   => reg.as_i32() as $t,
+                    VMData::TAG_I64   => reg.as_i64() as $t,
+                    VMData::TAG_U8    => reg.as_u8() as $t,
+                    VMData::TAG_U16   => reg.as_u16() as $t,
+                    VMData::TAG_U32   => reg.as_u32() as $t,
+                    VMData::TAG_U64   => reg.as_u64() as $t,
+                    VMData::TAG_FLOAT => reg.as_float() as $t,
 
                     _ => unreachable!(),
                 };
@@ -178,18 +179,19 @@ impl VM<'_> {
                     let v1 = self.current.next();
                     let v2 = self.current.next();
 
-                    let val = match (self.stack.reg(v1), self.stack.reg(v2)) {
-                        (VMData::I8(v1),  VMData::I8(v2))  => integer_division!(I8,  v1, v2),
-                        (VMData::I16(v1), VMData::I16(v2)) => integer_division!(I16, v1, v2),
-                        (VMData::I32(v1), VMData::I32(v2)) => integer_division!(I32, v1, v2),
-                        (VMData::I64(v1), VMData::I64(v2)) => integer_division!(I64, v1, v2),
+                    let (v1, v2) = (self.stack.reg(v1), self.stack.reg(v2));
+                    let val = match (v1.tag, v2.tag) {
+                        (VMData::TAG_I8 , VMData::TAG_I8 ) => integer_division!(new_i8,  v1.as_i8() , v2.as_i8() ),
+                        (VMData::TAG_I16, VMData::TAG_I16) => integer_division!(new_i16, v1.as_i16(), v2.as_i16()),
+                        (VMData::TAG_I32, VMData::TAG_I32) => integer_division!(new_i32, v1.as_i32(), v2.as_i32()),
+                        (VMData::TAG_I64, VMData::TAG_I64) => integer_division!(new_i64, v1.as_i64(), v2.as_i64()),
 
-                        (VMData::U8(v1),  VMData::U8(v2))  => integer_division!(U8,  v1, v2),
-                        (VMData::U16(v1), VMData::U16(v2)) => integer_division!(U16, v1, v2),
-                        (VMData::U32(v1), VMData::U32(v2)) => integer_division!(U32, v1, v2),
-                        (VMData::U64(v1), VMData::U64(v2)) => integer_division!(U64, v1, v2),
+                        (VMData::TAG_U8 , VMData::TAG_U8 ) => integer_division!(new_u8 , v1.as_u8() , v2.as_u8() ),
+                        (VMData::TAG_U16, VMData::TAG_U16) => integer_division!(new_u16, v1.as_u16(), v2.as_u16()),
+                        (VMData::TAG_U32, VMData::TAG_U32) => integer_division!(new_u32, v1.as_u32(), v2.as_u32()),
+                        (VMData::TAG_U64, VMData::TAG_U64) => integer_division!(new_u64, v1.as_u64(), v2.as_u64()),
 
-                        (VMData::Float(v1), VMData::Float(v2)) => VMData::Float(v1 / v2),
+                        (VMData::TAG_FLOAT, VMData::TAG_FLOAT) => VMData::new_float(v1.as_float() / v2.as_float()),
 
                         _ => unreachable!(),
                     };
@@ -210,7 +212,7 @@ impl VM<'_> {
                     let v2 = self.current.next();
 
                     let value = self.stack.reg(v1) == self.stack.reg(v2);
-                    self.stack.set_reg(dst, VMData::Bool(value));
+                    self.stack.set_reg(dst, VMData::new_bool(value));
                 }
 
 
@@ -220,7 +222,7 @@ impl VM<'_> {
                     let v2 = self.current.next();
 
                     let value = self.stack.reg(v1) != self.stack.reg(v2);
-                    self.stack.set_reg(dst, VMData::Bool(value));
+                    self.stack.set_reg(dst, VMData::new_bool(value));
                 }
 
 
@@ -344,7 +346,7 @@ impl VM<'_> {
                     #[cfg(debug_assertions)]
                     {
                         let reg = self.current.next();
-                        self.stack.set_reg(reg, VMData::Empty);
+                        self.stack.set_reg(reg, VMData::new_unit());
                     }
                 }
 
@@ -362,7 +364,7 @@ impl VM<'_> {
                         Err(e) => break Status::Err(e),
                     };
                     
-                    self.stack.set_reg(dst, VMData::Object(index));
+                    self.stack.set_reg(dst, VMData::new_object(index));
                 }
 
 
@@ -372,11 +374,7 @@ impl VM<'_> {
                     let index = self.current.next();
 
                     let val = self.stack.reg(struct_at);
-                    let obj = match val {
-                        VMData::Object(v) => self.objects.get(v),
-
-                        _ => unreachable!(),
-                    };
+                    let obj = self.objects.get(val.as_object());
 
                     let accval = obj.structure().fields()[index as usize];
 
@@ -393,11 +391,7 @@ impl VM<'_> {
                     let data = self.stack.reg(data);
 
                     let val = self.stack.reg(struct_at);
-                    let obj = match val {
-                        VMData::Object(v) => self.objects.get_mut(v),
-
-                        _ => unreachable!(),
-                    };
+                    let obj = self.objects.get_mut(val.as_object());
 
                     obj.structure_mut().fields_mut()[index as usize] = data;
                 }
@@ -407,12 +401,13 @@ impl VM<'_> {
                     let dst = self.current.next();
                     let val = self.current.next();
 
-                    match self.stack.reg(val) {
-                        VMData::I8 (v)  => self.stack.set_reg(dst, VMData::I8(-v)),
-                        VMData::I16(v)  => self.stack.set_reg(dst, VMData::I16(-v)),
-                        VMData::I32(v)  => self.stack.set_reg(dst, VMData::I32(-v)),
-                        VMData::I64(v)  => self.stack.set_reg(dst, VMData::I64(-v)),
-                        VMData::Float(v) => self.stack.set_reg(dst, VMData::Float(-v)),
+                    let reg = self.stack.reg(val);
+                    match reg.tag {
+                        VMData::TAG_I8    => self.stack.set_reg(dst, VMData::new_i8(-reg.as_i8())),
+                        VMData::TAG_I16   => self.stack.set_reg(dst, VMData::new_i16(-reg.as_i16())),
+                        VMData::TAG_I32   => self.stack.set_reg(dst, VMData::new_i32(-reg.as_i32())),
+                        VMData::TAG_I64   => self.stack.set_reg(dst, VMData::new_i64(-reg.as_i64())),
+                        VMData::TAG_FLOAT => self.stack.set_reg(dst, VMData::new_float(-reg.as_float())),
 
                         _ => unreachable!(),
                     }
@@ -424,19 +419,19 @@ impl VM<'_> {
                     let val = self.current.next();
 
                     let data = self.stack.reg(val).as_bool();
-                    self.stack.set_reg(dst, VMData::Bool(!data))
+                    self.stack.set_reg(dst, VMData::new_bool(!data))
                 }
 
 
-                consts::CastToI8  => cast_to!(i8 , I8),
-                consts::CastToI16 => cast_to!(i16, I16),
-                consts::CastToI32 => cast_to!(i32, I32),
-                consts::CastToI64 => cast_to!(i64, I64),
-                consts::CastToU8  => cast_to!(u8 , U8),
-                consts::CastToU16 => cast_to!(u16, U16),
-                consts::CastToU32 => cast_to!(u32, U32),
-                consts::CastToU64 => cast_to!(u64, U64),
-                consts::CastToFloat => cast_to!(f64, Float),
+                consts::CastToI8  => cast_to!(i8 , new_i8),
+                consts::CastToI16 => cast_to!(i16, new_i16),
+                consts::CastToI32 => cast_to!(i32, new_i32),
+                consts::CastToI64 => cast_to!(i64, new_i64),
+                consts::CastToU8  => cast_to!(u8 , new_u8),
+                consts::CastToU16 => cast_to!(u16, new_u16),
+                consts::CastToU32 => cast_to!(u32, new_u32),
+                consts::CastToU64 => cast_to!(u64, new_u64),
+                consts::CastToFloat => cast_to!(f64, new_float),
 
                 _ => panic!("unreachable {value}"),
             };
@@ -525,17 +520,19 @@ impl<'a> VM<'a> {
 
         float_func: fn(f64, f64) -> f64,
     ) {
-        let val = match (self.stack.reg(v1), self.stack.reg(v2)) {
-            (VMData::I8(v1),  VMData::I8(v2))  => VMData::I8(i8_func(v1, v2)),
-            (VMData::I16(v1), VMData::I16(v2)) => VMData::I16(i16_func(v1, v2)),
-            (VMData::I32(v1), VMData::I32(v2)) => VMData::I32(i32_func(v1, v2)),
-            (VMData::I64(v1), VMData::I64(v2)) => VMData::I64(i64_func(v1, v2)),
-            (VMData::U8(v1),  VMData::U8(v2))  => VMData::U8(u8_func(v1, v2)),
-            (VMData::U16(v1), VMData::U16(v2)) => VMData::U16(u16_func(v1, v2)),
-            (VMData::U32(v1), VMData::U32(v2)) => VMData::U32(u32_func(v1, v2)),
-            (VMData::U64(v1), VMData::U64(v2)) => VMData::U64(u64_func(v1, v2)),
+        let v1 = self.stack.reg(v1);
+        let v2 = self.stack.reg(v2);
+        let val = match (v1.tag(), v2.tag()) {
+            (VMData::TAG_I8 , VMData::TAG_I8 ) => VMData::new_i8(i8_func(v1.as_i8(), v2.as_i8())),
+            (VMData::TAG_I16, VMData::TAG_I16) => VMData::new_i16(i16_func(v1.as_i16(), v2.as_i16())),
+            (VMData::TAG_I32, VMData::TAG_I32) => VMData::new_i32(i32_func(v1.as_i32(), v2.as_i32())),
+            (VMData::TAG_I64, VMData::TAG_I64) => VMData::new_i64(i64_func(v1.as_i64(), v2.as_i64())),
+            (VMData::TAG_U8 , VMData::TAG_U8 ) => VMData::new_u8(u8_func(v1.as_u8(), v2.as_u8())),
+            (VMData::TAG_U16, VMData::TAG_U16) => VMData::new_u16(u16_func(v1.as_u16(), v2.as_u16())),
+            (VMData::TAG_U32, VMData::TAG_U32) => VMData::new_u32(u32_func(v1.as_u32(), v2.as_u32())),
+            (VMData::TAG_U64, VMData::TAG_U64) => VMData::new_u64(u64_func(v1.as_u64(), v2.as_u64())),
 
-            (VMData::Float(v1), VMData::Float(v2)) => VMData::Float(float_func(v1, v2)),
+            (VMData::TAG_FLOAT, VMData::TAG_FLOAT) => VMData::new_float(float_func(v1.as_float(), v2.as_float())),
 
             _ => unreachable!(),
         };
@@ -560,17 +557,24 @@ impl<'a> VM<'a> {
 
         float_func: fn(&f64, &f64) -> bool,
     ) {
-        let val = match (self.stack.reg(v1), self.stack.reg(v2)) {
-            (VMData::I8(v1),  VMData::I8(v2))  => VMData::Bool(i8_func(&v1, &v2)),
-            (VMData::I16(v1), VMData::I16(v2)) => VMData::Bool(i16_func(&v1, &v2)),
-            (VMData::I32(v1), VMData::I32(v2)) => VMData::Bool(i32_func(&v1, &v2)),
-            (VMData::I64(v1), VMData::I64(v2)) => VMData::Bool(i64_func(&v1, &v2)),
-            (VMData::U8(v1),  VMData::U8(v2))  => VMData::Bool(u8_func(&v1, &v2)),
-            (VMData::U16(v1), VMData::U16(v2)) => VMData::Bool(u16_func(&v1, &v2)),
-            (VMData::U32(v1), VMData::U32(v2)) => VMData::Bool(u32_func(&v1, &v2)),
-            (VMData::U64(v1), VMData::U64(v2)) => VMData::Bool(u64_func(&v1, &v2)),
+        let v1 = self.stack.reg(v1);
+        let v2 = self.stack.reg(v2);
 
-            (VMData::Float(v1), VMData::Float(v2)) => VMData::Bool(float_func(&v1, &v2)),
+        if v1.tag != v2.tag {
+            unreachable!()
+        }
+        
+        let val = match v1.tag {
+            VMData::TAG_I8  => VMData::new_bool(i8_func(&v1.as_i8(), &v2.as_i8())),
+            VMData::TAG_I16 => VMData::new_bool(i16_func(&v1.as_i16(), &v2.as_i16())),
+            VMData::TAG_I32 => VMData::new_bool(i32_func(&v1.as_i32(), &v2.as_i32())),
+            VMData::TAG_I64 => VMData::new_bool(i64_func(&v1.as_i64(), &v2.as_i64())),
+            VMData::TAG_U8  => VMData::new_bool(u8_func(&v1.as_u8(), &v2.as_u8())),
+            VMData::TAG_U16 => VMData::new_bool(u16_func(&v1.as_u16(), &v2.as_u16())),
+            VMData::TAG_U32 => VMData::new_bool(u32_func(&v1.as_u32(), &v2.as_u32())),
+            VMData::TAG_U64 => VMData::new_bool(u64_func(&v1.as_u64(), &v2.as_u64())),
+
+            VMData::TAG_FLOAT => VMData::new_bool(float_func(&v1.as_float(), &v2.as_float())),
 
             _ => unreachable!(),
         };

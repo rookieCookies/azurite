@@ -32,13 +32,13 @@ pub extern "C" fn duration_now(vm: &mut VM) -> Status {
     let secs = time.as_secs();
     let nanos = time.subsec_nanos();
 
-    let object = Object::new(Structure::new(vec![VMData::U64(secs), VMData::U32(nanos)]));
+    let object = Object::new(Structure::new(vec![VMData::new_u64(secs), VMData::new_u32(nanos)]));
     let object = match vm.create_object(object) {
         Ok(v) => v,
         Err(v) => return Status::Err(v),
     };
 
-    vm.stack.set_reg(0, VMData::Object(object));
+    vm.stack.set_reg(0, VMData::new_object(object));
 
     Status::Ok
 }
@@ -81,7 +81,7 @@ pub extern "C" fn read_line(vm: &mut VM) -> Status {
         return Status::err("failed to read stdin")
     }
 
-    let temp = VMData::Object(register_string(vm, string)?);
+    let temp = VMData::new_object(register_string(vm, string)?);
     vm.stack.set_reg(0, temp);
 
     Status::Ok
@@ -107,7 +107,7 @@ pub extern "C" fn get_var(vm: &mut VM) -> Status {
     };
 
     let index = register_string(vm, env_val)?;
-    vm.stack.set_reg(0, VMData::Object(index));
+    vm.stack.set_reg(0, VMData::new_object(index));
 
     Status::Ok
 }
@@ -141,27 +141,7 @@ pub extern "C" fn int_to_str(vm: &mut VM) -> Status {
     let integer = vm.stack.reg(1).as_i64();
 
     let object = register_string(vm, integer.to_string())?;
-    vm.stack.set_reg(0, VMData::Object(object));
-
-    Status::Ok
-}
-
-
-#[no_mangle]
-pub extern "C" fn int_to_float(vm: &mut VM) -> Status {
-    let integer = vm.stack.reg(1).as_i64();
-
-    vm.stack.set_reg(0, VMData::Float(integer as f64));
-
-    Status::Ok
-}
-
-
-#[no_mangle]
-pub extern "C" fn int_to_bool(vm: &mut VM) -> Status {
-    let integer = vm.stack.reg(1).as_i64();
-
-    vm.stack.set_reg(0, VMData::Bool(integer != 0));
+    vm.stack.set_reg(0, VMData::new_object(object));
 
     Status::Ok
 }
@@ -172,27 +152,7 @@ pub extern "C" fn float_to_str(vm: &mut VM) -> Status {
     let float = vm.stack.reg(1).as_float();
 
     let object = register_string(vm, float.to_string())?;
-    vm.stack.set_reg(0, VMData::Object(object));
-
-    Status::Ok
-}
-
-
-#[no_mangle]
-pub extern "C" fn float_to_int(vm: &mut VM) -> Status {
-    let float = vm.stack.reg(1).as_float();
-
-    vm.stack.set_reg(0, VMData::I64(float as i64));
-
-    Status::Ok
-}
-
-
-#[no_mangle]
-pub extern "C" fn float_to_bool(vm: &mut VM) -> Status {
-    let float = vm.stack.reg(1).as_float();
-
-    vm.stack.set_reg(0, VMData::Bool(float != 0.0));
+    vm.stack.set_reg(0, VMData::new_object(object));
 
     Status::Ok
 }
@@ -203,27 +163,7 @@ pub extern "C" fn bool_to_str(vm: &mut VM) -> Status {
     let boolean = vm.stack.reg(1).as_bool();
 
     let object = register_string(vm, boolean.to_string())?;
-    vm.stack.set_reg(0, VMData::Object(object));
-
-    Status::Ok
-}
-
-
-#[no_mangle]
-pub extern "C" fn bool_to_int(vm: &mut VM) -> Status {
-    let boolean = vm.stack.reg(1).as_bool();
-
-    vm.stack.set_reg(0, VMData::I64(if boolean { 1 } else { 0 }));
-
-    Status::Ok
-}
-
-
-#[no_mangle]
-pub extern "C" fn bool_to_float(vm: &mut VM) -> Status {
-    let boolean = vm.stack.reg(1).as_bool();
-
-    vm.stack.set_reg(0, VMData::Float(if boolean { 1.0 } else { 0.0 }));
+    vm.stack.set_reg(0, VMData::new_object(object));
 
     Status::Ok
 }
@@ -234,7 +174,7 @@ pub extern "C" fn to_string_float(vm: &mut VM) -> Status {
     let float = vm.stack.reg(1).as_float();
 
     let object = register_string(vm, float.to_string())?;
-    vm.stack.set_reg(0, VMData::Object(object));
+    vm.stack.set_reg(0, VMData::new_object(object));
 
     Status::Ok
 }
@@ -244,7 +184,7 @@ pub extern "C" fn to_string_float(vm: &mut VM) -> Status {
 pub extern "C" fn to_string_bool(vm: &mut VM) -> Status {
     let boolean = vm.stack.reg(1).as_bool();
     let object = register_string(vm, boolean.to_string())?;
-    vm.stack.set_reg(0, VMData::Object(object));
+    vm.stack.set_reg(0, VMData::new_object(object));
 
     Status::Ok
 }
@@ -259,7 +199,7 @@ pub extern "C" fn string_append(vm: &mut VM) -> Status {
     let string = vm.objects.get_mut(string_index).string_mut();
     string.push_str(other_string.as_str());
 
-    vm.stack.set_reg(0, VMData::Object(string_index));
+    vm.stack.set_reg(0, VMData::new_object(string_index));
 
     Status::Ok
 }
@@ -274,7 +214,7 @@ pub extern "C" fn parse_str_as_int(vm: &mut VM) -> Status {
         return Status::err("failed to parse string as int");
     };
 
-    vm.stack.set_reg(0, VMData::I64(number));
+    vm.stack.set_reg(0, VMData::new_i64(number));
 
     Status::Ok
 }

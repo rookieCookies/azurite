@@ -3,7 +3,7 @@
 #![feature(iter_intersperse)]
 pub mod variable_stack;
 
-use std::{collections::HashMap, fs, path::{PathBuf, Path}};
+use std::{collections::HashMap, fs, path::{PathBuf, Path}, env};
 
 use azurite_errors::{Error, CompilerError, ErrorBuilder, CombineIntoError};
 use azurite_parser::ast::{Instruction, InstructionKind, Statement, Expression, BinaryOperator, Declaration, UnaryOperator};
@@ -120,7 +120,13 @@ impl AnalysisState {
 
 
     pub fn start_analysis(&mut self, global: &mut GlobalState, instructions: &mut [Instruction]) -> Result<(), Error> {
-        {
+        #[cfg(features = "afl")]
+        let no_std = false;
+
+        #[cfg(not(features = "afl"))]
+        let no_std = env::var(azurite_common::environment::NO_STD).unwrap_or("0".to_string()) == "1";
+
+        if !no_std {
             let file_name = global.symbol_table.add(String::from("std"));
             self.available_files.insert(file_name, file_name);
             
@@ -1800,7 +1806,10 @@ impl TypeConversionState<'_> {
 
             
             Expression::AccessStructureData { structure, .. } => self.convert_type(structure),
-            Expression::WithinNamespace { do_within, .. } => self.convert_type(do_within),
+            Expression::WithinNamespace { do_within, namespace  } => {
+                
+                self.convert_type(do_within)
+            },
 
             
             Expression::Data(_) => (),
