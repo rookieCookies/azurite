@@ -124,20 +124,21 @@ impl DataType {
             DataType::Any          => "any".to_string(),
             // DataType::Struct(v)    => symbol_table.get(v),
             DataType::Struct(v, generics) => {
-                let string = symbol_table.get_name_without_generics(*v);
-                let mut string = symbol_table.get(&string);
+                let v = symbol_table.get_name_without_generics(*v);
+                let mut string = String::new();
+                let _ = write!(string, "{}", symbol_table.get(&v));
 
                 if !generics.is_empty() {
-                    write!(string, "[");
+                    let _ = write!(string, "[");
                     for gen in generics.iter().enumerate() {
                         if gen.0 != 0 {
-                            write!(string, ", ");
+                            let _ = write!(string, ", ");
                         }
 
-                        write!(string, "{}", gen.1.data_type.to_string(symbol_table));
+                        let _ = write!(string, "{}", gen.1.data_type.to_string(symbol_table));
                     }
 
-                    write!(string, "]");
+                    let _ = write!(string, "]");
                 }
 
                 string
@@ -174,6 +175,7 @@ impl DataType {
         }
     }
 }
+
 
 
 #[derive(Debug, PartialEq, Clone)]
@@ -291,7 +293,6 @@ impl SymbolTable {
         None
     }
 
-
     pub fn add_generics(&mut self, symbol: SymbolIndex, generics: &[SourcedDataType]) -> SymbolIndex {
         if generics.is_empty() {
             return symbol
@@ -317,6 +318,16 @@ impl SymbolTable {
         }
 
         base_name
+    }
+
+
+    pub fn pretty_print(&self) {
+        for i in self.vec.iter().enumerate() {
+            println!("{:>w$} | {}", i.0, match i.1 {
+                SymbolTableValue::String(v) => v.to_string(),
+                SymbolTableValue::Combo(v, a) => format!("{v:?}, {a:?}"),
+            }, w = self.vec.len().to_string().len())
+        }
     }
 }
 

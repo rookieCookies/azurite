@@ -1,5 +1,5 @@
 #![allow(clippy::map_entry)]
-#![feature(hash_drain_filter)]
+#![feature(hash_extract_if)]
 #![feature(iter_intersperse)]
 pub mod variable_stack;
 
@@ -7,15 +7,10 @@ use std::{collections::HashMap, fs, path::{PathBuf, Path}};
 
 use azurite_errors::{Error, CompilerError, ErrorBuilder, CombineIntoError};
 use azurite_parser::ast::{Instruction, InstructionKind, Statement, Expression, BinaryOperator, Declaration, UnaryOperator};
-use common::{DataType, SymbolTable, SymbolIndex, Data, SourceRange, SourcedDataType, GenericMap, SourcedData, generic_declaration_suffix};
+use common::{DataType, SymbolTable, SymbolIndex, Data, SourceRange, SourcedDataType, SourcedData};
 use variable_stack::VariableStack;
 
 const STD_LIBRARY : &str = include_str!("../../../builtin_libraries/azurite_api_files/std.az");
-
-
-mod rename {
-    pub const GENERIC : &str = "@";
-}
 
 
 #[derive(Debug, PartialEq)]
@@ -125,28 +120,28 @@ impl AnalysisState {
 
 
     pub fn start_analysis(&mut self, global: &mut GlobalState, instructions: &mut [Instruction]) -> Result<(), Error> {
-        // {
-        //     let file_name = global.symbol_table.add(String::from("std"));
-        //     self.available_files.insert(file_name, file_name);
+        {
+            let file_name = global.symbol_table.add(String::from("std"));
+            self.available_files.insert(file_name, file_name);
             
-        //     if !global.files.contains_key(&file_name) {
-        //         let file = STD_LIBRARY.replace('\t', "    ").replace('\r', "");
+            if !global.files.contains_key(&file_name) {
+                let file = STD_LIBRARY.replace('\t', "    ").replace('\r', "");
         
-        //         let tokens = azurite_lexer::lex(&file, file_name, global.symbol_table);
-        //         global.files.insert(file_name, (AnalysisState::new(file_name), vec![], file));
+                let tokens = azurite_lexer::lex(&file, file_name, global.symbol_table);
+                global.files.insert(file_name, (AnalysisState::new(file_name), vec![], file));
 
-        //         let tokens = tokens?;
-        //         let mut instructions = azurite_parser::parse(tokens.into_iter(), file_name, global.symbol_table)?;
-        //         let mut analysis = AnalysisState::new(file_name);
-        //         analysis.start_analysis(global, &mut instructions)?;
+                let tokens = tokens?;
+                let mut instructions = azurite_parser::parse(tokens, file_name, global.symbol_table)?;
+                let mut analysis = AnalysisState::new(file_name);
+                analysis.start_analysis(global, &mut instructions)?;
 
-        //         let temp = global.files.get_mut(&file_name).unwrap(); 
-        //         temp.0 = analysis;
-        //         temp.1 = instructions;
+                let temp = global.files.get_mut(&file_name).unwrap(); 
+                temp.0 = analysis;
+                temp.1 = instructions;
 
 
-        //     }
-        // }
+            }
+        }
         
         self.analyze_block(global, instructions, false, true, None)?;
 
@@ -193,14 +188,11 @@ impl AnalysisState {
                 }
             }
 
-
             for x in instructions.iter_mut() {
-                if let InstructionKind::Declaration(Declaration::StructDeclaration { name, fields, generics }) = &mut x.instruction_kind {
-                    for field in fields.iter_mut() {
-                        self.update_type(&mut field.1, global)?;
+                if let InstructionKind::Declaration(d) = &mut x.instruction_kind {
+                    if let Err(e) = self.declaration_early_process_stage_2(global, d) {
+                        errors.push(e);
                     }
-
-                    global.structures.get_mut(name).unwrap().fields = fields.clone();
                 }
             }
 
@@ -256,15 +248,9 @@ impl AnalysisState {
                 analysis_state.custom_path = *name;
 
                 {
-                    println!("generics {generics:?}");
                     for g in generics.iter() {
                         global.structures.insert(*g, Structure { fields: vec![], is_template_structure: false });
                         analysis_state.structures.insert(*g, (*g, 0));
-                    }
-
-                    println!("eeeeeeeee {}", analysis_state.structures.len());
-                    for s in analysis_state.structures.iter() {
-                        println!("{} - {} {}", global.symbol_table.get(s.0), global.symbol_table.get(&s.1.0), s.1.1);
                     }
                 }
 
@@ -287,16 +273,12 @@ impl AnalysisState {
                     let mut errors = vec![];
                     
                     for argument in arguments.iter_mut() {
-
-                        println!("args {} - {}", global.symbol_table.get(&argument.0), &argument.1.data_type.identifier(global.symbol_table));
-
                         if let Err(e) = analysis_state.update_type(&mut argument.1, global) {
                             errors.push(e);
-                            analysis_state.variable_stack.push(argument.0, SourcedDataType::new(argument.1.source_range, DataType::Any));
                             continue;
                         };
 
-                        println!("args {} - {}", global.symbol_table.get(&argument.0), &argument.1.data_type.identifier(global.symbol_table));
+
                         analysis_state.variable_stack.push(argument.0, argument.1.clone());
                     }
 
@@ -311,20 +293,8 @@ impl AnalysisState {
 
                 }
 
-
-                println!("1");
-                // if !analysis_state.generics.is_empty() {
-                //     self.functions = std::mem::take(&mut analysis_state.functions);
-                //     self.structures = std::mem::take(&mut analysis_state.structures);
-                //     self.available_files = std::mem::take(&mut analysis_state.available_files);
-                //     *generics = std::mem::take(&mut analysis_state.generics);
-
-                //     return Ok(())
-                // }
                 
-
                 let body_return_type = analysis_state.analyze_block(global, body, true, true, Some(&return_type.data_type));
-                println!("2");
                 let body_return_type = match body_return_type {
                     Ok(v) => v,
                     Err(e) => {
@@ -346,7 +316,7 @@ impl AnalysisState {
                 self.functions = std::mem::take(&mut analysis_state.functions);
                 self.structures = std::mem::take(&mut analysis_state.structures);
                 self.available_files = std::mem::take(&mut analysis_state.available_files);
-                // *generics = std::mem::take(&mut analysis_state.generics);
+
 
                 if return_type_is_not_same_as_body_type {
                     return Err(CompilerError::new(self.file, 211, "function body returns a different type")
@@ -694,6 +664,7 @@ impl AnalysisState {
                 };
 
 
+
                 if function.is_template_function {
                     let generic_count = global.template_functions.get(&absolute_identifier).unwrap().generics.len();
                     if generics.len() != generic_count {
@@ -761,7 +732,7 @@ impl AnalysisState {
                                 continue
                             },
                         };
-
+ 
 
                         if !is_of_type {
                             errors.push(CompilerError::new(self.file, 213, "argument is of invalid type")
@@ -786,16 +757,15 @@ impl AnalysisState {
 
             
             Expression::StructureCreation { identifier, fields, identifier_range, generics } => {
-                *identifier = global.symbol_table.add_generics(*identifier, generics);
-                let (mut structure, mut full_name) = self.get_struct(global, identifier_range, identifier, &generics)?;
-                if structure.is_template_structure {
+                let (mut structure, mut full_name) = self.get_struct(global, identifier_range, identifier, generics)?;
+                let is_template = structure.is_template_structure;
+                if is_template {
                     full_name = self.create_structure_from_template(
                         global, 
                         full_name, 
                         generics
                     );
 
-                    println!("full {}", global.symbol_table.get(&full_name));
                     structure = global.structures.get(&full_name).unwrap();
                 };
                 
@@ -868,7 +838,6 @@ impl AnalysisState {
 
                 fields.sort_by_key(|x| x.0);
 
-                *identifier = global.symbol_table.add_generics(*identifier, &generics);
                 Ok(SourcedDataType::new(*source_range, DataType::Struct(*identifier, generics.clone())))
             },
 
@@ -882,7 +851,6 @@ impl AnalysisState {
                         // 'get_struct' is intentional. Any value that returns a
                         // type which is of 'DataType::Struct' should've already
                         // converted that to the fully qualified name.
-                        println!("AH {}", structure_type.data_type.identifier(global.symbol_table));
                         let structure = global.structures.get(&v).unwrap();
 
                         if let Some(v) = structure.fields.iter().enumerate().find(|x| x.1.0 == *identifier) {
@@ -926,7 +894,7 @@ impl AnalysisState {
                 
                 self.variable_stack.push(*identifier, if let Some(v) = type_hint { v.clone() } else { data_type.clone() });
 
-                if !type_hint.as_ref().map_or(Ok(true), |x| self.is_of_type(global, (&data_type, data), &x))? {
+                if !type_hint.as_ref().map_or(Ok(true), |x| self.is_of_type(global, (&data_type, data), x))? {
                     return Err(CompilerError::new(self.file, 210, "value differs from type hint")
                         .highlight(data.source_range)
                             .note(format!("is of type {} but the type hint is {}", global.to_string(&data_type.data_type), global.to_string(&type_hint.as_ref().unwrap().data_type)))
@@ -1082,8 +1050,8 @@ impl AnalysisState {
                 }
 
 
-                let mut arguments_type : Vec<_> = arguments.iter().map(|x| x.1.clone()).collect();
-                let mut return_type = return_type.clone();
+                let arguments_type : Vec<_> = arguments.iter().map(|x| x.1.clone()).collect();
+                let return_type = return_type.clone();
 
 
                 // if self.update_type(&mut return_type, global).is_err() {
@@ -1222,7 +1190,7 @@ impl AnalysisState {
                             Err(_) => return Err(CompilerError::new(self.file, 223, "file doesn't exist")
                                 .highlight(*source_range)
                                     .note(format!("can't find a file named {} at any of the following paths: {}, {}",
-                                        global.symbol_table.get(&file_name),
+                                        global.symbol_table.get(file_name),
                                         path_local_to_file.to_string_lossy(),
                                         new_path.to_string_lossy(),
                                 ))
@@ -1261,6 +1229,100 @@ impl AnalysisState {
                 }
             },
         };
+        Ok(())
+    }
+
+
+    fn declaration_early_process_stage_2(&mut self, global: &mut GlobalState, instruction: &mut Declaration) -> Result<(), Error> {
+        match instruction {
+            Declaration::FunctionDeclaration { name, arguments, return_type, generics, .. } => {
+                if !generics.is_empty() {
+                    return Ok(())
+                }
+
+                let mut errors = vec![];
+                for a in arguments.iter_mut() {
+                    if let Err(e) = self.update_type(&mut a.1, global) {
+                        errors.push(e);
+                        a.1.data_type = DataType::Any;
+                    }
+                }
+
+                if let Err(e) = self.update_type(return_type, global) {
+                    errors.push(e);
+                    return_type.data_type = DataType::Any;
+                }
+
+                let x = global.functions.get_mut(name).unwrap();
+                x.return_type = return_type.clone();
+                x.arguments = arguments.iter().map(|x| x.1.clone()).collect();
+
+                if !errors.is_empty() {
+                    return Err(errors.combine_into_error())
+                }
+            },
+
+            
+            Declaration::StructDeclaration { fields, generics, .. } => {
+                if !generics.is_empty() {
+                    return Ok(())
+                }
+
+                let mut errors = vec![];
+                for f in fields {
+                    if let Err(e) = self.update_type(&mut f.1, global) {
+                        f.1.data_type = DataType::Any;
+                        errors.push(e);
+                    }
+                }
+
+                if !errors.is_empty() {
+                    return Err(errors.combine_into_error())
+                }
+            },
+
+
+            Declaration::Namespace { body, .. } => {
+                for i in body {
+                    if let InstructionKind::Declaration(d) = &mut i.instruction_kind {
+                        self.declaration_early_process_stage_2(global, d)?;
+                    }
+                }
+            },
+            Declaration::ImplBlock { body, datatype } => {
+                self.update_type(datatype, global)?;
+                for i in body {
+                    if let InstructionKind::Declaration(d) = &mut i.instruction_kind {
+                        self.declaration_early_process_stage_2(global, d)?;
+                    }
+                }
+            },
+            Declaration::Extern { functions, .. } => {
+                let mut errors = vec![];
+                
+                for f in functions {
+                    for a in f.arguments.iter_mut() {
+                        if let Err(e) = self.update_type(a, global) {
+                            a.data_type = DataType::Any;
+                            errors.push(e);
+                        }
+                    }
+
+                    if let Err(e) = self.update_type(&mut f.return_type, global) {
+                        f.return_type.data_type = DataType::Any;
+                        errors.push(e);
+                    }
+                }
+
+                if !errors.is_empty() {
+                    return Err(errors.combine_into_error())
+                }
+            },
+
+            
+            Declaration::UseFile { .. } => (),
+        };
+
         Ok(())
     }
 }
@@ -1304,7 +1366,7 @@ impl AnalysisState {
 
             (DataType::Struct(v, _), DataType::Struct(v2, _)) => Ok(v == v2),
 
-            _ => Ok(false)
+            _ => Ok(frst.data_type == oth.data_type)
         }
     }
 
@@ -1312,35 +1374,16 @@ impl AnalysisState {
     fn update_type(&self, datatype: &mut SourcedDataType, global: &mut GlobalState) -> Result<bool, Error> {
         self.is_valid_type(global, datatype)?;
         if let DataType::Struct(v, gens) = &mut datatype.data_type {
-            {
-                let mut has_changed = false;
-                let mut generics = gens.to_vec();
-                for g in generics.iter_mut() {
-                    if self.update_type(g, global)? {
-                        has_changed = true;
-                    }
-                }
+            let (structure, id) = self.get_struct(global, &datatype.source_range, v, gens)?;
 
-                if has_changed {
-                    let base_name = global.symbol_table.get_name_without_generics(*v);
-                    
-                    *v = global.symbol_table.add_generics(base_name, &generics);
-                    *gens = generics.into();
-                }
+
+            *v = id;
+            if structure.is_template_structure {
+                *v = self.create_structure_from_template(global, id, gens);
             }
-
-
-            let base_name = global.symbol_table.get_name_without_generics(*v);
-            println!("{} --------  {}", global.symbol_table.get(&base_name), global.symbol_table.get(v));
-            let (structure, symbol) = self.get_struct(global, &datatype.source_range, &base_name, &gens)?;
-            *v = symbol;
-            // if structure.is_template_structure {
-            //     *v = global.symbol_table.add_generics(*v, gens);
-            // }
-
-            let base_name = global.symbol_table.get_name_without_generics(*v);
-            println!("HELLO>!>! {} {}", global.symbol_table.get(&base_name), global.symbol_table.get(v));
-            return Ok(true)
+            
+            
+            return Ok(true);
 
         };
 
@@ -1351,7 +1394,7 @@ impl AnalysisState {
     fn is_valid_type(&self, global: &mut GlobalState, value: &SourcedDataType) -> Result<(), Error> {
         let v = match &value.data_type {
             DataType::Struct(v, g) => {
-                self.get_struct(global, &value.source_range, v, &g)?;
+                self.get_struct(global, &value.source_range, v, g)?;
                 true
             },
             _ => true
@@ -1421,7 +1464,6 @@ impl AnalysisState {
     
     fn get_struct<'a>(&self, global: &'a mut GlobalState, range: &SourceRange, symbol: &SymbolIndex, generics: &[SourcedDataType]) -> Result<(&'a Structure, SymbolIndex), Error> {
         let base = global.symbol_table.get_name_without_generics(*symbol);
-        println!("aDSFIPUNOGJ {}", global.symbol_table.get(symbol));
         let (structure, v) = if let Some(v) = self.get_struct_option(global.symbol_table, &global.files, &global.structures, symbol, true) { v }
                         else if let Some(v) = {
                             self.get_struct_option(global.symbol_table, &global.files, &global.structures, &base, true)
@@ -1434,18 +1476,14 @@ impl AnalysisState {
                                 .build())
                         };
             
-            
 
-        let v_base = v;
-        let v = global.symbol_table.add_generics(v, generics);
-        println!("aint the same {} {} {} {}", global.symbol_table.get(&base), global.symbol_table.get(symbol), global.symbol_table.get(&v), global.symbol_table.get(&v_base));
-        if v != v_base && !structure.is_template_structure {
-                return Err(CompilerError::new(self.file, 229, "structure has no generic parameters")
-                    .highlight(*range)
-                        .note(format!("{} has no generic parameters", global.symbol_table.get(&base)))
-                    .build())
+        if !structure.is_template_structure && v == global.symbol_table.get_name_without_generics(v) && !generics.is_empty() {
+            return Err(CompilerError::new(self.file, 229, "structure has no generic parameters")
+                .highlight(*range)
+                    .note(format!("{} has no generic parameters", global.symbol_table.get(&v)))
+                .build())
             
-        } else if v == v_base && structure.is_template_structure {
+        } else if structure.is_template_structure && generics.is_empty() {
             return Err(CompilerError::new(self.file, 230, "structure exists but it has generic parameters")
                 .highlight(*range)
                     .note("this structure exists but it has generic parameters which you've not provided".to_string())
@@ -1469,14 +1507,7 @@ impl AnalysisState {
         }
 
         let temp = self.structures.get(symbol);
-        println!("asedasd {:?}", temp.map(|x| symbol_table.get(&x.0)));
 
-        {
-            for s in self.structures.iter() {
-                println!("{} - {}", symbol_table.get(&s.0), symbol_table.get(&s.1.0));
-            }
-        }
-        
         match temp.map(|x| (structures.get(&x.0).unwrap(), x.0)) {
             Some((structure, absolute_ident)) => Some((structure, absolute_ident)),
             None => {
@@ -1510,8 +1541,7 @@ impl AnalysisState {
 
 
     fn create_function_from_template(&mut self, global: &mut GlobalState, base_name: SymbolIndex, generics: &[SourcedDataType]) -> SymbolIndex {
-        println!("hello world {}", global.symbol_table.get(&base_name));
-        if !generics.is_empty() {
+        if generics.is_empty() {
             return base_name
         }
 
@@ -1529,18 +1559,13 @@ impl AnalysisState {
         
         let mut type_conversion_state = TypeConversionState {
             types: base.generics.iter().zip(generics.iter()).map(|x| (*x.0, x.1.clone())).collect(),
-            declaration_suffix: generic_declaration_suffix(global.symbol_table, generics),
             symbol_map: global.symbol_table,
         };
 
         type_conversion_state.convert_types(&mut instructions);
         type_conversion_state.convert_data_type(&mut return_type.data_type);
-        arguments.iter_mut().for_each(|x| type_conversion_state.convert_data_type(&mut x.1.data_type));
 
-        for a in arguments.iter() {
-            let t = a.1.data_type.symbol_index(global.symbol_table);
-            println!(" - {}", global.symbol_table.get(&t));
-        }
+        arguments.iter_mut().for_each(|x| type_conversion_state.convert_data_type(&mut x.1.data_type));
         
         {
             global.functions.insert(name, Function { return_type: return_type.clone(), arguments: arguments.iter().map(|x| x.1.clone()).collect(), is_template_function: false });
@@ -1561,10 +1586,11 @@ impl AnalysisState {
             };
 
 
-            self.analyze(global, &mut instruction, None).unwrap();
+            // if any errors occured here it wouldve been caught by the initial
+            let _ = self.analyze(global, &mut instruction, None);
 
             if let InstructionKind::Declaration(Declaration::FunctionDeclaration { arguments, return_type, ..}) = &instruction.instruction_kind {
-                let mut temp = global.functions.get_mut(&name).unwrap();
+                let temp = global.functions.get_mut(&name).unwrap();
                 temp.arguments = arguments.iter().map(|x| x.1.clone()).collect();
                 temp.return_type = return_type.clone();
                 
@@ -1575,14 +1601,14 @@ impl AnalysisState {
         }
         
 
-        for (_, v) in self.structures.drain_filter(|_, y| y.1 == self.depth) {
+        for (_, v) in self.structures.extract_if(|_, y| y.1 == self.depth) {
             let structure = global.structures.remove(&v.0).unwrap();
             let name = global.symbol_table.add_generics(v.0, generics);
             global.structures.insert(name, structure);
         }
 
         
-        for (_, v) in self.functions.drain_filter(|_, y| y.1 == self.depth) {
+        for (_, v) in self.functions.extract_if(|_, y| y.1 == self.depth) {
             let function = global.functions.remove(&v.0).unwrap();
             let name = global.symbol_table.add_generics(v.0, generics);
             global.functions.insert(name, function);
@@ -1595,7 +1621,7 @@ impl AnalysisState {
     }
 
     
-    fn create_structure_from_template(&mut self, global: &mut GlobalState, base_name: SymbolIndex, generics: &[SourcedDataType]) -> SymbolIndex {
+    fn create_structure_from_template(&self, global: &mut GlobalState, base_name: SymbolIndex, generics: &[SourcedDataType]) -> SymbolIndex {
         let base = global.template_structures.get(&base_name).unwrap();
         assert_eq!(base.generics.len(), generics.len());
 
@@ -1605,7 +1631,6 @@ impl AnalysisState {
 
         let mut type_conversion_state = TypeConversionState {
             types: base.generics.iter().zip(generics.iter()).map(|x| (*x.0, x.1.clone())).collect(),
-            declaration_suffix: generic_declaration_suffix(global.symbol_table, generics),
             symbol_map: global.symbol_table,
         };
 
@@ -1624,21 +1649,8 @@ impl AnalysisState {
         };
 
 
-        self.depth += 1;
-        self.analyze(global, &mut instruction, None).unwrap();
-
-
-        for (_, v) in self.structures.drain_filter(|_, y| y.1 == self.depth) {
-            global.structures.remove(&v.0).unwrap();
-        }
-
-        
-        for (_, v) in self.functions.drain_filter(|_, y| y.1 == self.depth) {
-            global.functions.remove(&v.0).unwrap();
-        }
-
-        self.depth -= 1;
-
+        let mut analysis = AnalysisState::new(self.file);
+        analysis.analyze(global, &mut instruction, None).unwrap();
         
         name
     }
@@ -1647,7 +1659,6 @@ impl AnalysisState {
 
 struct TypeConversionState<'a> {
     types: HashMap<SymbolIndex, SourcedDataType>,
-    declaration_suffix: SymbolIndex,
     symbol_map: &'a mut SymbolTable,
 }
 
@@ -1715,8 +1726,7 @@ impl TypeConversionState<'_> {
             },
 
 
-            Declaration::StructDeclaration { fields, name, ..} => {
-                println!("{}", self.symbol_map.get(name));
+            Declaration::StructDeclaration { fields, ..} => {
                 fields.iter_mut().for_each(|x| self.convert_data_type(&mut x.1.data_type));
             },
 
@@ -1773,6 +1783,7 @@ impl TypeConversionState<'_> {
             
             Expression::FunctionCall { arguments, generics, .. } => {
                 arguments.iter_mut().for_each(|x| self.convert_type(x));
+
                 let mut temp = generics.to_vec();
                 temp.iter_mut().for_each(|x| self.convert_data_type(&mut x.data_type));
                 *generics = temp.into();
@@ -1781,6 +1792,7 @@ impl TypeConversionState<'_> {
             
             Expression::StructureCreation { fields, generics, .. } => {
                 fields.iter_mut().for_each(|x| self.convert_type(&mut x.1));
+
                 let mut temp = generics.to_vec();
                 temp.iter_mut().for_each(|x| self.convert_data_type(&mut x.data_type));
                 *generics = temp.into();
@@ -1807,7 +1819,7 @@ impl TypeConversionState<'_> {
 
             let without_generics = self.symbol_map.get_name_without_generics(*v);
 
-            *v = self.symbol_map.add_generics(without_generics, generics);
+            // *v = self.symbol_map.add_generics(without_generics, generics);
             
             if let Some(v) = self.types.get(&without_generics) {
                 *datatype = v.data_type.clone();

@@ -554,7 +554,7 @@ fn generate_panic_log(vm: &VM, forced: bool) -> String {
     let _ = writeln!(string);
     let _ = writeln!(string, "heap:");
     {
-        let bytes = vm.objects.raw().len() * size_of::<Object>();
+        let bytes = std::mem::size_of_val(vm.objects.raw());
         let _ = writeln!(string, "\ttotal memory capacity: {}b/{}kb/{}mb/{}gb", bytes, bytes / 1000, bytes / 1000 / 1000, bytes / 1000 / 1000 / 1000 );
     }
     {

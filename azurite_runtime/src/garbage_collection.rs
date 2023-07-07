@@ -2,7 +2,7 @@ use std::{sync::atomic::AtomicU64, time::Instant};
 
 use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
-use crate::{VM, Object, object_map::{ObjectMap, ObjectData, ObjectIndex}, VMData};
+use crate::{VM, Object, object_map::{ObjectMap, ObjectData, ObjectIndex}};
 
 impl VM<'_> {
     pub fn run_garbage_collection(&mut self) {
@@ -58,7 +58,7 @@ impl VM<'_> {
             
                     // We don't need to add up the inner-objects as all objects are in
                     // the object map so eventually we will also add that objects size
-                    ObjectData::Struct(v) => std::mem::size_of::<Object>() + v.fields().len() * std::mem::size_of::<VMData>(),
+                    ObjectData::Struct(v) => std::mem::size_of::<Object>() + std::mem::size_of_val(v.fields()),
 
                     // If the object is free, it is technically still occupying space
                     // in the VM but that is not considered as "used" memory so it

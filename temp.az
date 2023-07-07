@@ -1,8 +1,6 @@
-struct Array[T] {
-	value: i32
-}
+struct Hey[T] { value: T }
 
+fn hi[T](val: Hey[T]): T { val.value }
 
-fn get[T](array: Array[i32]): T { array.value }
-
-get[i32](6)
+var value : Hey[i32] = Hey[i32] { value: 69 }
+hi[i32](value)

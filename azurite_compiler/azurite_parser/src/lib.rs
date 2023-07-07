@@ -212,7 +212,6 @@ impl Parser<'_> {
                     v
                 } else { vec![] };
                 let index = self.symbol_table.add_generics(built_string, &g);
-                println!("HELO {}", self.symbol_table.get(&index));
 
                 DataType::Struct(index, g.into())
             }
