@@ -1,6 +1,5 @@
-use std::{collections::HashMap, slice::Iter};
+use std::{collections::{HashMap, HashSet}, slice::Iter};
 
-use azurite_parser::ast::Instruction;
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{BlockIndex, Variable, Function, BlockTerminator, IR};
@@ -93,15 +92,26 @@ fn is_register_used_later(reg: Variable, term: &BlockTerminator, iter: &Iter<IR>
     }
 
 
-    fn recursive_block_search(terminator: BlockTerminator, register: Variable, block_map: &HashMap<BlockIndex, (Box<[Variable]>, BlockTerminator)>) -> bool {
-        match terminator {
+    fn recursive_block_search(block: BlockIndex, register: Variable, checked_blocks: &mut HashSet<BlockIndex>, block_map: &HashMap<BlockIndex, (Box<[Variable]>, BlockTerminator)>) -> bool {
+        if checked_blocks.contains(&block) {
+            return false
+        }
+        
+        checked_blocks.insert(block);
+
+        check_end(block_map.get(&block).unwrap().1.clone(), register, checked_blocks, block_map)
+    }
+
+
+    fn check_end(term: BlockTerminator, register: Variable, checked_blocks: &mut HashSet<BlockIndex>, block_map: &HashMap<BlockIndex, (Box<[Variable]>, BlockTerminator)>) -> bool {
+        match term {
             BlockTerminator::Goto(v) => {
-                let (used, term) = block_map.get(&v).unwrap();
+                let (used, _) = block_map.get(&v).unwrap();
                 if used.contains(&register) {
                     return true
                 }
 
-                recursive_block_search(term.clone(), register, block_map)
+                recursive_block_search(v, register, checked_blocks, block_map)
             },
 
             
@@ -110,31 +120,32 @@ fn is_register_used_later(reg: Variable, term: &BlockTerminator, iter: &Iter<IR>
                     return true
                 }
 
-                let (used, term) = block_map.get(&op1).unwrap();
+                let (used, _) = block_map.get(&op1).unwrap();
                 if used.contains(&register) {
                     return true
                 }
 
-                if recursive_block_search(term.clone(), register, block_map) {
+                if recursive_block_search(op1, register, checked_blocks, block_map) {
                     return true
                 }
 
                 
-                let (used, term) = block_map.get(&op2).unwrap();
+                let (used, _) = block_map.get(&op2).unwrap();
                 if used.contains(&register) {
                     return true
                 }
 
-                recursive_block_search(term.clone(), register, block_map)
+                recursive_block_search(op2, register, checked_blocks, block_map)
             },
 
             
             BlockTerminator::Return => false,
         }
+        
     }
 
 
-    recursive_block_search(term.clone(), reg, block_map)
+    check_end(term.clone(), reg, &mut HashSet::new(), block_map)
 }
 
 

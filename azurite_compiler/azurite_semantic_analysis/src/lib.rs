@@ -7,7 +7,7 @@ use std::{collections::HashMap, fs, path::{PathBuf, Path}, env};
 
 use azurite_errors::{Error, CompilerError, ErrorBuilder, CombineIntoError};
 use azurite_parser::ast::{Instruction, InstructionKind, Statement, Expression, BinaryOperator, Declaration, UnaryOperator};
-use common::{DataType, SymbolTable, SymbolIndex, Data, SourceRange, SourcedDataType, SourcedData};
+use common::{DataType, SymbolTable, SymbolIndex, Data, SourceRange, SourcedDataType, default};
 use variable_stack::VariableStack;
 
 const STD_LIBRARY : &str = include_str!("../../../builtin_libraries/azurite_api_files/std.az");
@@ -164,7 +164,14 @@ impl AnalysisState {
             },
             
             
-            InstructionKind::Expression(e) => return self.analyze_expression(global, e, &instruction.source_range, expected),
+            InstructionKind::Expression(e) => {
+                let val = self.analyze_expression(global, e, &instruction.source_range, expected);
+                if let Ok(val) = &val {
+                    instruction.result_type = val.data_type.clone();
+                }
+
+                return val
+            },
             
             
             InstructionKind::Declaration(d) => {
@@ -1269,18 +1276,21 @@ impl AnalysisState {
             },
 
             
-            Declaration::StructDeclaration { fields, generics, .. } => {
+            Declaration::StructDeclaration { fields, generics, name } => {
                 if !generics.is_empty() {
                     return Ok(())
                 }
 
                 let mut errors = vec![];
-                for f in fields {
+                for f in fields.iter_mut() {
                     if let Err(e) = self.update_type(&mut f.1, global) {
                         f.1.data_type = DataType::Any;
                         errors.push(e);
                     }
+                    
                 }
+
+                global.structures.get_mut(name).unwrap().fields = fields.clone();
 
                 if !errors.is_empty() {
                     return Err(errors.combine_into_error())
@@ -1357,14 +1367,12 @@ impl AnalysisState {
             | (DataType::U16, DataType::U64)
             | (DataType::U32, DataType::I64)
             | (DataType::U32, DataType::U64) => {
-                let temp = std::mem::replace(instr, Instruction { instruction_kind: InstructionKind::Expression(
-                    Expression::Data(
-                        SourcedData::new(SourceRange::new(0, 0), Data::I8(0)),
-                    )), source_range: SourceRange::new(0, 0) });
+                let temp = std::mem::take(instr);
 
                 *instr = Instruction {
                     source_range: instr.source_range,
                     instruction_kind: InstructionKind::Expression(Expression::AsCast { value: Box::new(temp), cast_type: oth.clone() }),
+                    result_type: oth.data_type.clone()
                 };
 
                 Ok(true)
@@ -1573,6 +1581,7 @@ impl AnalysisState {
 
         arguments.iter_mut().for_each(|x| type_conversion_state.convert_data_type(&mut x.1.data_type));
         
+
         {
             global.functions.insert(name, Function { return_type: return_type.clone(), arguments: arguments.iter().map(|x| x.1.clone()).collect(), is_template_function: false });
             let source_range = base.source_range;
@@ -1589,6 +1598,7 @@ impl AnalysisState {
             let mut instruction = Instruction {
                 instruction_kind: InstructionKind::Declaration(declaration),
                 source_range,
+                ..default()
             };
 
 
@@ -1652,6 +1662,7 @@ impl AnalysisState {
             }),
             
             source_range: base.source_range,
+            ..default()
         };
 
 
@@ -1806,7 +1817,7 @@ impl TypeConversionState<'_> {
 
             
             Expression::AccessStructureData { structure, .. } => self.convert_type(structure),
-            Expression::WithinNamespace { do_within, namespace  } => {
+            Expression::WithinNamespace { do_within, ..  } => {
                 
                 self.convert_type(do_within)
             },

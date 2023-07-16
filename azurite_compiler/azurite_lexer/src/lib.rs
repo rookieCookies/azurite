@@ -51,6 +51,11 @@ pub enum TokenKind {
     NotEqualsTo,
     LogicalOr,
     LogicalAnd,
+
+    AddEquals,
+    SubEquals,
+    MulEquals,
+    DivEquals,
     
     EndOfFile,
 }
@@ -181,6 +186,10 @@ pub fn lex(
                     }
                     continue;
                 }
+                Some('=') => {
+                    lexer.advance();
+                    TokenKind::DivEquals
+                }
                 _ => TokenKind::Slash,
             },
 
@@ -203,9 +212,9 @@ pub fn lex(
             '[' => TokenKind::LeftSquare,
             ']' => TokenKind::RightSquare,
             '%' => TokenKind::Percent,
-            '+' => TokenKind::Plus,
-            '-' => TokenKind::Minus,
-            '*' => TokenKind::Star,
+            '+' => lexer.next_matches('=', TokenKind::AddEquals, TokenKind::Plus),
+            '-' => lexer.next_matches('=', TokenKind::SubEquals, TokenKind::Minus),
+            '*' => lexer.next_matches('=', TokenKind::MulEquals, TokenKind::Star),
             '^' => TokenKind::Caret,
             ',' => TokenKind::Comma,
             '.' => TokenKind::Dot,

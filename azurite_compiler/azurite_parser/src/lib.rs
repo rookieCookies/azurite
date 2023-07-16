@@ -3,7 +3,7 @@ pub mod ast;
 use ast::{Instruction, BinaryOperator, InstructionKind, Expression, Statement, Declaration, ExternFunctionAST, UnaryOperator};
 use azurite_lexer::{Token, TokenKind, Keyword, Literal};
 use azurite_errors::{Error, CompilerError, ErrorBuilder, CombineIntoError};
-use common::{DataType, Data, SymbolTable, SourcedData, SourceRange, SymbolIndex, SourcedDataType};
+use common::{default, DataType, Data, SymbolTable, SourcedData, SourceRange, SymbolIndex, SourcedDataType};
 
 type ParseResult = Result<Instruction, Error>;
 
@@ -35,9 +35,6 @@ impl Default for ParserSettings {
 }
 
 
-fn default<T: Default>() -> T {
-    T::default()
-}
 
 
 // Parser
@@ -119,13 +116,33 @@ impl Parser<'_> {
     }
 
 
-    fn peek(&mut self) -> Option<&Token> {
+    fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.index)
+    }
+
+
+    fn peek_kind(&self) -> Option<TokenKind> {
+        self.tokens.get(self.index).map(|x| x.token_kind)
+    }
+
+
+    fn peek_range(&self) -> Option<SourceRange> {
+        self.tokens.get(self.index).map(|x| x.source_range)
     }
 
 
     fn current_token(&self) -> Option<&Token> {
         self.tokens.get(self.index - 1)
+    }
+
+
+    fn current_kind(&self) -> TokenKind {
+        self.current_token().unwrap().token_kind
+    }
+
+
+    fn current_range(&self) -> SourceRange {
+        self.current_token().unwrap().source_range
     }
 
 
@@ -332,17 +349,20 @@ impl Parser<'_> {
                     Ok(Instruction {
                         source_range: SourceRange::new(start, expression.source_range.end),
                         instruction_kind: InstructionKind::Statement(Statement::Return(Box::new(expression))),
+                        ..default()
                     })
                 },
 
                 Keyword::Break => Ok(Instruction {
                     instruction_kind: InstructionKind::Statement(Statement::Break),
-                    source_range: self.current_token().unwrap().source_range
+                    source_range: self.current_token().unwrap().source_range,
+                    ..default()
                 }),
 
                 Keyword::Continue => Ok(Instruction {
                     instruction_kind: InstructionKind::Statement(Statement::Continue),
-                    source_range: self.current_token().unwrap().source_range
+                    source_range: self.current_token().unwrap().source_range,
+                    ..default()
                 }),
 
 
@@ -404,7 +424,8 @@ impl Parser<'_> {
 
         Ok(Instruction {
             instruction_kind: InstructionKind::Declaration(Declaration::StructDeclaration { name: identifier, fields, generics }),
-            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end)
+            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
+            ..default()
         })
         
     }
@@ -497,7 +518,8 @@ impl Parser<'_> {
                 generics,
                 source_range_declaration: SourceRange::new(start, declaration_end),
             }),
-            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end)
+            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
+            ..default()
         })
     }
 
@@ -529,6 +551,7 @@ impl Parser<'_> {
         Ok(Instruction {
             source_range: SourceRange::new(start, expression.source_range.end),
             instruction_kind: InstructionKind::Statement(Statement::DeclareVar { identifier, type_hint, data: Box::new(expression) }),
+            ..default()
         })
     }
 
@@ -546,6 +569,7 @@ impl Parser<'_> {
         Ok(Instruction {
             instruction_kind: InstructionKind::Statement(Statement::Loop { body }),
             source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
+            ..default()
         })
     }
 
@@ -591,18 +615,22 @@ impl Parser<'_> {
                     instruction_kind: InstructionKind::Expression(Expression::Block {
                         body: vec![Instruction {
                             instruction_kind: InstructionKind::Statement(Statement::Break),
-                            source_range
+                            source_range,
+                            ..default()
                         }]
                     }),
-                    source_range 
+                    source_range,
+                    ..default()
                 })),
             }),
-            source_range
+            source_range,
+            ..default()
         };
         
         Ok(Instruction {
             instruction_kind: InstructionKind::Statement(Statement::Loop { body: vec![if_statement] }),
             source_range,
+            ..default()
         })
     }
     
@@ -626,7 +654,8 @@ impl Parser<'_> {
                     instruction_kind: InstructionKind::Statement(Statement::VariableUpdate { 
                         left: Box::new(left), 
                         right: Box::new(right)
-                    })
+                    }),
+                    ..default()
                 })                
             }
 
@@ -639,7 +668,8 @@ impl Parser<'_> {
                         right: Box::new(right),
                         identifier,
                         index_to,
-                    })
+                    }),
+                    ..default()
                 })
             }
 
@@ -734,7 +764,8 @@ impl Parser<'_> {
 
         Ok(Instruction {
             instruction_kind: InstructionKind::Declaration(Declaration::Namespace { body, identifier }),
-            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end)
+            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
+            ..default()
         })
     }
 
@@ -832,7 +863,8 @@ impl Parser<'_> {
 
         Ok(Instruction {
             instruction_kind: InstructionKind::Declaration(Declaration::Extern { file: path, functions }),
-            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end)
+            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
+            ..default()
         })
     }
 
@@ -846,7 +878,8 @@ impl Parser<'_> {
 
         Ok(Instruction {
             instruction_kind: InstructionKind::Declaration(Declaration::UseFile { file_name: string }),
-            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end)
+            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
+            ..default()
         })
     }
 
@@ -933,6 +966,7 @@ impl Parser<'_> {
         Ok(Instruction {
             instruction_kind: InstructionKind::Declaration(Declaration::ImplBlock { body, datatype: impl_type }),
             source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
+            ..default()
         })
         
     }
@@ -940,7 +974,71 @@ impl Parser<'_> {
 
 impl Parser<'_> {
     fn expression(&mut self, settings: ParserSettings) -> ParseResult {
-        self.logical_and_expression(settings)
+        macro_rules! def_binary_assign {
+            ($start: expr, $left: expr, $token: expr, $operator: expr) => {
+                if self.current_kind() == $token {
+                    let token_pos = self.current_range();
+                    self.advance();
+
+                    let right = self.expression(default())?;
+
+                    let expr = Instruction {
+                        instruction_kind: InstructionKind::Expression(Expression::BinaryOp { 
+                            operator: BinaryOperator::from_token(&$operator).unwrap(), 
+                            left: Box::new($left.clone()),
+                            right: Box::new(right)
+                        }),
+                        source_range: SourceRange::new($start.start, self.current_range().end),
+                        ..default()
+                    };
+                    
+                    return Ok(Instruction {
+                        source_range: expr.source_range,
+                        instruction_kind: InstructionKind::Statement(Statement::VariableUpdate {
+                            left: Box::new($left),
+                            right: Box::new(expr)
+                        }),
+                        ..default()
+                    })
+                }
+            };
+        }
+
+        
+        let start = self.current_range();
+        let left_val = self.logical_or_expression(settings)?;
+
+        const ASSIGN_TOKENS : [TokenKind; 4] = [
+            TokenKind::AddEquals,
+            TokenKind::SubEquals,
+            TokenKind::MulEquals,
+            TokenKind::DivEquals,
+            // TokenKind::ModEquals,
+            // TokenKind::BitOrAssign,
+            // TokenKind::BitAndAssign,
+            // TokenKind::BitXORAssign,
+            // TokenKind::LeftShiftAssign,
+            // TokenKind::RightShiftAssign,
+        ];
+
+        if self.peek_kind().map(|x| ASSIGN_TOKENS.contains(&x)).unwrap_or(false) {
+            self.advance();
+            def_binary_assign!(start, left_val, TokenKind::AddEquals, TokenKind::Plus);
+            def_binary_assign!(start, left_val, TokenKind::SubEquals, TokenKind::Minus);
+            def_binary_assign!(start, left_val, TokenKind::MulEquals, TokenKind::Star);
+            def_binary_assign!(start, left_val, TokenKind::DivEquals, TokenKind::Slash);
+            // def_binary_assign!(start, left_val, TokenKind::ModEquals, TokenKind::Percent);
+            // def_binary_assign!(start, left_val, TokenKind::BitOrAssign, TokenKind::BitwiseOR);
+            // def_binary_assign!(start, left_val, TokenKind::BitAndAssign, TokenKind::BitwiseAND);
+            // def_binary_assign!(start, left_val, TokenKind::BitXORAssign, TokenKind::BitwiseXOR);
+            // def_binary_assign!(start, left_val, TokenKind::LeftShiftAssign, TokenKind::LeftShift);
+            // def_binary_assign!(start, left_val, TokenKind::RightShiftAssign, TokenKind::RightShift);
+
+            unreachable!()
+
+        } else {
+            Ok(left_val)
+        }
     }
 
 
@@ -964,8 +1062,10 @@ impl Parser<'_> {
                 else_part: Some(Box::new(Instruction {
                     instruction_kind: InstructionKind::Expression(Expression::Data(SourcedData::new(source_range, Data::Bool(false)))),
                     source_range,
+                    ..default()
                 }))
             }),
+            ..default()
         })
     }
 
@@ -988,10 +1088,12 @@ impl Parser<'_> {
                 body: vec![Instruction {
                     instruction_kind: InstructionKind::Expression(Expression::Data(SourcedData::new(source_range, Data::Bool(true)))),
                     source_range,
+                    ..default()
                 }],
                 condition: Box::new(expr),
                 else_part: Some(Box::new(oth_expr))
             }),
+            ..default()
         })
     }
     
@@ -1056,6 +1158,7 @@ impl Parser<'_> {
                 value: Box::new(unary),
                 cast_type,
             }),
+            ..default()
         })
     }
 
@@ -1086,6 +1189,7 @@ impl Parser<'_> {
         Ok(Instruction {
             source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
             instruction_kind: InstructionKind::Expression(Expression::UnaryOp { operator: op, value: Box::new(val) }),
+            ..default()
         })
     }
 
@@ -1103,6 +1207,7 @@ impl Parser<'_> {
                 atom = Instruction {
                     source_range: SourceRange::combine(atom.source_range, self.current_token().unwrap().source_range),
                     instruction_kind: InstructionKind::Expression(Expression::AccessStructureData { structure: Box::new(atom), identifier, index_to: usize::MAX }),
+                    ..default()
                 };
                 
                 continue;
@@ -1149,6 +1254,7 @@ impl Parser<'_> {
                 Ok(Instruction {
                     instruction_kind: InstructionKind::Expression(Expression::Data(SourcedData::new(token.source_range, data))),
                     source_range: token.source_range,
+                    ..default()
                 })
             }
             
@@ -1193,7 +1299,11 @@ impl Parser<'_> {
                 }
 
                 
-                Ok(Instruction { instruction_kind: InstructionKind::Expression(Expression::Identifier(v)), source_range: self.current_token().unwrap().source_range })
+                Ok(Instruction { 
+                    instruction_kind: InstructionKind::Expression(Expression::Identifier(v)), 
+                    source_range: self.current_token().unwrap().source_range,
+                    ..default()
+                })
             },
 
 
@@ -1206,6 +1316,7 @@ impl Parser<'_> {
                     return Ok(Instruction {
                         instruction_kind: InstructionKind::Expression(Expression::Data(SourcedData::new(source_range, Data::Empty))),
                         source_range,
+                        ..default()
                     })
                 }
 
@@ -1223,6 +1334,7 @@ impl Parser<'_> {
             TokenKind::Underscore => Ok(Instruction {
                 instruction_kind: InstructionKind::Expression(Expression::Data(SourcedData::new(token.source_range, Data::Empty))),
                 source_range: token.source_range,
+                ..default()
             }),
             
 
@@ -1269,6 +1381,7 @@ impl<'a> Parser<'a> {
                     left: Box::new(base),
                     right: Box::new(right),
                 }),
+                ..default()
             }
         }
 
@@ -1287,7 +1400,8 @@ impl Parser<'_> {
 
         Ok(Instruction {
             instruction_kind: InstructionKind::Expression(Expression::Block { body }),
-            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end)
+            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
+            ..default()
         })
     }
     
@@ -1320,12 +1434,14 @@ impl Parser<'_> {
             return Ok(Instruction {
                 source_range: SourceRange::new(start, if_end),
                 instruction_kind: InstructionKind::Expression(Expression::IfExpression { body: block, condition: Box::new(condition), else_part: Some(Box::new(else_part)) }),
+                ..default()
             })
         }
 
         Ok(Instruction {
             instruction_kind: InstructionKind::Expression(Expression::IfExpression { body: block, condition: Box::new(condition), else_part: None }),
-            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end)
+            source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
+            ..default()
         })
         
     }
@@ -1373,6 +1489,7 @@ impl Parser<'_> {
                 generics: generics.into(),
             }),
             source_range: SourceRange::new(start, self.current_token().unwrap().source_range.end),
+            ..default()
         })
     }
 
@@ -1420,7 +1537,8 @@ impl Parser<'_> {
 
         Ok(Instruction {
             instruction_kind: InstructionKind::Expression(Expression::StructureCreation { identifier, fields, identifier_range, generics: generics.into() }),
-            source_range: SourceRange { start, end: self.current_token().unwrap().source_range.end }
+            source_range: SourceRange { start, end: self.current_token().unwrap().source_range.end },
+            ..default()
         })
     }
 

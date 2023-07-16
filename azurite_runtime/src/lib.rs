@@ -15,6 +15,7 @@ use object_map::ObjectData;
 use object_map::ObjectMap;
 use std::env;
 use std::fmt::Debug;
+use std::fmt::Display;
 use std::fmt::Write;
 use std::panic::catch_unwind;
 use std::sync::Mutex;
@@ -186,10 +187,22 @@ impl<'a> Code<'a> {
     #[inline(always)]
     #[must_use]
     fn next(&mut self) -> u8 {
-        let result = self.code[self.pointer];
+        let result = unsafe { *self.code.get_unchecked(self.pointer) };
         self.pointer += 1;
         
         result
+    }
+
+
+    #[inline(always)]
+    #[must_use]
+    fn next_n<const N: usize>(&mut self) -> [u8; N] {        
+        let slice = &self.code[self.pointer..][..N];
+        let arr : &[u8; N] = slice.try_into().expect("invalid length");
+
+        self.pointer += N;
+
+        *arr
     }
 
 
@@ -212,12 +225,14 @@ impl<'a> Code<'a> {
     #[inline(always)]
     #[must_use]
     fn u32(&mut self) -> u32 {
-        let slice = &self.code[self.pointer..][..4];
-        let arr : &[u8; 4] = slice.try_into().expect("invalid length");
+        u32::from_le_bytes(self.next_n::<4>())
+    }
+    
 
-        self.pointer += 4;
-        
-        u32::from_le_bytes(*arr)
+    #[inline(always)]
+    #[must_use]
+    fn u64(&mut self) -> u64 {
+        u64::from_le_bytes(self.next_n::<8>())
     }
 
 
@@ -238,6 +253,7 @@ pub struct VMData {
 
 macro_rules! def_new_vmdata_func {
     ($ident: ident, $field: ident, $ty: ty, $const: ident) => {
+        #[inline(always)]
         pub fn $ident(val: $ty) -> Self {
             Self::new(Self::$const, RawVMData { $field: val })
         }
@@ -255,6 +271,7 @@ impl VMData {
     pub const TAG_I64: u64 = 8;
     pub const TAG_FLOAT: u64 = 9;
     pub const TAG_BOOL: u64 = 10;
+    pub const TAG_STR: u64 = 11;
 
 
     pub fn new(tag: u64, data: RawVMData) -> Self {
@@ -276,9 +293,14 @@ impl VMData {
     }
 
 
-    pub fn new_object(val: ObjectIndex) -> Self {
-        // assert!(tag > 256, "object typeid is within the reserved area");
-        Self::new(257, RawVMData { as_object: val })
+    pub fn new_object(tag: u64, val: ObjectIndex) -> Self {
+        assert!(tag > 256, "object typeid is within the reserved area");
+        Self::new(tag, RawVMData { as_object: val })
+    }
+
+
+    pub fn new_string(val: ObjectIndex) -> Self {
+        Self::new(Self::TAG_STR, RawVMData { as_object: val })
     }
 
 
@@ -322,8 +344,24 @@ impl PartialEq for VMData {
 
 impl Debug for VMData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "VMData {{ tag: {}, data: {} }}",
+        write!(f, "VMData {{ tag: {}({})), data: {} }}",
             self.tag,
+            match self.tag {
+                Self::TAG_UNIT => "unit",
+                Self::TAG_I8  => "i8",
+                Self::TAG_I16 => "i16",
+                Self::TAG_I32 => "i32",
+                Self::TAG_I64 => "i64",
+                Self::TAG_U8  => "u8",
+                Self::TAG_U16 => "u16",
+                Self::TAG_U32 => "u32",
+                Self::TAG_U64 => "u64",
+                Self::TAG_FLOAT => "float",
+                Self::TAG_BOOL => "bool",
+                
+                _ if self.is_object() => "obj",
+                _ => "res"
+            },
             match self.tag {
                 Self::TAG_UNIT => "()".to_string(),
                 Self::TAG_I8 => self.as_i8().to_string(),
@@ -341,6 +379,28 @@ impl Debug for VMData {
                 _ => "reserved".to_string(),
             }
         )
+    }
+}
+
+
+impl Display for VMData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self.tag {
+            Self::TAG_UNIT => "()".to_string(),
+            Self::TAG_I8 => self.as_i8().to_string(),
+            Self::TAG_I16 => self.as_i16().to_string(),
+            Self::TAG_I32 => self.as_i32().to_string(),
+            Self::TAG_I64 => self.as_i64().to_string(),
+            Self::TAG_U8 => self.as_u8().to_string(),
+            Self::TAG_U16 => self.as_u16().to_string(),
+            Self::TAG_U32 => self.as_u32().to_string(),
+            Self::TAG_U64 => self.as_u64().to_string(),
+            Self::TAG_FLOAT => self.as_float().to_string(),
+            Self::TAG_BOOL => self.as_bool().to_string(),
+            
+            _ if self.is_object() => self.as_object().to_string(),
+            _ => "reserved".to_string(),
+        })
     }
 }
 
@@ -369,10 +429,11 @@ macro_rules! enum_variant_function {
         #[inline(always)]
         #[must_use]
         pub fn $getter(self) -> $ty {
-            match self.tag {
-                Self::$variant => unsafe { self.data.$getter },
-                _ => unreachable!()
-            }
+            unsafe { self.data.$getter }
+            // match self.tag {
+            //     Self::$variant => unsafe { self.data.$getter },
+            //     _ => unreachable!()
+            // }
         }
 
 
@@ -403,7 +464,7 @@ impl VMData {
     #[inline(always)]
     #[must_use]
     pub fn is_object(self) -> bool {
-        self.tag > 256
+        self.tag > 256 || self.tag == Self::TAG_STR
     }
 
     pub fn as_object(self) -> ObjectIndex {
@@ -534,6 +595,7 @@ fn run(metadata: CompilationMetadata, bytecode: &[u8], constants: Vec<u8>) {
         vm.lock().unwrap().run()
     });
 
+
     if v.is_err() {
         println!("a panic occurred in the runtime while running this program");
         vm.clear_poison();
@@ -562,7 +624,7 @@ fn run(metadata: CompilationMetadata, bytecode: &[u8], constants: Vec<u8>) {
     let vm = vm.into_inner().unwrap();
 
     let end = start.elapsed();
-    println!("it took {}ms {}ns, result {:?}", end.as_millis(), end.as_nanos(), vm.stack.reg(0));
+    println!("it took {}ms {}ns, result {}", end.as_millis(), end.as_nanos(), vm.stack.reg(0));
 
 
     if env::var(azurite_common::environment::PANIC_LOG).unwrap_or("0".to_string()) == "1" {
@@ -611,7 +673,7 @@ fn bytes_to_constants(vm: &mut VM, data: Vec<u8>) -> Result<(), FatalError> {
                 
                 let index = vm.create_object(Object::new(object))?;
 
-                VMData::new_object(index)
+                VMData::new_object(11, index)
             }
 
             3  => VMData::new_i8 (i8 ::from_le_bytes(constants_iter.next_chunk::<1>().unwrap())),

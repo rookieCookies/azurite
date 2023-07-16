@@ -24,21 +24,28 @@ pub extern "C" fn _shutdown(_: &mut VM) -> Status {
     
 */
 #[no_mangle]
-pub extern "C" fn duration_now(vm: &mut VM) -> Status {
+pub extern "C" fn duration_now_secs(vm: &mut VM) -> Status {
     let Ok(time) = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         else { return Status::err("failed to get the epoch") };
 
     let secs = time.as_secs();
-    let nanos = time.subsec_nanos();
 
-    let object = Object::new(Structure::new(vec![VMData::new_u64(secs), VMData::new_u32(nanos)]));
-    let object = match vm.create_object(object) {
-        Ok(v) => v,
-        Err(v) => return Status::Err(v),
-    };
+    vm.stack.set_reg(0, VMData::new_i64(secs as i64));
 
-    vm.stack.set_reg(0, VMData::new_object(object));
+    Status::Ok
+}
+
+
+#[no_mangle]
+pub extern "C" fn duration_now_nanos(vm: &mut VM) -> Status {
+    let Ok(time) = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        else { return Status::err("failed to get the epoch") };
+
+    let nanos = time.as_nanos();
+
+    vm.stack.set_reg(0, VMData::new_u32(nanos as u32));
 
     Status::Ok
 }
@@ -81,7 +88,7 @@ pub extern "C" fn read_line(vm: &mut VM) -> Status {
         return Status::err("failed to read stdin")
     }
 
-    let temp = VMData::new_object(register_string(vm, string)?);
+    let temp = VMData::new_string(register_string(vm, string)?);
     vm.stack.set_reg(0, temp);
 
     Status::Ok
@@ -107,7 +114,7 @@ pub extern "C" fn get_var(vm: &mut VM) -> Status {
     };
 
     let index = register_string(vm, env_val)?;
-    vm.stack.set_reg(0, VMData::new_object(index));
+    vm.stack.set_reg(0, VMData::new_string(index));
 
     Status::Ok
 }
@@ -141,7 +148,7 @@ pub extern "C" fn int_to_str(vm: &mut VM) -> Status {
     let integer = vm.stack.reg(1).as_i64();
 
     let object = register_string(vm, integer.to_string())?;
-    vm.stack.set_reg(0, VMData::new_object(object));
+    vm.stack.set_reg(0, VMData::new_string(object));
 
     Status::Ok
 }
@@ -152,7 +159,7 @@ pub extern "C" fn float_to_str(vm: &mut VM) -> Status {
     let float = vm.stack.reg(1).as_float();
 
     let object = register_string(vm, float.to_string())?;
-    vm.stack.set_reg(0, VMData::new_object(object));
+    vm.stack.set_reg(0, VMData::new_string(object));
 
     Status::Ok
 }
@@ -163,7 +170,7 @@ pub extern "C" fn bool_to_str(vm: &mut VM) -> Status {
     let boolean = vm.stack.reg(1).as_bool();
 
     let object = register_string(vm, boolean.to_string())?;
-    vm.stack.set_reg(0, VMData::new_object(object));
+    vm.stack.set_reg(0, VMData::new_string(object));
 
     Status::Ok
 }
@@ -174,7 +181,7 @@ pub extern "C" fn to_string_float(vm: &mut VM) -> Status {
     let float = vm.stack.reg(1).as_float();
 
     let object = register_string(vm, float.to_string())?;
-    vm.stack.set_reg(0, VMData::new_object(object));
+    vm.stack.set_reg(0, VMData::new_string(object));
 
     Status::Ok
 }
@@ -184,7 +191,7 @@ pub extern "C" fn to_string_float(vm: &mut VM) -> Status {
 pub extern "C" fn to_string_bool(vm: &mut VM) -> Status {
     let boolean = vm.stack.reg(1).as_bool();
     let object = register_string(vm, boolean.to_string())?;
-    vm.stack.set_reg(0, VMData::new_object(object));
+    vm.stack.set_reg(0, VMData::new_string(object));
 
     Status::Ok
 }
@@ -199,7 +206,7 @@ pub extern "C" fn string_append(vm: &mut VM) -> Status {
     let string = vm.objects.get_mut(string_index).string_mut();
     string.push_str(other_string.as_str());
 
-    vm.stack.set_reg(0, VMData::new_object(string_index));
+    vm.stack.set_reg(0, VMData::new_string(string_index));
 
     Status::Ok
 }

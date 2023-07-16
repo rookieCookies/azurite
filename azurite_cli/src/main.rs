@@ -1,13 +1,14 @@
 // #![recursion_limit = "1000000000000000000"]
-#![deny(clippy::pedantic)]
 use std::env::Args;
 use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
 use std::time::Instant;
 use std::{env, path::Path, process::ExitCode};
 
 use azurite_archiver::Packed;
 use azurite_common::{environment, prepare, Bytecode};
+use azurite_compiler::{BytecodeModule, CModule};
 use colored::Colorize;
 
 #[allow(clippy::too_many_lines)]
@@ -24,9 +25,33 @@ fn main() -> Result<(), ExitCode> {
             let Some(file) = args.next() else { invalid_usage() };
             parse_environments(args);
 
-            let data = compile(&file)?;
+            let target = env::var(environment::CODEGEN_MODULE).unwrap_or("bytecode".to_string());
 
-            fs::write(format!("{file}urite"), data.as_bytes()).unwrap();
+
+            match target.as_str() {
+                "bytecode" => {
+                    let data = compile_as_bytecode(&file)?;
+
+                    let mut path = PathBuf::from(file);
+                    path.set_extension("azurite");
+
+                    fs::write(path, data.as_bytes()).unwrap();
+                },
+
+                
+                "c" => {
+                    let data = compile_as_c(&file)?;
+                    
+                    let mut path = PathBuf::from(file);
+                    path.set_extension("c");
+                    
+                    fs::write(path, data).unwrap();
+                }
+                _ => {
+                    println!("invalid target module");
+                    return Err(ExitCode::FAILURE)
+                }
+            }
         }
 
         
@@ -37,7 +62,7 @@ fn main() -> Result<(), ExitCode> {
             let Some(compiled) = (if file.ends_with(".azurite") {
                 let Ok(file_data) = fs::read(&file) else { eprintln!("can't read file {file}"); return Err(ExitCode::FAILURE) };
                 Packed::from_bytes(&file_data)
-            } else { Some(compile(&file)?) }) else { eprintln!("not a valid azurite file"); return Err(ExitCode::FAILURE)};
+            } else { Some(compile_as_bytecode(&file)?) }) else { eprintln!("not a valid azurite file"); return Err(ExitCode::FAILURE)};
 
             println!("{} {file}", "Running..".bright_green().bold());
             azurite_runtime::run_packed(compiled).unwrap();
@@ -58,7 +83,7 @@ fn main() -> Result<(), ExitCode> {
                     .extension()
                     .map_or(false, |ext| ext.eq_ignore_ascii_case("az"))
                 {
-                    compile(file)?;
+                    compile_as_bytecode(file)?;
                     let file = format!("{file}urite");
 
                     println!("{} {file}", "Running..".bright_green().bold());
@@ -71,7 +96,7 @@ fn main() -> Result<(), ExitCode> {
             let Some(file) = args.next() else { invalid_usage() };
             parse_environments(args);
 
-            let packed = compile(&file)?;
+            let packed = compile_as_bytecode(&file)?;
 
             println!("{} {file}", "Disassembling..".bright_green().bold());
 
@@ -97,6 +122,19 @@ fn parse_environments(mut arguments: Args) {
             }),
             "--no-std"     => env::set_var(environment::NO_STD, "1"),
             "--panic-log"  => env::set_var(environment::PANIC_LOG, "1"),
+            "--module"     => {
+                let next = match arguments.next() {
+                    Some(v) => v,
+                    None => {
+                        println!("there must be a target after a --module");
+                        std::process::exit(-1);
+                    },
+                };
+
+
+                env::set_var(environment::CODEGEN_MODULE, next);
+                
+            }
             "--" => (),
             _ => {
                 println!("unexpected argument {i}");
@@ -111,7 +149,7 @@ fn invalid_usage() -> ! {
     std::process::exit(1)
 }
 
-fn compile(file: &str) -> Result<Packed, ExitCode> {
+fn compile_as_bytecode(file: &str) -> Result<Packed, ExitCode> {
     println!("{} {file}", "Compiling..".bright_green().bold());
     let instant = Instant::now();
 
@@ -119,7 +157,7 @@ fn compile(file: &str) -> Result<Packed, ExitCode> {
     let file_data = String::from_utf8_lossy(&raw_data).replace('\t', "    ").replace('\r', "");
 
 
-    let (result, debug_info) = azurite_compiler::compile(file.to_string(), file_data);
+    let (result, debug_info) = azurite_compiler::compile::<BytecodeModule>(file.to_string(), file_data);
     
     let (metadata, bytecode, constants, symbol_table) = match result {
         Ok(v) => v,
@@ -144,6 +182,37 @@ fn compile(file: &str) -> Result<Packed, ExitCode> {
         .with(azurite_archiver::Data(bytecode))
         .with(azurite_archiver::Data(constants_bytes))
     )
+}
+
+
+fn compile_as_c(file: &str) -> Result<Vec<u8>, ExitCode> {
+    println!("{} {file}", "Compiling..".bright_green().bold());
+    let instant = Instant::now();
+
+    let Ok(raw_data) = fs::read(file) else { eprintln!("'{file}' doesn't exist"); return Err(ExitCode::FAILURE)};
+    let file_data = String::from_utf8_lossy(&raw_data).replace('\t', "    ").replace('\r', "");
+
+
+    let (result, debug_info) = azurite_compiler::compile::<CModule>(file.to_string(), file_data);
+    
+    let (_, bytecode, _, _) = match result {
+        Ok(v) => v,
+        Err(e) => {
+            print!("{}", e.build(&debug_info));
+            return Err(ExitCode::FAILURE)
+        }
+    };
+
+    
+    println!(
+        "{}",
+        format!("Finished in {} seconds!", instant.elapsed().as_secs_f64())
+            .bright_green()
+            .bold()
+    );
+
+
+    Ok(bytecode)
 }
 
 #[allow(clippy::format_push_string)]

@@ -1,13 +1,37 @@
-use std::{fmt::Display, rc::Rc};
+use std::{fmt::Display, sync::Arc};
 
 use azurite_lexer::TokenKind;
-use common::{SymbolIndex, SourcedDataType, SourceRange, SourcedData};
+use common::{SymbolIndex, SourcedDataType, SourceRange, SourcedData, DataType, Data};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Instruction {
     pub instruction_kind: InstructionKind,
     pub source_range: SourceRange,
+    pub result_type: DataType,
 }
+
+
+impl Instruction {
+    pub fn new(source_range: SourceRange, instruction_kind: InstructionKind) -> Self {
+        Instruction {
+            instruction_kind,
+            source_range,
+            result_type: DataType::Empty,
+        }
+    }
+}
+
+
+impl Default for Instruction {
+    fn default() -> Self {
+        Instruction {
+            instruction_kind: InstructionKind::Expression(Expression::Data(SourcedData::new(SourceRange::new(0, 0), Data::Empty))),
+            source_range: SourceRange::new(0, 0),
+            result_type: DataType::Empty,
+        }
+    }
+}
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum InstructionKind {
@@ -81,7 +105,7 @@ pub enum Expression {
     FunctionCall {
         identifier: SymbolIndex,
         arguments: Vec<Instruction>,
-        generics: Rc<[SourcedDataType]>,
+        generics: Arc<[SourcedDataType]>,
 
         created_by_accessing: bool,
     },
@@ -90,7 +114,7 @@ pub enum Expression {
         identifier: SymbolIndex,
         identifier_range: SourceRange,
         fields: Vec<(SymbolIndex, Instruction)>,
-        generics: Rc<[SourcedDataType]>,
+        generics: Arc<[SourcedDataType]>,
     },
 
     AccessStructureData {

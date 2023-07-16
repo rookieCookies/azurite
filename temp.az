@@ -1,4 +1,4 @@
-var x = 5
-var y = 3
-var z = 2
-z
+var x = 3_500_000
+while x > 0 {
+    x -= 1
+}

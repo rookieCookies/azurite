@@ -1,4 +1,4 @@
-use azurite_common::{consts, Bytecode};
+pub use azurite_common::{consts, Bytecode};
 use colored::Colorize;
 use libloading::Library;
 
@@ -52,6 +52,7 @@ impl VM<'_> {
 
         let result: Status = 'global: loop {
             let value = self.current.next();
+            // println!("{:?}", Bytecode::from_u8(value).unwrap());
 
             match value {
                 consts::ExternFile => {
@@ -207,22 +208,18 @@ impl VM<'_> {
 
 
                 consts::Equals => {
-                    let dst = self.current.next();
-                    let v1 = self.current.next();
-                    let v2 = self.current.next();
+                    let vals = self.current.next_n::<3>();
 
-                    let value = self.stack.reg(v1) == self.stack.reg(v2);
-                    self.stack.set_reg(dst, VMData::new_bool(value));
+                    let value = self.stack.reg(vals[1]) == self.stack.reg(vals[2]);
+                    self.stack.set_reg(vals[0], VMData::new_bool(value));
                 }
 
 
                 consts::NotEquals => {
-                    let dst = self.current.next();
-                    let v1 = self.current.next();
-                    let v2 = self.current.next();
+                    let vals = self.current.next_n::<3>();
 
-                    let value = self.stack.reg(v1) != self.stack.reg(v2);
-                    self.stack.set_reg(dst, VMData::new_bool(value));
+                    let value = self.stack.reg(vals[1]) != self.stack.reg(vals[2]);
+                    self.stack.set_reg(vals[0], VMData::new_bool(value));
                 }
 
 
@@ -353,6 +350,7 @@ impl VM<'_> {
 
                 consts::Struct => {
                     let dst = self.current.next();
+                    let id = self.current.u64();
                     let amount = self.current.next();
 
                     let vec = (0..amount)
@@ -364,7 +362,7 @@ impl VM<'_> {
                         Err(e) => break Status::Err(e),
                     };
                     
-                    self.stack.set_reg(dst, VMData::new_object(index));
+                    self.stack.set_reg(dst, VMData::new_object(id, index));
                 }
 
 
@@ -485,11 +483,9 @@ impl<'a> VM<'a> {
 
         float_func: I,
     ) {
-        let dst = self.current.next();
-        let v1  = self.current.next();
-        let v2  = self.current.next();
-
-        operation_func(self, (dst, v1, v2),
+        let vals = self.current.next_n::<3>();
+        
+        operation_func(self, (vals[0], vals[1], vals[2]),
             i8_func,
             i16_func,
             i32_func,
@@ -534,7 +530,7 @@ impl<'a> VM<'a> {
 
             (VMData::TAG_FLOAT, VMData::TAG_FLOAT) => VMData::new_float(float_func(v1.as_float(), v2.as_float())),
 
-            _ => unreachable!(),
+            _ => panic!("unreachable in arithmetic: v1={v1}, v2={v2}"),
         };
 
         self.stack.set_reg(dst, val);

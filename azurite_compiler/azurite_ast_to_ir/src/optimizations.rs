@@ -2,9 +2,9 @@ mod register_alloc;
 
 use std::collections::HashMap;
 
-use common::Data;
+use common::{Data, DataType};
 
-use crate::{ConversionState, Function, Block, BlockIndex, BlockTerminator, IR, FunctionIndex};
+use crate::{ConversionState, Function, Block, BlockIndex, BlockTerminator, IR, FunctionIndex, Variable};
 
 impl ConversionState {
     pub fn optimize(&mut self) {
@@ -45,13 +45,15 @@ impl ConversionState {
                 }
             }
 
+
             if self.functions.iter_mut().map(|x| x.1.optimize(true)).any(|x| x) {
                 has_changed = true
             }
 
             for f in self.functions.iter_mut() {
-                f.1.register_alloc()
+                f.1.register_alloc();
             }
+
 
             
             if !has_changed {
@@ -60,6 +62,10 @@ impl ConversionState {
         }
 
         
+        for f in self.functions.iter_mut() {
+            f.1.register_alloc();
+        }
+
         let mut used_consts = HashMap::new();
         let mut constant_counter = 0;
         for f in self.functions.iter_mut() {
@@ -90,6 +96,23 @@ impl ConversionState {
         }
 
         self.constants = new_constants;
+
+
+        for f in self.functions.iter() {
+            for b in f.1.blocks.iter() {
+                for i in b.instructions.iter() {
+                    if let IR::Struct { id, .. } = i {
+                        self.structures.get_mut(id).unwrap().is_used = true;
+                    }
+                }
+            }
+        }
+
+
+        for f in self.functions.iter_mut() {
+            f.1.remove_unused_registers();
+        }
+
     }
 }
 
@@ -299,4 +322,111 @@ impl Function {
         has_changed
     }
 
+}
+
+
+impl Function {
+    fn remove_unused_registers(&mut self) {
+        // Remove unused registers
+        {
+            fn update_reg(reg: &mut Variable, mapping: &mut HashMap<Variable, Variable>, counter: &mut u32) {
+                if !mapping.contains_key(reg) {
+                    assert!(mapping.insert(*reg, Variable(*counter)).is_none());
+                    *counter += 1;
+                }
+
+                *reg = *mapping.get(reg).unwrap();
+                
+            }
+
+            
+            let mut register_counter = 0u32;
+            let mut register_mapping = HashMap::with_capacity(self.register_lookup.len());
+
+            register_mapping.insert(Variable(0), Variable(0));
+            register_counter += 1;
+
+            for i in 0..self.arguments.len() {
+                register_mapping.insert(Variable(i as u32 + 1), Variable(register_counter as u32));
+                register_counter += 1;
+            }
+
+            assert_eq!(register_mapping.len(), register_counter as usize);
+
+            
+            for b in self.blocks.iter_mut() {
+                for i in b.instructions.iter_mut() {
+                    match i {
+                        | IR::Copy { dst: v1, src: v2 }
+                        | IR::Swap { v1, v2 }
+                        | IR::CastToI8 { dst: v1, val: v2 }
+                        | IR::CastToI16 { dst: v1, val: v2 }
+                        | IR::CastToI32 { dst: v1, val: v2 }
+                        | IR::CastToI64 { dst: v1, val: v2 }
+                        | IR::CastToU8 { dst: v1, val: v2 }
+                        | IR::CastToU16 { dst: v1, val: v2 }
+                        | IR::CastToU32 { dst: v1, val: v2 }
+                        | IR::AccStruct { dst: v1, val: v2, ..}
+                        | IR::SetField { dst: v1, data: v2, .. }
+                        | IR::CastToU64 { dst: v1, val: v2 }
+                        | IR::CastToFloat { dst: v1, val: v2 }
+                        | IR::UnaryNot { dst: v1, val: v2 }
+                        | IR::UnaryNeg { dst: v1, val: v2 } => {
+                            update_reg(v1, &mut register_mapping, &mut register_counter);
+                            update_reg(v2, &mut register_mapping, &mut register_counter);
+                        }
+
+                        
+                        | IR::Add { dst, left, right }
+                        | IR::Subtract { dst, left, right }
+                        | IR::Multiply { dst, left, right }
+                        | IR::Divide { dst, left, right }
+                        | IR::Modulo { dst, left, right }
+                        | IR::Equals { dst, left, right }
+                        | IR::NotEquals { dst, left, right }
+                        | IR::GreaterThan { dst, left, right }
+                        | IR::LesserThan { dst, left, right }
+                        | IR::GreaterEquals { dst, left, right }
+                        | IR::LesserEquals { dst, left, right } => {
+                            update_reg(dst, &mut register_mapping, &mut register_counter);
+                            update_reg(left, &mut register_mapping, &mut register_counter);
+                            update_reg(right, &mut register_mapping, &mut register_counter);
+                        }
+
+                        | IR::ExtCall { dst, args, .. }
+                        | IR::Struct { dst, fields: args, .. }
+                        | IR::Call { dst, args, .. } => {
+                            update_reg(dst, &mut register_mapping, &mut register_counter);
+
+                            for a in args.iter_mut() {
+                                update_reg(a, &mut register_mapping, &mut register_counter);
+                            }
+                        },
+                    
+
+
+                        | IR::Load { dst, .. } 
+                        | IR::Unit { dst } => {
+                            update_reg(dst, &mut register_mapping, &mut register_counter);
+                        }
+
+                        
+                        IR::Noop => (),
+                    }
+                }
+
+                if let BlockTerminator::SwitchBool { cond, .. } = &mut b.ending {
+                    update_reg(cond, &mut register_mapping, &mut register_counter);
+                }
+            }
+
+
+            assert_eq!(register_mapping.len(), register_counter as usize);
+            let old_lookup = std::mem::replace(&mut self.register_lookup, vec![DataType::Empty; register_counter as usize]);
+            for i in register_mapping.iter() {
+                self.register_lookup[i.1.0 as usize] = old_lookup[i.0.0 as usize].clone()
+            }
+
+        }
+    }
 }

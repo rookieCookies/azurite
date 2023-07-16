@@ -1,25 +1,25 @@
 use std::{collections::HashMap, convert::TryInto};
 use std::env;
 
+use azurite_ast_to_ir::ConversionState;
+use azurite_codegen::{CodegenModule, CodeGen};
 use azurite_common::{environment, CompilationMetadata};
 
-use azurite_errors::Error;
-
-pub use azurite_lexer::lex;
-use azurite_parser::ast::Instruction;
-pub use azurite_parser::parse;
-pub use azurite_ast_to_ir::ConversionState;
-pub use azurite_semantic_analysis::AnalysisState;
-pub use azurite_codegen::CodeGen;
-use azurite_semantic_analysis::GlobalState;
-pub use common::Data;
+use azurite_lexer::lex;
+use azurite_parser::parse;
 use common::SymbolIndex;
+use azurite_semantic_analysis::{GlobalState, AnalysisState};
+use azurite_errors::Error;
+use azurite_parser::ast::Instruction;
+
+pub use common::Data;
 pub use common::SymbolTable;
+pub use azurite_codegen::{bytecode_module::BytecodeModule, c_module::CModule};
 
 type DebugHashmap = HashMap<SymbolIndex, (String, String)>;
 type ReturnValue = Result<(CompilationMetadata, Vec<u8>, Vec<Data>, SymbolTable), Error>;
 
-pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
+pub fn compile<T: CodegenModule>(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
     let mut symbol_table = SymbolTable::new();
     let file_name = symbol_table.add(file_name[..file_name.len()-3].to_string());
     
@@ -97,18 +97,20 @@ pub fn compile(file_name: String, data: String) -> (ReturnValue, DebugHashmap) {
 
     
     let constants = ir.constants;
-    let mut codegen = CodeGen::new();
+    let codegen = CodeGen::<T>::new(ir.structures);
     let library_count = externs.len().try_into().unwrap();
 
+
     
-    codegen.codegen(&ir.symbol_table, externs, functions);
+    let bytecode = codegen.codegen(&mut ir.symbol_table, externs, functions, &constants);
+
 
     let metadata = CompilationMetadata {
         extern_count: extern_counter,
         library_count,
     };
 
-    (Ok((metadata, codegen.bytecode, constants, ir.symbol_table)), files_data)
+    (Ok((metadata, bytecode, constants, ir.symbol_table)), files_data)
 }
 
 

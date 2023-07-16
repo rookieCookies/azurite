@@ -1,4 +1,4 @@
-use std::{fmt::Write, rc::Rc};
+use std::{fmt::Write, rc::Rc, sync::Arc};
 
 #[macro_use]
 extern crate istd;
@@ -72,7 +72,7 @@ pub enum DataType {
     Empty,
     Any,
     
-    Struct(SymbolIndex, Rc<[SourcedDataType]>),
+    Struct(SymbolIndex, Arc<[SourcedDataType]>),
 }
 
 
@@ -107,7 +107,11 @@ impl DataType {
 }
 
 impl DataType {
-    pub fn to_string(&self, symbol_table: &mut SymbolTable) -> String {
+    pub fn is_obj(&self) -> bool {
+        matches!(self, | DataType::String
+            | DataType::Struct(_, _))
+    }
+    pub fn to_string(&self, symbol_table: &SymbolTable) -> String {
         match self {
             DataType::I8           => "i8".to_string(),
             DataType::I16          => "i16".to_string(),
@@ -222,7 +226,7 @@ pub struct SymbolTable {
 }
 
 impl SymbolTable {
-    pub fn new() -> Self { Self { vec: vec![] } }
+    pub fn new() -> Self { Self { vec: vec![SymbolTableValue::String(GENERIC_START_SYMBOL.to_string()), SymbolTableValue::String(GENERIC_END_SYMBOL.to_string())] } }
 
     pub fn add(&mut self, string: String) -> SymbolIndex {
         match self.vec.iter().enumerate().find(|x| match x.1 {
@@ -303,7 +307,7 @@ impl SymbolTable {
     }
 
 
-    pub fn get_name_without_generics(&mut self, symbol: SymbolIndex) -> SymbolIndex {
+    pub fn get_name_without_generics(&self, symbol: SymbolIndex) -> SymbolIndex {
         let (mut base_name, mut left) = self.find_root(symbol);
 
         while let Some(l) = left {
@@ -353,19 +357,17 @@ enum SymbolTableValue {
 }
 
 
-const GENERIC_START_SYMBOL : &str = "@<";
-const GENERIC_END_SYMBOL : &str = ">@";
+pub const GENERIC_START_SYMBOL : &str = "@<";
+pub const GENERIC_END_SYMBOL : &str = ">@";
 
 
-pub fn get_generic_args_symbol_start(symbol_table: &mut SymbolTable) -> SymbolIndex {
-    if let Some(v) =  symbol_table.find(GENERIC_START_SYMBOL) { v }
-    else { symbol_table.add(GENERIC_START_SYMBOL.to_string()) }
+pub fn get_generic_args_symbol_start(symbol_table: &SymbolTable) -> SymbolIndex {
+    symbol_table.find(GENERIC_START_SYMBOL).unwrap()
 }
 
 
 fn get_generic_args_symbol_end(symbol_table: &mut SymbolTable) -> SymbolIndex {
-    if let Some(v) =  symbol_table.find(GENERIC_END_SYMBOL) { v }
-    else { symbol_table.add(GENERIC_END_SYMBOL.to_string()) }
+    symbol_table.find(GENERIC_END_SYMBOL).unwrap()
 }
 
 
@@ -381,4 +383,9 @@ pub fn generic_declaration_suffix(symbol_table: &mut SymbolTable, generics: &[So
     declaration_suffix = symbol_table.add_combo(declaration_suffix, end);
 
     declaration_suffix
+}
+
+
+pub fn default<T: Default>() -> T {
+    T::default()
 }

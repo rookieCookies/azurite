@@ -19,8 +19,6 @@ extern "standard_library" {
 impl i64 {
 	extern "standard_library" {
 		fn "int_to_str" to_string(self) : str
-		fn "int_to_float" to_float(self) : float
-		fn "int_to_bool" to_bool(self) : bool
 	}
 
 	fn abs(self): i64 { if self < 0 { -self } else { self} }
@@ -30,8 +28,6 @@ impl i64 {
 impl bool {
 	extern "standard_library" {
 		fn "bool_to_str" to_string(self) : str
-		fn "bool_to_float" to_float(self) : float
-		fn "bool_to_int" to_bool(self) : i64
 	}
 }
 
@@ -39,8 +35,6 @@ impl bool {
 impl float {
 	extern "standard_library" {
 		fn "float_to_str" to_string(self) : str
-		fn "float_to_bool" to_float(self) : bool
-		fn "float_to_int" to_bool(self) : i64
 	}
 }
 
@@ -82,12 +76,16 @@ struct Duration {
 
 impl Duration {
 	extern "standard_library" {
-		/// Creates a new `Duration` from the time
-		/// difference between the unix-epoch and now
-		/// using the system clock
-		fn "duration_now" now(): Duration
+		fn "duration_now_secs" now_secs(): i64
+		fn "duration_now_nanos" now_nanos(): u32
 	}
 
+	/// Creates a new `Duration` from the time
+	/// difference between the unix-epoch and now
+	/// using the system clock
+	fn now(): Duration {
+		Duration::new(Duration::now_secs(), Duration::now_nanos())
+	}
 	
 	/// Creates a new `Duration`
 	/// 

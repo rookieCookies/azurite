@@ -1,19 +1,21 @@
 pub mod optimizations;
 
-use std::{mem::replace, fmt::{Display, Write}, collections::{BTreeMap, BTreeSet, HashMap}};
+use std::{mem::replace, fmt::{Display, Write}, collections::{BTreeMap, HashMap}};
 
 use azurite_parser::ast::{Instruction, Expression, BinaryOperator, Statement, InstructionKind, Declaration, UnaryOperator};
-use common::{Data, SymbolIndex, SymbolTable};
+use common::{Data, default, SymbolIndex, SymbolTable, DataType};
 use rayon::prelude::{ParallelIterator, IntoParallelRefMutIterator};
 
 #[derive(Debug, PartialEq)]
 pub struct ConversionState {
     pub constants: Vec<Data>,
 
-    pub extern_functions: BTreeMap<SymbolIndex, ExternFunction>,
+    pub extern_functions: HashMap<SymbolIndex, ExternFunction>,
     pub functions: BTreeMap<SymbolIndex, Function>,
+    pub structures: HashMap<SymbolIndex, Structure>,
     
     function_counter: u32,
+    structure_counter: u64,
     extern_counter: u32,
     
     pub symbol_table: SymbolTable,
@@ -24,9 +26,12 @@ pub struct ConversionState {
 pub struct Function {
     pub identifier: SymbolIndex,
     pub function_index: FunctionIndex,
-    variable_lookup: Vec<(SymbolIndex, Variable)>,
+    pub return_type: DataType,
+    pub arguments: Vec<DataType>,
     
-    pub argument_count: usize,
+    variable_lookup: Vec<(SymbolIndex, Variable)>,
+    pub register_lookup: Vec<DataType>,
+    
     pub variable_counter: u32,
     pub stack_size: u32,
     block_counter: u32,
@@ -41,12 +46,22 @@ pub struct Function {
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ExternFunction {
     pub identifier: SymbolIndex,
     pub function_index: FunctionIndex,
     pub file: SymbolIndex,
     pub path: SymbolIndex,
+    pub args: Vec<DataType>,
+    pub return_type: DataType,
+}
+
+
+#[derive(Debug, PartialEq)]
+pub struct Structure {
+    pub id: u64,
+    pub fields: Vec<DataType>,
+    pub is_used: bool,
 }
 
 
@@ -74,7 +89,7 @@ impl FunctionLookup {
 }
 
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)] pub struct FunctionIndex(pub u32);
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)] pub struct FunctionIndex(pub u32);
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)] pub struct BlockIndex(pub u32);
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)] pub struct Variable(pub u32);
 
@@ -87,13 +102,13 @@ impl Display for FunctionIndex {
 
 impl Display for BlockIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "@{}", self.0)
+        write!(f, "bb{}", self.0)
     }
 }
 
 impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#{}", self.0)
+        write!(f, "r{}", self.0)
     }
 }
 
@@ -132,7 +147,7 @@ pub enum IR {
     Call          { dst: Variable, id: FunctionIndex,  args: Vec<Variable> },
     ExtCall       { dst: Variable, id: FunctionIndex,  args: Vec<Variable> },
     
-    Struct        { dst: Variable, fields: Vec<Variable> },
+    Struct        { dst: Variable, id: SymbolIndex, fields: Vec<Variable> },
     AccStruct     { dst: Variable, val: Variable, index: u8 },
     SetField      { dst: Variable, data: Variable, index: u8},
 
@@ -167,7 +182,11 @@ impl ConversionState {
             function_counter: 0,
             functions: BTreeMap::new(),
             extern_counter: 0,
-            extern_functions: BTreeMap::new(),
+            extern_functions: HashMap::new(),
+            structures: HashMap::new(),
+
+            // 0..256 is reserved
+            structure_counter: 257,
 
         }
     }
@@ -175,11 +194,11 @@ impl ConversionState {
 
     pub fn generate(&mut self, root_index: SymbolIndex, mut files: Vec<(SymbolIndex, Vec<Instruction>)>, templates: Vec<Instruction>) {
         files.sort_by_key(|x| x.0);
-        let init_function = self.symbol_table.add(String::from("::init"));
-        let mut function = Function::new(init_function, self.function(), 0);
+        let init_function = self.symbol_table.add(String::from("main"));
+        let mut function = Function::new(init_function, self.function(), DataType::I32, vec![]);
 
         for file in files.iter() {
-            let function = Function::new(file.0, self.function(), 0);
+            let function = Function::new(file.0, self.function(), DataType::Empty, vec![]);
             self.functions.insert(file.0, function);
             self.declaration_process(&file.1);
         }
@@ -195,7 +214,7 @@ impl ConversionState {
 
         for file in files {
             let function = self.functions.get(&file.0).unwrap().function_index;
-            let mut function = Function::new(file.0, function, 0);
+            let mut function = Function::new(file.0, function, DataType::Empty, vec![]);
 
             function.generate(self, file.1);
             let result = self.functions.insert(file.0, function);
@@ -203,9 +222,17 @@ impl ConversionState {
         }
 
 
+        self.constants.push(Data::I32(0));
 
-        let vec = Vec::from([IR::Call { dst: Variable(0), id: self.find_function(root_index).function_index, args: vec![] }]);
+        let vec = Vec::from([
+            IR::Call { dst: Variable(1), id: self.find_function(root_index).function_index, args: vec![] },
+            IR::Load { dst: Variable(0), data: self.constants.len() as u32 - 1 }
+        ]);
+        
         let block = Block { block_index: function.block(), instructions: vec, ending: BlockTerminator::Return };
+
+        function.register_lookup[0] = DataType::I32;
+        function.register_lookup.push(self.find_function(root_index).return_type.clone());
         function.blocks.push(block);
 
         self.functions.insert(init_function, function);
@@ -234,7 +261,7 @@ impl ConversionState {
     }
 
 
-    pub fn take_out_externs(&mut self) -> (BTreeMap<SymbolIndex, BTreeSet<(SymbolIndex, u32)>>, u32) {
+    pub fn take_out_externs(&mut self) -> (BTreeMap<SymbolIndex, Vec<ExternFunction>>, u32) {
         let mut used_externs = HashMap::new();
         let mut extern_counter = 0;
         for f in &mut self.functions {
@@ -274,8 +301,8 @@ impl ConversionState {
                     max = e.function_index.0;
                 }
 
-                map.entry(e.file).or_insert_with(BTreeSet::new);
-                map.get_mut(&e.file).unwrap().insert((e.path, e.function_index.0));
+                map.entry(e.file).or_insert_with(Vec::new);
+                map.get_mut(&e.file).unwrap().push(e.clone());
             }
 
             (map, max)
@@ -294,6 +321,15 @@ impl ConversionState {
         FunctionIndex(self.function_counter - 1)
     }
 
+
+    fn register_structure(&mut self, structure: SymbolIndex, fields: Vec<DataType>) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.structures.entry(structure) {
+            e.insert(Structure { id: self.structure_counter, fields, is_used: false });
+            self.structure_counter += 1;
+        }
+    }
+    
+
     fn extern_function(&mut self) -> FunctionIndex {
         self.extern_counter += 1;
         FunctionIndex(self.extern_counter - 1)
@@ -302,20 +338,22 @@ impl ConversionState {
 
 
 impl Function {
-    fn new(identifier: SymbolIndex, index: FunctionIndex, argument_count: usize) -> Self {
+    fn new(identifier: SymbolIndex, index: FunctionIndex, return_type: DataType, arguments: Vec<DataType>) -> Self {
         Self {
             identifier,
             function_index: index,
             variable_lookup: vec![],
             variable_counter: 0,
-            stack_size: argument_count as u32,
+            stack_size: arguments.len() as u32,
             block_counter: 0,
             breaks: vec![],
             continues: vec![],
             blocks: vec![],
             entry: BlockIndex(0),
-            argument_count,
-            explicit_ret: vec![], 
+            explicit_ret: vec![],
+            return_type,
+            arguments,
+            register_lookup: vec![], 
         }
     }
     
@@ -375,7 +413,7 @@ impl ConversionState {
             match &instruction.instruction_kind {
                 InstructionKind::Declaration(d) => {
                     match d {
-                        Declaration::FunctionDeclaration { name, arguments, generics, .. } => {
+                        Declaration::FunctionDeclaration { name, arguments, generics, return_type, .. } => {
                             if self.functions.contains_key(name) {
                                 continue
                             }
@@ -385,10 +423,20 @@ impl ConversionState {
                             }
 
                            
-                            let function = Function::new(*name, self.function(), arguments.len());
+                            let function = Function::new(*name, self.function(), return_type.data_type.clone(), arguments.iter().map(|x| x.1.data_type.clone()).collect());
                             self.functions.insert(*name, function);
                         },
-                        Declaration::StructDeclaration { .. } => (),
+                        
+                        
+                        Declaration::StructDeclaration { name, fields, generics  } => {
+                            if !generics.is_empty() {
+                                return;
+                            }
+
+                            self.register_structure(*name, fields.iter().map(|x| x.1.data_type.clone()).collect())
+                        },
+
+                        
                         Declaration::Namespace { .. } => (),
                         Declaration::Extern { functions, file  } => {
                             for f in functions {
@@ -397,7 +445,16 @@ impl ConversionState {
                                 }
                                 
                                 let t = self.extern_function();
-                                self.extern_functions.insert(f.identifier, ExternFunction { identifier: f.identifier, function_index: t, file: *file, path: f.raw_name });
+                                self.extern_functions.insert(
+                                    f.identifier, 
+                                    ExternFunction { 
+                                        identifier: f.identifier, 
+                                        function_index: t, 
+                                        file: *file, 
+                                        path: f.raw_name, 
+                                        args: f.arguments.iter().map(|x| x.data_type.clone()).collect(),
+                                        return_type: f.return_type.data_type.clone(),
+                                    });
                             }
                         },
                         Declaration::UseFile { .. } => (),
@@ -419,7 +476,7 @@ impl Function {
         let start_index = self.block();
         let mut block = Block { block_index: start_index, instructions: vec![], ending: BlockTerminator::Return };
 
-        let return_val = self.variable();
+        let return_val = self.variable(instructions.last().map(|x| x.result_type.clone()).unwrap_or(DataType::Empty));
 
         let lookup_len = self.variable_lookup.len();
         let var_count = self.variable_counter;
@@ -448,7 +505,7 @@ impl Function {
                 self.statement(state, block, s);
                 Variable(u32::MAX)
             },
-            InstructionKind::Expression(e) => self.expression(state, block, e),
+            InstructionKind::Expression(e) => self.expression(state, block, (e, instruction.result_type)),
             InstructionKind::Declaration(d) => {
                 self.declaration(state, block, d);
                 Variable(u32::MAX)
@@ -459,7 +516,7 @@ impl Function {
 
     fn declaration(&mut self, state: &mut ConversionState, block: &mut Block, declaration: Declaration) {
         match declaration {
-            Declaration::FunctionDeclaration { arguments, body, name, generics, .. } => {
+            Declaration::FunctionDeclaration { arguments, body, name, generics, return_type, .. } => {
                 if !generics.is_empty() {
                     return
                 }
@@ -467,12 +524,12 @@ impl Function {
                 let function_index = state.find_function(name).function_index;
 
                 
-                let mut function = Function::new(name, function_index, arguments.len());
+                let mut function = Function::new(name, function_index, return_type.data_type.clone(), arguments.iter().map(|x| x.1.data_type.clone()).collect());
 
-                let return_addrs = function.variable();
+                let return_addrs = function.variable(return_type.data_type);
                 
                 for argument in arguments {
-                    let var = function.variable();
+                    let var = function.variable(argument.1.data_type.clone());
                     function.variable_lookup.push((argument.0, var))
                 }
                 
@@ -500,7 +557,7 @@ impl Function {
 
             
             Declaration::UseFile { file_name } => {
-                block.ir(IR::Call { dst: self.variable(), id: state.find_function(file_name).function_index, args: vec![] })
+                block.ir(IR::Call { dst: self.variable(DataType::Empty), id: state.find_function(file_name).function_index, args: vec![] })
             },
 
             
@@ -513,8 +570,14 @@ impl Function {
 
     fn statement(&mut self, state: &mut ConversionState, block: &mut Block, statement: Statement) {
         match statement {
-            Statement::DeclareVar { identifier, data, ..} => {
-                let variable = self.convert(state, block, Instruction { source_range: data.source_range, instruction_kind: InstructionKind::Expression(Expression::Block { body: vec![*data] }) } );
+            Statement::DeclareVar { identifier, data, .. } => {
+                let variable = self.convert(state, block, Instruction { 
+                    source_range: data.source_range, 
+                    instruction_kind: InstructionKind::Expression(Expression::Block { body: vec![*data] }), 
+                    ..default() 
+                });
+
+                
                 self.variable_lookup.push((identifier, variable));
                 block.ir(IR::Noop);
             },
@@ -580,10 +643,10 @@ impl Function {
     }
     
     
-    fn expression(&mut self, state: &mut ConversionState, block: &mut Block, expression: Expression) -> Variable {
+    fn expression(&mut self, state: &mut ConversionState, block: &mut Block, (expression, typ): (Expression, DataType)) -> Variable {
         match expression {
             Expression::Data(data) => {
-                let variable = self.variable();
+                let variable = self.variable(typ);
                 if matches!(data.data, Data::Empty) {
                     block.ir(IR::Unit { dst: variable });
                     return variable
@@ -596,7 +659,7 @@ impl Function {
 
 
             Expression::AsCast { value, cast_type } => {
-                let dst = self.variable();
+                let dst = self.variable(cast_type.data_type.clone());
                 let val = self.convert(state, block, *value);
 
                 match cast_type.data_type {
@@ -620,7 +683,8 @@ impl Function {
             Expression::BinaryOp { operator, left, right } => {
                 let left_var = self.convert(state, block, *left);
                 let right_var = self.convert(state, block, *right);
-                let dst = self.variable();
+
+                let dst = self.variable(typ);
 
                 
                 match operator {
@@ -643,7 +707,7 @@ impl Function {
             
             Expression::UnaryOp { operator, value } => {
                 let val = self.convert(state, block, *value);
-                let dst = self.variable();
+                let dst = self.variable(typ);
 
                 match operator {
                     UnaryOperator::Not => block.ir(IR::UnaryNot { dst, val }),
@@ -705,7 +769,7 @@ impl Function {
 
             
             Expression::FunctionCall { identifier, arguments, created_by_accessing: _, generics: _ } => {
-                let dst = self.variable();
+                let dst = self.variable(typ);
                 let mut variables = Vec::with_capacity(arguments.len());
 
                 for argument in arguments.into_iter() {
@@ -725,10 +789,9 @@ impl Function {
             },
 
             
-            Expression::StructureCreation { fields, .. } => {
-                let dst = self.variable();
-
+            Expression::StructureCreation { identifier, fields, .. } => {
                 if fields.is_empty() {
+                    let dst = self.variable(typ);
                     block.ir(IR::Unit { dst });
                     return dst;
                 }
@@ -740,7 +803,8 @@ impl Function {
                 }
 
 
-                block.ir(IR::Struct { dst, fields: variables });
+                let dst = self.variable(typ);
+                block.ir(IR::Struct { dst, fields: variables, id: identifier });
 
                 
                 dst
@@ -749,7 +813,7 @@ impl Function {
             
             Expression::AccessStructureData { structure, index_to, .. } => {
                 let struct_at = self.convert(state, block, *structure);
-                let dst = self.variable();
+                let dst = self.variable(typ);
                 
                 block.ir(IR::AccStruct { dst, val: struct_at, index: index_to as u8 });
 
@@ -764,14 +828,10 @@ impl Function {
     }
 
     
-    fn variable(&mut self) -> Variable {
-        self.variable_counter += 1;
+    fn variable(&mut self, typ: DataType) -> Variable {
+        self.register_lookup.push(typ);
 
-        if self.stack_size < self.variable_counter {
-            self.stack_size = self.variable_counter;
-        }
-
-        Variable(self.variable_counter - 1)
+        Variable(self.register_lookup.len() as u32 - 1)
     }
 
 
@@ -820,9 +880,9 @@ impl Function {
                     IR::GreaterEquals { dst, left, right } => writeln!(lock, "ge {dst} {left} {right}"),
                     IR::LesserEquals { dst, left, right }  => writeln!(lock, "le {dst} {left} {right}"),
                     IR::Call { id, dst, args }             => writeln!(lock, "call {id} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
-                    IR::ExtCall { id: index, dst, args }       => writeln!(lock, "ecall {index} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
+                    IR::ExtCall { id: index, dst, args }   => writeln!(lock, "ecall {index} {dst} ({} )", args.iter().map(|x| format!(" {x}")).collect::<String>()),
                     IR::Unit { dst }                       => writeln!(lock, "unit {dst}"),
-                    IR::Struct { dst, fields }             => writeln!(lock, "struct {dst} ({} )", fields.iter().map(|x| format!(" {x}")).collect::<String>()),
+                    IR::Struct { dst, fields, id }         => writeln!(lock, "struct({}) {dst} ({} )", state.symbol_table.get(id), fields.iter().map(|x| format!(" {x}")).collect::<String>()),
                     IR::AccStruct { dst, val, index }      => writeln!(lock, "accstruct, {dst} {val} {index}"),
                     IR::SetField { dst, data, index }      => writeln!(lock, "setfield {dst} {data} {index}"),
                     IR::Noop                               => continue,

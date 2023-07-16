@@ -11,6 +11,8 @@ pub mod environment {
 
     pub const NO_STD       : &str = "AZURITE_NO_STD";
     pub const PANIC_LOG    : &str = "AZURITE_PANIC_LOG";
+
+    pub const CODEGEN_MODULE : &str = "AZURITE_CODEGEN_MODULE";
 }
 
 
